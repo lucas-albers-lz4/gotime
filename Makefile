@@ -1,7 +1,7 @@
 # Costco Schedule App - Makefile
 # React Native Expo Project
 
-.PHONY: help install start start-clear ios android web clean reset test lint type-check build-ios build-android deploy-staging deploy-prod doctor tunnel security audit update-deps docs env-setup health-check clear-all watch-all validate pre-commit post-install dev-setup check-android setup-android-env setup-android-full android-studio-setup
+.PHONY: help install start start-clear ios android web clean reset test lint type-check build-ios build-android deploy-staging deploy-prod doctor tunnel security audit update-deps update-deps-safe update-deps-force check-outdated docs env-setup health-check clear-all watch-all validate pre-commit post-install dev-setup check-android setup-android-env setup-android-full android-studio-setup update-ios-deps update-android-deps
 
 # Default target
 help: ## Show this help message
@@ -25,9 +25,35 @@ post-install: ## Run post-installation setup tasks
 
 update-deps: ## Update all dependencies to latest versions
 	@echo "🔄 Updating dependencies..."
-	npm update
+	@echo "Note: Using --legacy-peer-deps to handle React version conflicts"
+	npm update --legacy-peer-deps
 	npx expo install --fix
 	@echo "✅ Dependencies updated"
+
+update-deps-safe: ## Safely update dependencies (recommended)
+	@echo "🔄 Safely updating dependencies..."
+	@echo "Checking for outdated packages..."
+	npm outdated || true
+	@echo ""
+	@echo "Updating with Expo compatibility checks..."
+	npx expo install --fix
+	@echo "✅ Safe dependency update completed"
+
+update-deps-force: ## Force update dependencies (use with caution)
+	@echo "⚠️  Force updating dependencies..."
+	@echo "This may cause compatibility issues!"
+	npm update --force
+	npx expo install --fix
+	@echo "✅ Force update completed - test thoroughly!"
+
+check-outdated: ## Check for outdated dependencies
+	@echo "📊 Checking for outdated dependencies..."
+	@echo ""
+	@echo "=== npm outdated ==="
+	npm outdated || echo "All npm packages are up to date"
+	@echo ""
+	@echo "=== Expo compatibility ==="
+	npx expo install --check || echo "All Expo packages are compatible"
 
 security: ## Run security audit
 	@echo "🔒 Running security audit..."
@@ -528,3 +554,21 @@ android-studio-setup: ## Open Android Studio and show setup instructions
 	@echo "8. Name your AVD and finish"
 	@echo ""
 	@echo "After setup, run: make check-android"
+
+update-ios-deps: ## Update iOS CocoaPods dependencies
+	@echo "📱 Updating iOS dependencies..."
+	@if [ -d "ios" ]; then \
+		cd ios && pod update && pod install; \
+		echo "✅ iOS dependencies updated"; \
+	else \
+		echo "❌ iOS directory not found"; \
+	fi
+
+update-android-deps: ## Update Android Gradle dependencies
+	@echo "🤖 Updating Android dependencies..."
+	@if [ -d "android" ]; then \
+		cd android && ./gradlew --refresh-dependencies; \
+		echo "✅ Android dependencies refreshed"; \
+	else \
+		echo "❌ Android directory not found"; \
+	fi
