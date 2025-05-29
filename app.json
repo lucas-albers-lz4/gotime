@@ -14,8 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.costco.scheduleapp",
-      "deploymentTarget": "13.0"
+      "bundleIdentifier": "com.costco.scheduleapp"
     },
     "android": {
       "adaptiveIcon": {
