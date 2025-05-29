@@ -572,3 +572,91 @@ update-android-deps: ## Update Android Gradle dependencies
 	else \
 		echo "❌ Android directory not found"; \
 	fi
+
+# GitHub Releases & Version Management
+create-release: ## Create a GitHub release from current version
+	@echo "🚀 Creating GitHub release..."
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	git tag -a "v$$VERSION" -m "Release v$$VERSION"; \
+	git push origin "v$$VERSION"; \
+	echo "✅ Release v$$VERSION created and pushed"
+
+create-beta-release: ## Create a beta release
+	@echo "🧪 Creating beta release..."
+	@npm run version:patch
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	BETA_VERSION="$$VERSION-beta.$$(date +%Y%m%d%H%M)"; \
+	npm version "$$BETA_VERSION" --no-git-tag-version; \
+	git add package.json; \
+	git commit -m "Beta release $$BETA_VERSION"; \
+	git tag -a "v$$BETA_VERSION" -m "Beta release $$BETA_VERSION"; \
+	git push origin "v$$BETA_VERSION"; \
+	echo "✅ Beta release $$BETA_VERSION created"
+
+release-notes: ## Generate release notes for current version
+	@echo "📝 Generating release notes..."
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	echo "# Release Notes - v$$VERSION"; \
+	echo ""; \
+	echo "## Changes"; \
+	git log --oneline --no-merges "$$(git describe --tags --abbrev=0 2>/dev/null || echo 'HEAD~10')..HEAD" | sed 's/^/- /'; \
+	echo ""; \
+	echo "## Technical Details"; \
+	echo "- React Native: $$(node -p "require('./package.json').dependencies['react-native']")"; \
+	echo "- Expo SDK: $$(node -p "require('./package.json').dependencies.expo.replace('~', '')")"; \
+	echo "- Build Date: $$(date)"
+
+version-info: ## Show current version information
+	@echo "📋 Version Information"
+	@echo "Package version: $$(node -p "require('./package.json').version")"
+	@echo "App version: $$(node -p "require('./app.json').expo.version")"
+	@echo "iOS build number: $$(node -p "require('./app.json').expo.ios?.buildNumber || 'Not set'")"
+	@echo "Android version code: $$(node -p "require('./app.json').expo.android?.versionCode || 'Not set'")"
+	@echo "Last commit: $$(git log -1 --format='%h - %s (%cr)')"
+	@echo "Current branch: $$(git branch --show-current)"
+
+sync-versions: ## Sync version numbers across all config files
+	@echo "🔄 Syncing version numbers..."
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	node -e "const fs = require('fs'); const app = JSON.parse(fs.readFileSync('app.json')); app.expo.version = '$$VERSION'; fs.writeFileSync('app.json', JSON.stringify(app, null, 2))"; \
+	echo "✅ Versions synchronized to $$VERSION"
+
+bump-ios-build: ## Increment iOS build number
+	@echo "📱 Incrementing iOS build number..."
+	@node -e "const fs = require('fs'); const app = JSON.parse(fs.readFileSync('app.json')); const current = parseInt(app.expo.ios?.buildNumber || '1'); app.expo.ios = app.expo.ios || {}; app.expo.ios.buildNumber = String(current + 1); fs.writeFileSync('app.json', JSON.stringify(app, null, 2)); console.log('iOS build number:', app.expo.ios.buildNumber);"
+
+bump-android-version: ## Increment Android version code
+	@echo "🤖 Incrementing Android version code..."
+	@node -e "const fs = require('fs'); const app = JSON.parse(fs.readFileSync('app.json')); const current = parseInt(app.expo.android?.versionCode || '1'); app.expo.android = app.expo.android || {}; app.expo.android.versionCode = current + 1; fs.writeFileSync('app.json', JSON.stringify(app, null, 2)); console.log('Android version code:', app.expo.android.versionCode);"
+
+prepare-release: sync-versions bump-ios-build bump-android-version ## Prepare all files for release
+	@echo "🎯 Preparing release..."
+	@git add app.json package.json
+	@echo "✅ Release preparation complete"
+
+# Privacy & Legal
+privacy-check: ## Check privacy policy and legal compliance
+	@echo "🔒 Privacy & Legal Compliance Check"
+	@echo ""
+	@echo "✅ Privacy Policy: $$([ -f PRIVACY_POLICY.md ] && echo 'Present' || echo '❌ Missing')"
+	@echo "📄 App Name: $$(node -p "require('./app.json').expo.name")"
+	@echo "🏷️  Bundle ID: $$(node -p "require('./app.json').expo.ios?.bundleIdentifier || 'Not set'")"
+	@echo "🔍 Checking for trademark references..."
+	@if grep -r -i "costco" src/ 2>/dev/null; then \
+		echo "⚠️  Found potential trademark references in code"; \
+	else \
+		echo "✅ No trademark references found in source code"; \
+	fi
+	@echo ""
+	@echo "📋 Compliance Checklist:"
+	@echo "- [ ] Privacy policy reviewed and updated"
+	@echo "- [ ] All trademark references removed"
+	@echo "- [ ] App description focuses on functionality"
+	@echo "- [ ] Rate limiting implemented"
+	@echo "- [ ] Error handling comprehensive"
+
+# Development Distribution
+create-dev-build: ## Create development build for distribution
+	@echo "🔧 Creating development build..."
+	@npx expo export --platform all --output-dir ./dist
+	@echo "✅ Development build created in ./dist"
