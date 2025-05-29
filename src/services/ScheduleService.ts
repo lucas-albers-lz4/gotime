@@ -25,7 +25,7 @@ export class ScheduleService {
   }
 
   /**
-   * Parse Costco Cognos HTML schedule format
+   * Parse corporate BI HTML schedule format
    */
   public parseScheduleHTML(html: string): WeeklySchedule | null {
     try {

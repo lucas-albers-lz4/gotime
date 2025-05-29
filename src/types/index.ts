@@ -1,4 +1,4 @@
-// Core data types for the Costco Schedule App
+// Core data types for the GoTime Schedule App
 
 export interface UserCredentials {
   employeeId: string;

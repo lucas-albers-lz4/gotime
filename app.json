@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "costco-schedule-app",
-    "slug": "costco-schedule-app",
+    "name": "GoTime Schedule",
+    "slug": "gotime-schedule",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,17 +14,23 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.costco.scheduleapp"
+      "bundleIdentifier": "com.gotime.scheduleapp",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "appVersion": "1.0.0",
+      "buildNumber": "1"
     }
   }
 }

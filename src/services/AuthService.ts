@@ -47,21 +47,21 @@ export class AuthService {
   }
 
   /**
-   * Attempt to authenticate with Costco ESS portal
+   * Attempt to authenticate with corporate ESS portal
    * 
    * AUTHENTICATION FLOW DOCUMENTATION:
-   * 1. POST credentials to https://ess.costco.com/
-   * 2. Server responds with SAML redirect to https://login.costco.com/idp/SSO.saml2
-   * 3. SAML SSO redirects to https://authenticator.pingone.com/pingid/ppm/auth for 2FA
+   * 1. POST credentials to corporate portal
+   * 2. Server responds with SAML redirect to identity provider
+   * 3. SAML SSO redirects to authenticator for 2FA
    * 4. User receives SMS code and enters it on the 2FA page
-   * 5. After 2FA success, redirects back to https://ess.costco.com/irj/portal/external
+   * 5. After 2FA success, redirects back to corporate portal
    * 6. User navigates to "Online Employee Schedules" tab
-   * 7. Redirects to Cognos BI: https://bireport.costco.com/cognos_ext/bi/...
+   * 7. Redirects to BI system for schedule reports
    * 8. User selects week from dropdown and clicks "Run" to get schedule
    */
   public async login(credentials: UserCredentials): Promise<AuthResult> {
     try {
-      console.log('🔐 Starting Costco ESS authentication...');
+      console.log('🔐 Starting corporate portal authentication...');
       
       // Check platform limitations
       if (Platform.OS === 'web') {
@@ -120,7 +120,7 @@ export class AuthService {
    */
   private async attemptESSLogin(credentials: UserCredentials): Promise<AuthResult> {
     try {
-      const loginUrl = 'https://ess.costco.com/';
+      const loginUrl = APP_CONFIG.PORTAL_URLS.LOGIN;
       
       // Prepare login request
       const loginData = new FormData();
@@ -135,8 +135,8 @@ export class AuthService {
           'Accept-Language': 'en-US,en;q=0.5',
           'Accept-Encoding': 'gzip, deflate, br',
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Origin': 'https://ess.costco.com',
-          'Referer': 'https://ess.costco.com/',
+          'Origin': APP_CONFIG.PORTAL_URLS.BASE,
+          'Referer': APP_CONFIG.PORTAL_URLS.LOGIN,
           'Upgrade-Insecure-Requests': '1',
         },
         body: loginData,
@@ -350,75 +350,62 @@ export class AuthService {
     };
   }
 
-  // Attempt to login to Costco ESS portal
-  async loginToCostco(username: string, password: string): Promise<LoginResponse> {
-    // Check if running on web platform
-    if (this.isWebPlatform) {
-      console.log('🌐 Web platform detected - ESS login not supported due to CORS');
-      return {
-        success: false,
-        requiresSMS: false,
-        error: 'Web platform not supported. Please use the mobile app for ESS login due to CORS restrictions.',
-      };
-    }
-
+  // Attempt to login to corporate ESS portal
+  async loginToCorporatePortal(username: string, password: string): Promise<LoginResponse> {
     try {
-      console.log('=== STARTING ESS LOGIN PROCESS ===');
-      console.log('Platform:', Platform.OS);
-      console.log('Username:', username ? `${username.substring(0, 3)}***` : 'empty');
-      console.log('Password:', password ? '***provided***' : 'empty');
-      console.log('Target URL:', APP_CONFIG.COSTCO_URLS.LOGIN);
+      console.log('🔐 Starting corporate portal login...');
       
-      // Step 1: Get the ESS login page to establish F5 session
-      console.log('Step 1: Fetching ESS login page...');
-      const loginPageResponse = await this.httpClient.get(APP_CONFIG.COSTCO_URLS.LOGIN);
-      console.log('Login page response status:', loginPageResponse.status);
-      console.log('Login page response headers:', Object.keys(loginPageResponse.headers));
-      console.log('Login page content length:', loginPageResponse.data?.length || 0);
-      console.log('Login page content preview:', loginPageResponse.data?.substring(0, 200) + '...');
-      
-      // Extract F5 session from cookies
-      console.log('Step 2: Extracting F5 session...');
-      this.extractF5Session(loginPageResponse.headers['set-cookie']);
-      console.log('F5 Session ID:', this.f5SessionId ? 'extracted' : 'not found');
-      
-      // Check for F5 BIG-IP session errors
-      if (loginPageResponse.data.includes('BIG-IP can not find session information')) {
-        console.log('F5 BIG-IP session error detected - attempting to establish new session');
-        // Try to click the "click here" link to establish new session
-        const newSessionResponse = await this.httpClient.get(APP_CONFIG.COSTCO_URLS.BASE);
-        console.log('New session response status:', newSessionResponse.status);
-        this.extractF5Session(newSessionResponse.headers['set-cookie']);
-        console.log('F5 Session ID after retry:', this.f5SessionId ? 'extracted' : 'still not found');
+      // Reset session state
+      this.sessionToken = null;
+      this.f5SessionId = null;
+      this.sessionData = null;
+
+      // Validate inputs
+      if (!username || !password) {
+        return {
+          success: false,
+          requiresSMS: false,
+          error: 'Username and password are required',
+        };
       }
+
+      console.log('Target URL:', APP_CONFIG.PORTAL_URLS.LOGIN);
+
+      // Step 1: Get login page to establish session
+      const loginPageResponse = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.LOGIN);
       
-      // Extract ESS-specific form fields using regex
-      console.log('Step 3: Extracting form fields...');
-      const essFields = this.extractESSFormFields(loginPageResponse.data);
-      console.log('Extracted form fields:', Object.keys(essFields));
-      console.log('Form field values:', essFields);
-      
-      // Step 2: Submit credentials to ESS portal
-      console.log('Step 4: Submitting login credentials...');
-      const loginData = {
+      // Extract any session cookies or form fields
+      this.extractF5Session(loginPageResponse.headers['set-cookie']);
+      const formFields = this.extractESSFormFields(loginPageResponse.data);
+
+      // Step 2: Submit credentials
+      if (this.f5SessionId) {
+        // If we have an F5 session, try to establish a new session first
+        const newSessionResponse = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.BASE);
+        this.extractF5Session(newSessionResponse.headers['set-cookie']);
+      }
+
+      // Prepare login data
+      const loginData = new URLSearchParams({
         username: username,
         password: password,
-        ...essFields, // Include ESS-specific hidden fields
-      };
-      console.log('Login data keys:', Object.keys(loginData));
+        ...formFields, // Include any hidden form fields
+      });
 
+      // Submit login request
       const loginResponse = await this.httpClient.post(
-        APP_CONFIG.COSTCO_URLS.LOGIN,
-        new URLSearchParams(loginData),
+        APP_CONFIG.PORTAL_URLS.LOGIN,
+        loginData,
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': APP_CONFIG.COSTCO_URLS.LOGIN,
-            'Origin': APP_CONFIG.COSTCO_URLS.BASE,
+            'Referer': APP_CONFIG.PORTAL_URLS.LOGIN,
+            'Origin': APP_CONFIG.PORTAL_URLS.BASE,
+            ...this.getESSHeaders(),
           },
-          maxRedirects: 5, // Allow ESS redirects
-          validateStatus: (status) => status < 400,
-        },
+          maxRedirects: 0, // Handle redirects manually
+          validateStatus: () => true, // Accept all status codes
+        }
       );
 
       console.log('Login response status:', loginResponse.status);
@@ -466,7 +453,7 @@ export class AuthService {
       // Check for SAML authentication flow BEFORE checking MFA
       if (responseText.includes('SAMLRequest') || responseText.includes('saml')) {
         console.log('🔄 SAML authentication flow detected - following SAML redirect...');
-        return await this.handleSAMLFlow(responseText, essFields);
+        return await this.handleSAMLFlow(responseText, formFields);
       }
 
       // Check for SMS/MFA requirement (only if not SAML and not logout page)
@@ -524,28 +511,22 @@ export class AuthService {
   // Handle MFA verification for ESS portal
   async handleESSMFA(verificationCode: string): Promise<LoginResponse> {
     try {
-      console.log('Submitting MFA verification to ESS portal...');
-
-      // This would need to be implemented based on Costco's specific MFA flow
-      const mfaData = {
-        verificationCode: verificationCode,
-        // Add other MFA-specific fields as needed
-      };
-
-      const response = await this.httpClient.post(
-        APP_CONFIG.COSTCO_URLS.LOGIN, // Or specific MFA endpoint
-        new URLSearchParams(mfaData),
+      // This is a placeholder - actual implementation would depend on the specific MFA system
+      const mfaResponse = await this.httpClient.post(
+        APP_CONFIG.PORTAL_URLS.LOGIN, // Or specific MFA endpoint
         {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
+          verificationCode,
+          sessionToken: this.sessionToken,
         },
+        {
+          headers: this.getESSHeaders(),
+        }
       );
 
-      const responseText = response.data;
+      const responseText = mfaResponse.data;
       
       if (this.isESSLoginSuccessful(responseText)) {
-        this.extractESSSession(response.headers['set-cookie']);
+        this.extractESSSession(mfaResponse.headers['set-cookie']);
         return {
           success: true,
           requiresSMS: false,
@@ -576,9 +557,10 @@ export class AuthService {
         return false;
       }
 
-      // Test session by accessing the ESS portal
-      const response = await this.httpClient.get(APP_CONFIG.COSTCO_URLS.BASE, {
+      // Try to access a protected page to validate session
+      const response = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.BASE, {
         headers: this.getESSHeaders(),
+        validateStatus: () => true,
       });
 
       // Check if we're still authenticated (not redirected to login)
@@ -820,7 +802,17 @@ export class AuthService {
   private getESSHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'User-Agent': this.currentUserAgent,
-      'Referer': APP_CONFIG.COSTCO_URLS.BASE,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0',
+      'Referer': APP_CONFIG.PORTAL_URLS.BASE,
     };
     
     // Add session cookies if available
@@ -868,7 +860,7 @@ export class AuthService {
       return {
         success: false,
         requiresSMS: false,
-        error: 'SAML authentication detected. This requires additional implementation to handle Costco\'s SSO flow.',
+        error: 'SAML authentication detected. This requires additional implementation to handle corporate SSO flow.',
       };
       
     } catch (error) {

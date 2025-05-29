@@ -360,7 +360,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
             <View style={styles.demoNotice}>
               <Text style={styles.demoTitle}>Demo Mode</Text>
               <Text style={styles.demoText}>
-                Real Costco schedule data parsed from Cognos BI. Full authentication with SAML SSO + 2FA coming soon.
+                Real corporate schedule data parsed from enterprise BI system. Full authentication with SAML SSO + 2FA coming soon.
               </Text>
               <Text style={styles.demoText}>
                 {'\n'}* = Schedule changed after original posting

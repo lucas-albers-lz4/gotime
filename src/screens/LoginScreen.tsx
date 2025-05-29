@@ -67,7 +67,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         // SAML/2FA required
         Alert.alert(
           'Authentication Required',
-          'Costco uses SAML Single Sign-On with 2-Factor Authentication. This advanced enterprise security system is not yet supported in the mobile app.\n\nFor now, you can view the demo schedule to see how the app works.',
+          'This corporate portal uses SAML Single Sign-On with 2-Factor Authentication. This advanced enterprise security system is not yet supported in the mobile app.\n\nFor now, you can view the demo schedule to see how the app works.',
           [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -97,7 +97,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const handleDemoMode = () => {
     Alert.alert(
       'Demo Mode',
-      'This will show you how the app works with real Costco schedule data, but without requiring authentication.',
+      'This will show you how the app works with real corporate schedule data, but without requiring authentication.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -116,7 +116,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
-            <Text style={styles.title}>Costco Schedule</Text>
+            <Text style={styles.title}>GoTime Schedule</Text>
             <Text style={styles.subtitle}>Employee Schedule Access</Text>
           </View>
 
@@ -183,7 +183,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <View style={styles.info}>
             <Text style={styles.infoTitle}>Authentication Notice</Text>
             <Text style={styles.infoText}>
-              • Costco uses SAML Single Sign-On with 2-Factor Authentication
+              • Corporate portals use SAML Single Sign-On with 2-Factor Authentication
             </Text>
             <Text style={styles.infoText}>
               • SMS verification is required for security

@@ -2,7 +2,7 @@
 jest.mock('expo-constants', () => ({
   default: {
     expoConfig: {
-      name: 'costco-schedule-app',
+      name: 'gotime-schedule',
       version: '1.0.0',
     },
   },

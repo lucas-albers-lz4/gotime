@@ -16,25 +16,25 @@ export const APP_CONFIG = {
   },
   
   // Database settings
-  DB_NAME: 'costco_schedule.db',
+  DB_NAME: 'gotime_schedule.db',
   DB_VERSION: 1,
   
-  // Costco Employee Self Service URLs
-  COSTCO_URLS: {
-    BASE: 'https://ess.costco.com',
+  // Corporate Employee Portal URLs (configurable for different organizations)
+  PORTAL_URLS: {
+    BASE: 'https://ess.costco.com', // Costco Employee Self Service portal
     LOGIN: 'https://ess.costco.com/',
     SCHEDULE_REPORT: 'https://ess.costco.com/schedule', // Will need to discover actual schedule path
     LOGOUT: 'https://ess.costco.com/logout',
   },
   
-  // User agent strings for web scraping (including Cognos-compatible ones)
+  // User agent strings for web requests (enterprise portal compatible)
   USER_AGENTS: [
     // Standard mobile user agents
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/109.0 Firefox/109.0',
     'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36',
     
-    // Desktop user agents (often work better with Cognos)
+    // Desktop user agents (often work better with enterprise systems)
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0',
@@ -43,7 +43,7 @@ export const APP_CONFIG = {
 
 // Color palette
 export const COLORS = {
-  // Primary colors (Costco brand colors)
+  // Primary colors (professional blue theme)
   primary: '#0066CC',
   primaryDark: '#004499',
   primaryLight: '#3388DD',
