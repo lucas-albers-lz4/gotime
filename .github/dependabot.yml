@@ -3,15 +3,60 @@
 # Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
+# Dependabot configuration for Costco Schedule App
+# React Native/Expo project with native iOS/Android components
+
 version: 2
 updates:
- - package-ecosystem: "npm" # React Native/Expo mobile app
-    directory: "/mobile" # Location of package.json
+  # JavaScript/TypeScript dependencies (main project)
+  - package-ecosystem: "npm"
+    directory: "/" # Root directory where package.json is located
     schedule:
       interval: "weekly"
-    # Only raise pull requests for security updates
-    open-pull-requests-limit: 0
-    # Enable security updates
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    # Allow patch and minor updates, be careful with major updates
     ignore:
       - dependency-name: "*"
-        update-types: ["version-update:semver-patch", "version-update:semver-minor", "version-update:semver-major"]
+        update-types: ["version-update:semver-major"]
+    # Group Expo SDK updates together
+    groups:
+      expo-sdk:
+        patterns:
+          - "expo*"
+          - "@expo/*"
+      react-native:
+        patterns:
+          - "react-native*"
+          - "@react-native*"
+      testing:
+        patterns:
+          - "*jest*"
+          - "@testing-library/*"
+          - "@types/jest"
+      linting:
+        patterns:
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "prettier"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/.github/workflows"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+
+  # Android Gradle dependencies
+  - package-ecosystem: "gradle"
+    directory: "/android"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 3
+    # Be conservative with Android updates
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
