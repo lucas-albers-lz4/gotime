@@ -1,0 +1,99 @@
+name: Create Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests
+        run: npm run test
+        
+      - name: Type check
+        run: npm run type-check
+        
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$([[ $VERSION == *"beta"* || $VERSION == *"alpha"* || $VERSION == *"rc"* ]] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
+          
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            head -n 50 CHANGELOG.md >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Release ${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: GoTime Schedule v${{ steps.version.outputs.version }}
+          body: |
+            ## Release Notes
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## Installation
+            
+            ### For Development Testing:
+            1. Download the source code
+            2. Run `npm install`
+            3. Run `make start` to start development server
+            4. Scan QR code with Expo Go app
+            
+            ### For Beta Testing:
+            - iOS: Available via TestFlight (coming soon)
+            - Android: Available via Play Console Internal Testing (coming soon)
+            
+            ## What's Changed
+            - See commit history for detailed changes
+            
+            ## Technical Details
+            - React Native: 0.79.2
+            - Expo SDK: 53
+            - Target Platforms: iOS 13+, Android API 21+
+            
+          draft: false
+          prerelease: ${{ steps.version.outputs.is_prerelease }}
+          
+      - name: Build Expo project (development)
+        if: steps.version.outputs.is_prerelease == 'true'
+        run: |
+          npx expo export --platform all --output-dir ./dist
+          
+      - name: Upload development build artifacts
+        if: steps.version.outputs.is_prerelease == 'true'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist
+          asset_name: gotime-schedule-dev-build-${{ steps.version.outputs.version }}.zip
+          asset_content_type: application/zip 
