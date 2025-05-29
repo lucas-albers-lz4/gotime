@@ -1,0 +1,80 @@
+DUAL LICENSE
+
+This software is available under two licenses:
+
+1. AGPL v3 License (for non-commercial use)
+2. Commercial License (for commercial use)
+
+================================================================================
+NON-COMMERCIAL USE - AGPL v3 LICENSE
+================================================================================
+
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+Copyright (C) 2024 Lucas Albers
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+ADDITIONAL TERMS FOR NON-COMMERCIAL USE:
+- You may use, modify, and distribute this software for non-commercial purposes
+- Any derivative works must also be licensed under AGPL v3
+- If you run a modified version on a server, you must provide source code to users
+- Commercial use requires a separate commercial license (see below)
+
+================================================================================
+COMMERCIAL USE - COMMERCIAL LICENSE
+================================================================================
+
+For commercial use, including but not limited to:
+- Selling the app or derivative works
+- Using the app in a commercial environment
+- Integrating the app into commercial products
+- Providing commercial services based on this software
+
+You must obtain a separate commercial license.
+
+Contact: [your-email@example.com]
+
+Commercial licenses are available with terms including:
+- Right to use in commercial applications
+- Right to modify without source code disclosure
+- Priority support and updates
+- Custom licensing terms available
+
+================================================================================
+DEFINITIONS
+================================================================================
+
+"Commercial use" means any use of the software that is primarily intended for 
+commercial advantage or monetary compensation, including but not limited to:
+- Selling the software or derivative works
+- Using the software to provide commercial services
+- Integrating the software into commercial products
+- Using the software in a business environment for profit
+
+"Non-commercial use" means use for personal, educational, research, or other 
+purposes that are not primarily intended for commercial advantage or monetary 
+compensation.
+
+================================================================================
+DISCLAIMER
+================================================================================
+
+This software is provided "as is" without warranty of any kind. The author 
+disclaims all warranties, express or implied, including but not limited to 
+the warranties of merchantability, fitness for a particular purpose, and 
+non-infringement.
+
+This software is not affiliated with or endorsed by Costco Wholesale Corporation. 

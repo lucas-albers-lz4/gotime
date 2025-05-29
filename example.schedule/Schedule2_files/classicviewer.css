@@ -1,0 +1,57 @@
+.cv-actionbar {
+	background-color: hsla(var(--ui-01-h, 0), var(--ui-01-s, 0%), var(--ui-01-l, 100%), 1);
+	border-bottom: 1px solid;
+	border-bottom-color: hsla(var(--ui-03-h, 0), var(--ui-03-s, 0%), var(--ui-03-l, 87.8431372549%), 1);
+	min-height: 40px;
+	max-height: 40px;
+}
+
+.cv-actionbar .pluginContainer {
+	border: none;
+	border-right: 1px solid;
+	border-color: hsla(var(--ui-03-h, 0), var(--ui-03-s, 0%), var(--ui-03-l, 87.8431372549%), 1);
+}
+
+.cv-actionbar .pluginContainer button.menu {
+	height: auto;
+	color: inherit;
+}
+
+.cv-actionbar .pluginContainer button {
+	min-height: 40px;
+	background-color: transparent;
+	border: 2px solid transparent;
+	padding: 0px .625rem;
+}
+
+.cv-actionbar .pluginContainer button .svgIcon {
+	height: 16px;
+	width: 16px;
+}
+
+.cv-actionbar button#com\.ibm\.bi\.classicviewer\.saveBtn\.menu
+{
+	margin-right: 0;
+	width: 24px;
+	padding: 0;
+}
+
+.cv-actionbar button#com\.ibm\.bi\.classicviewer\.formatMenu
+{
+	width: auto;
+	padding: 0 .6rem;
+}
+
+.cv-actionbar button#com\.ibm\.bi\.classicviewer\.saveBtn {
+	width: 40px;
+}
+
+.cv-actionbar .pluginContainer .menu.cvSaveAs
+{
+	padding: 0 .312rem;
+}
+
+.cv-actionbar .pluginContainer .menu.cvSaveAs svg
+{
+	margin-left: 5px;
+}
