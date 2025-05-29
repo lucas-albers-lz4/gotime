@@ -187,7 +187,7 @@ reset: ## Reset project (clean + reinstall)
 	@echo "✅ Project reset complete"
 
 doctor: ## Run Expo doctor to check for issues
-	npx expo doctor
+	npx expo-doctor
 
 health-check: ## Comprehensive project health check
 	@echo "🏥 Running project health check..."
