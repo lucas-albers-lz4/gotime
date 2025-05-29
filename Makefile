@@ -1,7 +1,7 @@
 # Costco Schedule App - Makefile
 # React Native Expo Project
 
-.PHONY: help install start start-clear ios android web clean reset test lint type-check build-ios build-android deploy-staging deploy-prod doctor tunnel security audit update-deps docs env-setup health-check clear-all watch-all validate pre-commit post-install dev-setup
+.PHONY: help install start start-clear ios android web clean reset test lint type-check build-ios build-android deploy-staging deploy-prod doctor tunnel security audit update-deps docs env-setup health-check clear-all watch-all validate pre-commit post-install dev-setup check-android setup-android-env setup-android-full android-studio-setup
 
 # Default target
 help: ## Show this help message
@@ -39,101 +39,143 @@ audit: ## Fix security vulnerabilities automatically
 	npm audit fix
 	@echo "✅ Security vulnerabilities fixed"
 
-# Development Commands
+# Development Commands (these work reliably)
 start: ## Start Expo development server
 	npx expo start
 
 start-clear: ## Start Expo development server with cache cleared
 	npx expo start --clear
 
-ios: ## Start iOS simulator
+ios: ## Start iOS simulator (development mode - RECOMMENDED)
 	npx expo start --ios
 
-android: ## Start Android emulator
+android: ## Start Android emulator (development mode - RECOMMENDED)
 	npx expo start --android
 
 web: ## Start web development server
 	@echo "🌐 Starting web version (Note: Uses AsyncStorage fallback for SQLite)"
 	npx expo start --web
 
-tunnel: ## Start with tunnel for external device testing
-	npx expo start --tunnel
-
-dev-setup: install post-install ## Complete development environment setup
-	@echo "🚀 Development environment ready!"
-
-# Code Quality
-lint: ## Run ESLint
-	@if [ -f "eslint.config.js" ] || [ -f ".eslintrc.js" ]; then \
-		npm run lint; \
-	else \
-		echo "ESLint not configured. Run 'make setup-lint' to add it."; \
+# Local Build Commands (for testing production builds)
+build-ios-local: ## Build and run iOS app locally on simulator
+	@echo "🍎 Building iOS app for simulator..."
+	@if [ ! -d "ios" ]; then \
+		echo "❌ iOS directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	@echo "⚠️  If this fails due to device issues, use 'make ios' instead"
+	@echo "Building for iOS 18.4 simulator..."
+	cd ios && xcodebuild -workspace costcoscheduleapp.xcworkspace \
+		-scheme costcoscheduleapp \
+		-configuration Release \
+		-sdk iphonesimulator \
+		-destination 'platform=iOS Simulator,OS=18.4,name=iPhone 16' \
+		build
 
-lint-fix: ## Run ESLint with auto-fix
-	@if [ -f "eslint.config.js" ] || [ -f ".eslintrc.js" ]; then \
-		npm run lint:fix; \
-	else \
-		echo "ESLint not configured. Run 'make setup-lint' to add it."; \
+build-ios-debug: ## Build and run iOS app in debug mode
+	@echo "🍎 Building iOS app (debug) for simulator..."
+	@if [ ! -d "ios" ]; then \
+		echo "❌ iOS directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	npx expo run:ios
 
-type-check: ## Run TypeScript type checking
-	npm run type-check
-
-format: ## Format code with Prettier (when configured)
-	@if [ -f ".prettierrc" ] || [ -f "prettier.config.js" ]; then \
-		npx prettier --write "src/**/*.{ts,tsx,js,jsx,json}"; \
-	else \
-		echo "Prettier not configured. Run 'make setup-format' to add it."; \
+build-ios-device: ## Build iOS app for physical device (requires Xcode & provisioning)
+	@echo "📱 Building iOS app for device..."
+	@if [ ! -d "ios" ]; then \
+		echo "❌ iOS directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	npx expo run:ios --device --configuration Release
 
-validate: type-check lint ## Run all code quality checks
-	@echo "✅ All code quality checks passed"
-
-pre-commit: validate test ## Run all checks before commit
-	@echo "✅ Pre-commit checks completed successfully"
-
-# Testing
-test: ## Run tests
-	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
-		npm test; \
-	else \
-		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+build-android-local: ## Build and run Android app locally on emulator
+	@echo "🤖 Building Android app for emulator..."
+	@if [ ! -d "android" ]; then \
+		echo "❌ Android directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	@echo "⚠️  If this fails, use 'make android' instead"
+	cd android && ./gradlew assembleRelease && ./gradlew installRelease
 
-test-watch: ## Run tests in watch mode
-	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
-		npm run test:watch; \
-	else \
-		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+build-android-debug: ## Build and run Android app in debug mode
+	@echo "🤖 Building Android app (debug) for emulator..."
+	@if [ ! -d "android" ]; then \
+		echo "❌ Android directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	npx expo run:android
 
-test-coverage: ## Run tests with coverage report
-	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
-		npm run test:coverage; \
-		@echo "📊 Coverage report generated in coverage/ directory"; \
-	else \
-		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+build-android-device: ## Build Android app for physical device (requires Android Studio)
+	@echo "📱 Building Android app for device..."
+	@if [ ! -d "android" ]; then \
+		echo "❌ Android directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
 	fi
+	npx expo run:android --device --variant release
 
-watch-all: ## Watch tests and lint simultaneously
-	@echo "👁️  Watching tests and code quality..."
-	@trap 'kill %1; kill %2' SIGINT; \
-	npm run test:watch & \
-	npm run lint -- --fix --watch &\
-	wait
+# CI/CD Build Commands (for GitHub Actions)
+ci-build-ios: ## Build iOS for CI (creates .app bundle without running)
+	@echo "🏗️  Building iOS for CI..."
+	@if [ ! -d "ios" ]; then \
+		echo "❌ iOS directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
+	fi
+	@echo "Building iOS app bundle for CI..."
+	cd ios && xcodebuild -workspace costcoscheduleapp.xcworkspace \
+		-scheme costcoscheduleapp \
+		-configuration Release \
+		-sdk iphonesimulator \
+		-derivedDataPath build \
+		build
 
-# Build Commands
-build-ios: ## Build iOS app for production
+ci-build-android: ## Build Android for CI (creates APK without running)
+	@echo "🏗️  Building Android for CI..."
+	@if [ ! -d "android" ]; then \
+		echo "❌ Android directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
+	fi
+	@echo "Building Android APK for CI..."
+	cd android && ./gradlew assembleRelease
+
+ci-test-build: ci-build-ios ci-build-android ## Build both platforms for CI testing
+	@echo "✅ CI builds completed successfully"
+
+# EAS Cloud Build Commands (require EAS setup)
+build-ios: ## Build iOS app with EAS (cloud build)
+	@echo "☁️  Building iOS app with EAS..."
+	@if [ ! -f "eas.json" ]; then \
+		echo "❌ EAS not configured. Run 'make setup-eas' first."; \
+		echo "💡 For local development, use 'make build-ios-local' or 'make ios'"; \
+		echo "💡 For CI builds, use 'make ci-build-ios'"; \
+		exit 1; \
+	fi
 	npx eas build --platform ios
 
-build-android: ## Build Android app for production
+build-android: ## Build Android app with EAS (cloud build)
+	@echo "☁️  Building Android app with EAS..."
+	@if [ ! -f "eas.json" ]; then \
+		echo "❌ EAS not configured. Run 'make setup-eas' first."; \
+		echo "💡 For local development, use 'make build-android-local' or 'make android'"; \
+		echo "💡 For CI builds, use 'make ci-build-android'"; \
+		exit 1; \
+	fi
 	npx eas build --platform android
 
-build-all: ## Build for all platforms
+build-all: ## Build for all platforms with EAS (cloud build)
+	@echo "☁️  Building for all platforms with EAS..."
+	@if [ ! -f "eas.json" ]; then \
+		echo "❌ EAS not configured. Run 'make setup-eas' first."; \
+		echo "💡 For local development, use 'make build-ios-local' and 'make build-android-local'"; \
+		echo "💡 For CI builds, use 'make ci-test-build'"; \
+		exit 1; \
+	fi
 	npx eas build --platform all
 
 build-preview: ## Build preview for testing
+	@if [ ! -f "eas.json" ]; then \
+		echo "❌ EAS not configured. Run 'make setup-eas' first."; \
+		exit 1; \
+	fi
 	npx eas build --platform all --profile preview
 
 # Deployment
@@ -187,6 +229,8 @@ reset: ## Reset project (clean + reinstall)
 	@echo "✅ Project reset complete"
 
 doctor: ## Run Expo doctor to check for issues
+	@echo "This is just a warning --> : Check for app config fields that may not be synced in a non-CNG project"
+	@echo "You don't need to fix it now"
 	npx expo-doctor
 
 health-check: ## Comprehensive project health check
@@ -260,6 +304,13 @@ setup-husky: ## Add git hooks with Husky
 	npx husky add .husky/pre-commit "npm run lint-staged"
 	@echo "✅ Husky git hooks configured"
 
+setup-eas: ## Configure EAS for cloud builds
+	@echo "⚙️  Setting up EAS..."
+	@echo "This will configure cloud builds for your project."
+	@echo "You'll need an Expo account and may incur build costs."
+	@read -p "Continue? (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
+	npx eas build:configure
+	@echo "✅ EAS configured! You can now use 'make build-ios' and 'make build-android'"
 
 release-patch: ## Create patch release
 	npm version patch
@@ -315,5 +366,165 @@ ci-test: ## Run tests in CI environment
 	npm run lint
 	npm run type-check
 
-ci-build: ## Build for CI environment
-	npx eas build --platform all --non-interactive 
+ci-full: ci-install ci-test ci-test-build ## Complete CI pipeline
+	@echo "🎉 Full CI pipeline completed successfully!"
+
+# Simplified build commands that work reliably
+build-ios-simple: ## Simple iOS build (just compile, don't run)
+	@echo "🍎 Simple iOS build..."
+	@if [ ! -d "ios" ]; then \
+		echo "❌ iOS directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
+	fi
+	cd ios && xcodebuild -workspace costcoscheduleapp.xcworkspace \
+		-scheme costcoscheduleapp \
+		-configuration Release \
+		build
+
+build-android-simple: ## Simple Android build (just compile, don't run)
+	@echo "🤖 Simple Android build..."
+	@if [ ! -d "android" ]; then \
+		echo "❌ Android directory not found. Run 'npx expo prebuild' first."; \
+		exit 1; \
+	fi
+	cd android && ./gradlew assembleRelease
+
+tunnel: ## Start with tunnel for external device testing
+	npx expo start --tunnel
+
+dev-setup: install post-install ## Complete development environment setup
+	@echo "🚀 Development environment ready!"
+
+# Code Quality
+lint: ## Run ESLint
+	@if [ -f "eslint.config.js" ] || [ -f ".eslintrc.js" ]; then \
+		npm run lint; \
+	else \
+		echo "ESLint not configured. Run 'make setup-lint' to add it."; \
+	fi
+
+lint-fix: ## Run ESLint with auto-fix
+	@if [ -f "eslint.config.js" ] || [ -f ".eslintrc.js" ]; then \
+		npm run lint:fix; \
+	else \
+		echo "ESLint not configured. Run 'make setup-lint' to add it."; \
+	fi
+
+type-check: ## Run TypeScript type checking
+	npm run type-check
+
+format: ## Format code with Prettier (when configured)
+	@if [ -f ".prettierrc" ] || [ -f "prettier.config.js" ]; then \
+		npx prettier --write "src/**/*.{ts,tsx,js,jsx,json}"; \
+	else \
+		echo "Prettier not configured. Run 'make setup-format' to add it."; \
+	fi
+
+validate: type-check lint ## Run all code quality checks
+	@echo "✅ All code quality checks passed"
+
+pre-commit: validate test ## Run all checks before commit
+	@echo "✅ Pre-commit checks completed successfully"
+
+# Testing
+test: ## Run tests
+	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
+		npm test; \
+	else \
+		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+	fi
+
+test-watch: ## Run tests in watch mode
+	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
+		npm run test:watch; \
+	else \
+		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+	fi
+
+test-coverage: ## Run tests with coverage report
+	@if [ -f "jest.config.js" ] || grep -q "jest" package.json; then \
+		npm run test:coverage; \
+		@echo "📊 Coverage report generated in coverage/ directory"; \
+	else \
+		echo "Tests not configured. Run 'make setup-test' to add Jest."; \
+	fi
+
+watch-all: ## Watch tests and lint simultaneously
+	@echo "👁️  Watching tests and code quality..."
+	@trap 'kill %1; kill %2' SIGINT; \
+	npm run test:watch & \
+	npm run lint -- --fix --watch &\
+	wait
+
+check-android: ## Check Android development environment setup
+	@echo "🤖 Checking Android development environment..."
+	@echo "ANDROID_HOME: $$ANDROID_HOME"
+	@if [ -z "$$ANDROID_HOME" ]; then \
+		echo "❌ ANDROID_HOME not set. Run 'source ~/.zshrc' or restart terminal"; \
+	else \
+		echo "✅ ANDROID_HOME is set"; \
+	fi
+	@if command -v adb >/dev/null 2>&1; then \
+		echo "✅ adb is available"; \
+		adb version; \
+	else \
+		echo "❌ adb not found in PATH"; \
+	fi
+	@if [ -d "$$ANDROID_HOME/emulator" ]; then \
+		echo "✅ Android emulator directory exists"; \
+	else \
+		echo "❌ Android emulator directory not found"; \
+	fi
+	@echo "Available AVDs:"
+	@if command -v emulator >/dev/null 2>&1; then \
+		emulator -list-avds 2>/dev/null || echo "No AVDs found - create one in Android Studio"; \
+	else \
+		echo "❌ emulator command not found"; \
+	fi
+
+setup-android-env: ## Setup Android environment variables
+	@echo "🔧 Setting up Android environment variables..."
+	@echo 'export ANDROID_HOME=$$HOME/Library/Android/sdk' >> ~/.zshrc
+	@echo 'export PATH=$$PATH:$$ANDROID_HOME/emulator' >> ~/.zshrc
+	@echo 'export PATH=$$PATH:$$ANDROID_HOME/platform-tools' >> ~/.zshrc
+	@echo "✅ Environment variables added to ~/.zshrc"
+	@echo "Run 'source ~/.zshrc' or restart your terminal to apply changes"
+
+setup-android-full: ## Complete Android development setup (automated)
+	@echo "🤖 Setting up Android development environment..."
+	@echo "This will install Java, Android SDK, and create an emulator"
+	@echo ""
+	@echo "Step 1: Installing Java..."
+	brew install --cask temurin || echo "Java installation requires password"
+	@echo ""
+	@echo "Step 2: Setting up Android SDK..."
+	@mkdir -p ~/Library/Android/sdk
+	@echo 'export ANDROID_HOME=$$HOME/Library/Android/sdk' >> ~/.zshrc
+	@echo 'export PATH=$$PATH:$$ANDROID_HOME/emulator' >> ~/.zshrc
+	@echo 'export PATH=$$PATH:$$ANDROID_HOME/platform-tools' >> ~/.zshrc
+	@echo 'export PATH=$$PATH:$$ANDROID_HOME/cmdline-tools/latest/bin' >> ~/.zshrc
+	@echo ""
+	@echo "Step 3: Instructions to complete setup:"
+	@echo "1. Open Android Studio: open -a 'Android Studio'"
+	@echo "2. Follow setup wizard (choose Standard installation)"
+	@echo "3. Create an AVD (Tools > AVD Manager > Create Virtual Device)"
+	@echo "4. Choose Pixel 7 or 8, download Android 14 (API 34)"
+	@echo "5. Run 'source ~/.zshrc && make check-android' to verify"
+	@echo ""
+	@echo "✅ Environment variables configured!"
+
+android-studio-setup: ## Open Android Studio and show setup instructions
+	@echo "🚀 Opening Android Studio for setup..."
+	open -a "Android Studio"
+	@echo ""
+	@echo "📋 Setup Instructions:"
+	@echo "1. Choose 'Standard' installation type"
+	@echo "2. Accept all license agreements"
+	@echo "3. Wait for SDK download (10-15 minutes)"
+	@echo "4. Go to Tools > AVD Manager"
+	@echo "5. Click 'Create Virtual Device'"
+	@echo "6. Choose Pixel 7 or Pixel 8"
+	@echo "7. Download Android 14 (API 34) system image"
+	@echo "8. Name your AVD and finish"
+	@echo ""
+	@echo "After setup, run: make check-android"
