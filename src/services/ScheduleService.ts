@@ -151,11 +151,11 @@ export class ScheduleService {
       const status = statusMatch ? statusMatch[1].trim() : '';
 
       // Extract hire date - look for Hire Date pattern
-      let hireDateMatch = html.match(/<span[^>]*>Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9\/]+)<\/span>/s);
+      let hireDateMatch = html.match(/<span[^>]*>Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9/]+)<\/span>/s);
       
       // Try more flexible pattern
       if (!hireDateMatch) {
-        hireDateMatch = html.match(/Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9\/]+)<\/span>/s);
+        hireDateMatch = html.match(/Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9/]+)<\/span>/s);
       }
       
       const hireDate = hireDateMatch ? hireDateMatch[1].trim() : '';

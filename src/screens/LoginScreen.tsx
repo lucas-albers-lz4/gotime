@@ -14,11 +14,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { COLORS, TYPOGRAPHY, SPACING, APP_CONFIG } from '../constants';
 import { UserCredentials } from '../types';
 import { AuthService } from '../services/AuthService';
 import { ScheduleService } from '../services/ScheduleService';
 
+// eslint-disable-next-line no-undef
 const packageJson = require('../../package.json');
 
 interface LoginScreenProps {
@@ -36,7 +38,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [currentStep, setCurrentStep] = useState<AuthStep>('CREDENTIALS');
   const [authSessionData, setAuthSessionData] = useState<Record<string, unknown> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [debugMode, setDebugMode] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const authService = AuthService.getInstance();
@@ -758,13 +759,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                               console.log('Contains "Weekly Schedule":', parsedMessage.html.includes('Weekly Schedule'));
                               
                               Alert.alert('HTML Logged', 'Check the console/logs for detailed HTML content and pattern analysis.');
-                            }
+                            },
                           },
                           { 
                             text: 'Copy to Clipboard', 
                             onPress: async () => {
                               try {
-                                const Clipboard = require('@react-native-clipboard/clipboard').default;
                                 await Clipboard.setString(parsedMessage.html);
                                 Alert.alert('HTML Copied', 'The HTML content has been copied to your clipboard for debugging.');
                               } catch (error) {
@@ -774,9 +774,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                                 console.log(parsedMessage.html);
                                 Alert.alert('Copy Failed', 'Could not copy to clipboard, but HTML has been logged to console.');
                               }
-                            }
+                            },
                           },
-                          { text: 'Cancel' }
+                          { text: 'Cancel' },
                         ],
                       );
                     }
@@ -856,9 +856,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                                 }
                                 
                                 Alert.alert('Debug Complete', 'Check console for detailed analysis of the extracted content.');
-                              }
+                              },
                             },
-                            { text: 'Cancel' }
+                            { text: 'Cancel' },
                           ],
                         );
                       }
@@ -903,9 +903,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                               console.log('Content length:', parsedMessage.html.length);
                               console.log('Content preview:', parsedMessage.html.substring(0, 2000));
                               Alert.alert('Debug Complete', 'Check console for content details.');
-                            }
+                            },
                           },
-                          { text: 'OK' }
+                          { text: 'OK' },
                         ],
                       );
                     }
@@ -925,13 +925,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     Alert.alert(
                       'Credentials Filled! 🔑',
                       `Successfully filled login fields:\n\n${parsedMessage.usernameFound ? '✅ Username/Employee ID' : '❌ Username field not found'}\n${parsedMessage.passwordFound ? '✅ Password' : '❌ Password field not found'}\n\nYou can now proceed with login on the webpage.`,
-                      [{ text: 'OK' }]
+                      [{ text: 'OK' }],
                     );
                   } else {
                     Alert.alert(
                       'Could Not Fill Credentials',
                       `Unable to automatically fill login fields: ${parsedMessage.error}\n\nThis might happen if:\n• The page hasn't fully loaded\n• The login form uses non-standard field names\n• The fields are in an iframe\n\nYou can manually enter your credentials in the webpage.`,
-                      [{ text: 'OK' }]
+                      [{ text: 'OK' }],
                     );
                   }
                 } else if (parsedMessage.type === 'multiple_schedules_extracted') {
@@ -952,7 +952,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       
                       try {
                         const parsedSchedule = await scheduleService.parseAndSaveRealSchedule(
-                          schedule.html
+                          schedule.html,
                         );
                         
                         if (parsedSchedule) {
@@ -975,16 +975,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       [
                         { 
                           text: 'View My Schedule', 
-                          onPress: () => onLoginSuccess() 
+                          onPress: () => onLoginSuccess(), 
                         },
-                        { text: 'Stay Here', style: 'cancel' }
-                      ]
+                        { text: 'Stay Here', style: 'cancel' },
+                      ],
                     );
                   } else {
                     Alert.alert(
                       'No Schedules Found',
                       `Attempted to extract ${totalWeeks} weeks but no schedule data was found. The page might not have loaded properly or the schedule format may have changed.`,
-                      [{ text: 'OK' }]
+                      [{ text: 'OK' }],
                     );
                   }
                 } else if (parsedMessage.type === 'week1_success') {
@@ -1000,8 +1000,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         `Successfully loaded and parsed Week 1 schedule!\n\nSelected Week: ${parsedMessage.selectedWeek}\nChecks Required: ${parsedMessage.checksRequired}\nEmployee: ${parsedSchedule.employee.name}\nTotal Hours: ${parsedSchedule.totalHours}\n\nThe dropdown selection and run button clicking is working correctly!`,
                         [
                           { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                          { text: 'Continue Testing', style: 'cancel' }
-                        ]
+                          { text: 'Continue Testing', style: 'cancel' },
+                        ],
                       );
                     } else {
                       Alert.alert(
@@ -1018,10 +1018,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                               console.log('HTML Length:', parsedMessage.html.length);
                               console.log('HTML Preview:', parsedMessage.html.substring(0, 2000));
                               Alert.alert('Debug Complete', 'Check console for Week 1 content details.');
-                            }
+                            },
                           },
-                          { text: 'OK' }
-                        ]
+                          { text: 'OK' },
+                        ],
                       );
                     }
                   } catch (error) {
@@ -1029,7 +1029,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     Alert.alert(
                       'Week 1 Processing Error',
                       `Week 1 loaded but processing failed: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSelected Week: ${parsedMessage.selectedWeek}`,
-                      [{ text: 'OK' }]
+                      [{ text: 'OK' }],
                     );
                   }
                 } else if (parsedMessage.type === 'week1_timeout') {
@@ -1050,30 +1050,30 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                           console.log('Final Content Length:', parsedMessage.html.length);
                           console.log('Final Content Preview:', parsedMessage.html.substring(0, 2000));
                           Alert.alert('Debug Complete', 'Check console for Week 1 timeout details.');
-                        }
+                        },
                       },
-                      { text: 'OK' }
-                    ]
+                      { text: 'OK' },
+                    ],
                   );
                 } else if (parsedMessage.type === 'week1_error') {
                   console.log('❌ [WEBVIEW] Week 1 test error:', parsedMessage);
                   Alert.alert(
                     'Week 1 Test Error ❌',
                     `Week 1 test failed: ${parsedMessage.error}\n\nThis helps us identify what's not working in the dropdown selection process.`,
-                    [{ text: 'OK' }]
+                    [{ text: 'OK' }],
                   );
                 } else if (parsedMessage.type === 'page_diagnostic') {
                   console.log('🔍 [WEBVIEW] Page diagnostic results:', parsedMessage);
                   Alert.alert(
                     'Page Diagnostics Results 🔍',
-                    `Current Page Analysis:\n\n` +
+                    'Current Page Analysis:\n\n' +
                     `URL: ${parsedMessage.url.substring(0, 50)}...\n` +
                     `Title: ${parsedMessage.title}\n` +
                     `Content Length: ${parsedMessage.contentLength}\n` +
                     `Select Elements: ${parsedMessage.selectCount}\n` +
                     `Button Elements: ${parsedMessage.buttonCount}\n` +
                     `Iframe Elements: ${parsedMessage.iframeCount}\n\n` +
-                    `Key Content:\n` +
+                    'Key Content:\n' +
                     `• Weekly Schedule: ${parsedMessage.hasWeeklySchedule ? '✅' : '❌'}\n` +
                     `• Week End Date: ${parsedMessage.hasWeekEndDate ? '✅' : '❌'}\n` +
                     `• Cognos: ${parsedMessage.hasCognos ? '✅' : '❌'}\n\n` +
@@ -1089,17 +1089,17 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                           console.log('Content Preview (1000 chars):');
                           console.log(parsedMessage.contentPreview);
                           Alert.alert('Content Preview', 'Check console for full content preview.');
-                        }
+                        },
                       },
-                      { text: 'OK' }
-                    ]
+                      { text: 'OK' },
+                    ],
                   );
                 } else if (parsedMessage.type === 'diagnostic_error') {
                   console.log('❌ [WEBVIEW] Diagnostic error:', parsedMessage);
                   Alert.alert(
                     'Diagnostic Error ❌',
                     `Error running page diagnostics: ${parsedMessage.error}`,
-                    [{ text: 'OK' }]
+                    [{ text: 'OK' }],
                   );
                 }
               } catch (parseError) {
@@ -1130,7 +1130,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           }}
           style={styles.webView}
           startInLoadingState={true}
-          javaScriptEnabled={!debugMode}
+          javaScriptEnabled={true}
           domStorageEnabled={true}
           thirdPartyCookiesEnabled={true}
           sharedCookiesEnabled={true}

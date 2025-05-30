@@ -167,6 +167,7 @@ describe('ScheduleService', () => {
   describe('parseScheduleHTML with real HTML', () => {
     it('should parse real schedule HTML from example file', () => {
       // Read the actual HTML file
+      // eslint-disable-next-line no-undef
       const htmlPath = join(__dirname, '../../..', 'example.schedule/Schedule1_files/saved_resource.html');
       const html = readFileSync(htmlPath, 'utf-8');
       
