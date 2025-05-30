@@ -1,0 +1,31 @@
+name: "CodeQL Config"
+
+paths-ignore:
+  - "example.schedule/**"
+  - "ios/Pods/**"
+  - "ios/costcoscheduleapp.xcworkspace/**"
+  - "ios/costcoscheduleapp.xcodeproj/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.md"
+  - "**/*.json"
+  - "**/*.lock"
+  - "**/*.xcconfig"
+  - "**/*.plist"
+  - ".expo/**"
+
+# Focus on actual source code
+paths:
+  - "src/**"
+  - "App.tsx"
+  - "index.ts"
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+
+# Optional: You can also specify paths to include if needed
+# paths:
+#   - "src/**"
+#   - "App.tsx" 

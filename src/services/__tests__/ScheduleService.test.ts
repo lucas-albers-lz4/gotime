@@ -1,4 +1,6 @@
 import { ScheduleService } from '../ScheduleService';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 describe('ScheduleService', () => {
   let scheduleService: ScheduleService;
@@ -159,6 +161,29 @@ describe('ScheduleService', () => {
           });
         });
       });
+    });
+  });
+
+  describe('parseScheduleHTML with real HTML', () => {
+    it('should parse real schedule HTML from example file', () => {
+      // Read the actual HTML file
+      const htmlPath = join(__dirname, '../../..', 'example.schedule/Schedule1_files/saved_resource.html');
+      const html = readFileSync(htmlPath, 'utf-8');
+      
+      const schedule = scheduleService.parseScheduleHTML(html);
+      
+      expect(schedule).not.toBeNull();
+      if (schedule) {
+        expect(schedule.employee.name).toBe('LUCAS ALBERS');
+        expect(schedule.employee.employeeId).toBe('6570527');
+        expect(schedule.employee.location).toBe('00096-Bozeman, MT');
+        expect(schedule.employee.department).toBe('080-Front End');
+        expect(schedule.employee.jobTitle).toBe('Cashier Asst');
+        expect(schedule.employee.status).toBe('PT');
+        expect(schedule.employee.hireDate).toBe('5/22/2025');
+        expect(schedule.weekStart).toBe('6/2/2025');
+        expect(schedule.weekEnd).toBe('6/8/2025');
+      }
     });
   });
 }); 

@@ -23,7 +23,20 @@ export const APP_CONFIG = {
   PORTAL_URLS: {
     BASE: 'https://ess.costco.com', // Costco Employee Self Service portal
     LOGIN: 'https://ess.costco.com/',
-    SCHEDULE_REPORT: 'https://ess.costco.com/schedule', // Will need to discover actual schedule path
+    PORTAL_MAIN: 'https://ess.costco.com/irj/portal/external', // Main portal after login
+    
+    // PingOne Identity Provider URLs
+    PINGONE_AUTH: 'https://authenticator.pingone.com/pingid/ppm/auth',
+    PINGONE_BASE: 'https://authenticator.pingone.com',
+    
+    // SAP HCM System URLs
+    SCHEDULE_LAUNCHPAD: 'https://hcm.costco.com/sap/bc/ui5_ui5/ui2/ushell/shells/abap/FioriLaunchpad.html?sap-language=EN&sap-client=100&sap-locale=en_US&sap-rtl=&sap-accessibility=&sap-ushell-config=embedded&&appState=lean#ScheduleLine-display',
+    
+    // BI Reporting System URLs  
+    SCHEDULE_REPORT: 'https://bireport.costco.com/cognos_ext/bi/',
+    SCHEDULE_REPORT_PATH: '.public_folders%2FWarehouse%2FHR%252FPayroll%2FSchedule',
+    SCHEDULE_REPORT_ID: 'i7C53D2304D524CE1BF24DFEF232E6FE0',
+    
     LOGOUT: 'https://ess.costco.com/logout',
   },
   

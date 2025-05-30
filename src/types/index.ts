@@ -67,11 +67,26 @@ export interface AppSettings {
   lastSyncTime?: number;
 }
 
+// Enhanced error types for rate limiting and server responses
+export type AuthErrorType = 
+  | 'INVALID_CREDENTIALS'
+  | 'NETWORK_ERROR'
+  | 'RATE_LIMITED'
+  | 'CAPTCHA_REQUIRED'
+  | 'SERVICE_MAINTENANCE'
+  | 'SESSION_EXPIRED'
+  | 'SAML_REQUIRED'
+  | 'MFA_REQUIRED'
+  | 'SERVER_ERROR'
+  | 'UNKNOWN_ERROR';
+
 export interface AuthResult {
   success: boolean;
   requiresMFA?: boolean;
   mfaMethod?: 'sms' | 'email';
   error?: string;
+  errorType?: AuthErrorType;
+  retryAfter?: number; // milliseconds to wait before retry
   sessionData?: Record<string, unknown>;
 }
 
@@ -87,6 +102,8 @@ export interface LoginResponse {
   requiresSMS: boolean;
   sessionToken?: string;
   error?: string;
+  errorType?: AuthErrorType;
+  retryAfter?: number;
 }
 
 export interface SyncResult {
@@ -94,4 +111,6 @@ export interface SyncResult {
   scheduleCount: number;
   lastSyncTime: number;
   error?: string;
+  errorType?: AuthErrorType;
+  retryAfter?: number;
 } 
