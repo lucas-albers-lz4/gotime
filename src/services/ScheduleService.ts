@@ -29,29 +29,38 @@ export class ScheduleService {
    */
   public parseScheduleHTML(html: string): WeeklySchedule | null {
     try {
+      console.log('📄 [SCHEDULE] Starting HTML parsing, content length:', html.length);
+      
       // Extract employee information
       const employee = this.extractEmployeeInfo(html);
       if (!employee) {
+        console.log('❌ [SCHEDULE] Failed to extract employee information');
         throw new Error('Could not extract employee information');
       }
 
       // Extract week information
       const weekInfo = this.extractWeekInfo(html);
       if (!weekInfo) {
+        console.log('❌ [SCHEDULE] Failed to extract week information');
         throw new Error('Could not extract week information');
       }
+      console.log('✅ [SCHEDULE] Week info extracted:', weekInfo);
 
       // Extract data as of timestamp
       const dataAsOf = this.extractDataAsOf(html);
+      console.log('📅 [SCHEDULE] Data as of:', dataAsOf);
 
       // Extract schedule entries
       const entries = this.extractScheduleEntries(html);
+      console.log('📋 [SCHEDULE] Extracted', entries.length, 'schedule entries');
 
       // Extract total hours
       const totalHours = this.extractTotalHours(html);
+      console.log('⏰ [SCHEDULE] Total hours:', totalHours);
 
       // Extract straight time earnings
       const straightTimeEarnings = this.extractStraightTimeEarnings(html);
+      console.log('💰 [SCHEDULE] Straight time earnings:', straightTimeEarnings);
 
       return {
         weekStart: weekInfo.start,
@@ -73,39 +82,107 @@ export class ScheduleService {
    */
   private extractEmployeeInfo(html: string): EmployeeInfo | null {
     try {
-      // Extract name (appears in multiple places, look for the header format)
-      const nameMatch = html.match(/<span[^>]*style="[^"]*font-size:14pt[^"]*"[^>]*>([A-Z]+)<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*><br[^>]*>[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-size:14pt[^"]*"[^>]*>([A-Z]+)<\/span>/);
-      const firstName = nameMatch ? nameMatch[1] : '';
-      const lastName = nameMatch ? nameMatch[2] : '';
+      // Extract name from the table format (more reliable than header format)
+      // Try multiple patterns to handle different HTML structures
+      let nameMatch = html.match(/<span[^>]*>Name<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>[^<]*<span[^>]*>&nbsp;<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      // If first pattern doesn't work, try a more flexible pattern
+      if (!nameMatch) {
+        nameMatch = html.match(/<span[^>]*>Name<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>[^<]*<span[^>]*>&nbsp;<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>/s);
+      }
+      
+      // Try even more flexible pattern
+      if (!nameMatch) {
+        nameMatch = html.match(/Name<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>/s);
+      }
+      
+      const firstName = nameMatch ? nameMatch[1].trim() : '';
+      const lastName = nameMatch ? nameMatch[2].trim() : '';
       const name = `${firstName} ${lastName}`.trim();
 
-      // Extract employee ID
-      const employeeIdMatch = html.match(/<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+)<\/span>/);
+      // Extract employee ID - look for Employee # label followed by the ID
+      let employeeIdMatch = html.match(/<span[^>]*>Employee #<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!employeeIdMatch) {
+        employeeIdMatch = html.match(/Employee #<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+)<\/span>/s);
+      }
+      
       const employeeId = employeeIdMatch ? employeeIdMatch[1] : '';
 
-      // Extract location
-      const locationMatch = html.match(/<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+-[^<]+)<\/span>/);
-      const location = locationMatch ? locationMatch[1] : '';
+      // Extract location - look for Location label
+      let locationMatch = html.match(/<span[^>]*>Location<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!locationMatch) {
+        locationMatch = html.match(/Location<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      
+      const location = locationMatch ? locationMatch[1].trim() : '';
 
-      // Extract department
-      const departmentMatch = html.match(/<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>Department<\/span><\/td>[^<]*<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/);
-      const department = departmentMatch ? departmentMatch[1] : '';
+      // Extract department - look for Department label
+      let departmentMatch = html.match(/<span[^>]*>Department<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!departmentMatch) {
+        departmentMatch = html.match(/Department<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      
+      const department = departmentMatch ? departmentMatch[1].trim() : '';
 
-      // Extract job title
-      const jobTitleMatch = html.match(/<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>Job Title<\/span><\/td>[^<]*<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/);
-      const jobTitle = jobTitleMatch ? jobTitleMatch[1] : '';
+      // Extract job title - look for Job Title label
+      let jobTitleMatch = html.match(/<span[^>]*>Job Title<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!jobTitleMatch) {
+        jobTitleMatch = html.match(/Job Title<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      
+      const jobTitle = jobTitleMatch ? jobTitleMatch[1].trim() : '';
 
-      // Extract status
-      const statusMatch = html.match(/<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>Status[^<]*<\/span><\/td>[^<]*<td[^>]*><span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/);
-      const status = statusMatch ? statusMatch[1] : '';
+      // Extract status - look for Status label
+      let statusMatch = html.match(/<span[^>]*>Status[^<]*<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!statusMatch) {
+        statusMatch = html.match(/Status[^<]*<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      
+      const status = statusMatch ? statusMatch[1].trim() : '';
 
-      // Extract hire date
-      const hireDateMatch = html.match(/<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*([0-9/]+)<\/span>/);
-      const hireDate = hireDateMatch ? hireDateMatch[1] : '';
+      // Extract hire date - look for Hire Date pattern
+      let hireDateMatch = html.match(/<span[^>]*>Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9\/]+)<\/span>/s);
+      
+      // Try more flexible pattern
+      if (!hireDateMatch) {
+        hireDateMatch = html.match(/Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9\/]+)<\/span>/s);
+      }
+      
+      const hireDate = hireDateMatch ? hireDateMatch[1].trim() : '';
+
+      console.log('🔍 [SCHEDULE] Extraction results:');
+      console.log('Name match:', !!nameMatch, 'Result:', name);
+      console.log('Employee ID match:', !!employeeIdMatch, 'Result:', employeeId);
+      console.log('Location match:', !!locationMatch, 'Result:', location);
+      console.log('Department match:', !!departmentMatch, 'Result:', department);
+      console.log('Job Title match:', !!jobTitleMatch, 'Result:', jobTitle);
+      console.log('Status match:', !!statusMatch, 'Result:', status);
+      console.log('Hire Date match:', !!hireDateMatch, 'Result:', hireDate);
 
       if (!name || !employeeId) {
+        console.log('❌ [SCHEDULE] Missing required fields - name:', name, 'employeeId:', employeeId);
         return null;
       }
+
+      console.log('✅ [SCHEDULE] Successfully extracted employee info:', {
+        name,
+        employeeId,
+        location,
+        department,
+        jobTitle,
+        status,
+        hireDate,
+      });
 
       return {
         name,
@@ -127,14 +204,91 @@ export class ScheduleService {
    */
   private extractWeekInfo(html: string): { start: string; end: string } | null {
     try {
-      // Look for week range in format "6/2/2025 - 6/8/2025"
-      const weekMatch = html.match(/(\d+\/\d+\/\d+)\s*-[^<]*(\d+\/\d+\/\d+)/);
+      // Look for week range in format "6/2/2025 - 6/8/2025" or "5/26/2025 - 6/1/2025"
+      let weekMatch = html.match(/(\d+\/\d+\/\d+)\s*-[^<]*(\d+\/\d+\/\d+)/);
+      
+      // Try alternative patterns
+      if (!weekMatch) {
+        weekMatch = html.match(/Week:[^<]*(\d+\/\d+\/\d+)[^<]*-[^<]*(\d+\/\d+\/\d+)/);
+      }
+      
+      if (!weekMatch) {
+        weekMatch = html.match(/(\d{1,2}\/\d{1,2}\/\d{4})[^<]*-[^<]*(\d{1,2}\/\d{1,2}\/\d{4})/);
+      }
+      
+      // If no explicit week range found, try to derive from schedule dates
+      if (!weekMatch) {
+        console.log('🔍 [SCHEDULE] No explicit week range found, trying to derive from schedule dates...');
+        
+        // Extract all dates from the schedule table
+        const dateMatches = html.match(/<span[^>]*>(\d+\/\d+\/\d+)<\/span>/g);
+        if (dateMatches) {
+          const dates: string[] = [];
+          for (const match of dateMatches) {
+            const dateMatch = match.match(/>(\d+\/\d+\/\d+)</);
+            if (dateMatch) {
+              dates.push(dateMatch[1]);
+            }
+          }
+          
+          console.log('🔍 [SCHEDULE] Raw dates found:', dates);
+          
+          // Remove duplicates and sort chronologically
+          const uniqueDates = [...new Set(dates)].sort((a, b) => {
+            // Parse dates more explicitly: M/D/YYYY format
+            const [monthA, dayA, yearA] = a.split('/').map(Number);
+            const [monthB, dayB, yearB] = b.split('/').map(Number);
+            
+            const dateA = new Date(yearA, monthA - 1, dayA); // Month is 0-indexed
+            const dateB = new Date(yearB, monthB - 1, dayB);
+            
+            console.log('🔍 [SCHEDULE] Comparing dates:', a, '(', dateA.toISOString(), ') vs', b, '(', dateB.toISOString(), ')');
+            
+            return dateA.getTime() - dateB.getTime();
+          });
+          
+          console.log('🔍 [SCHEDULE] Sorted unique dates:', uniqueDates);
+          
+          if (uniqueDates.length >= 2) {
+            // Use first and last dates as week range
+            const start = uniqueDates[0];
+            const end = uniqueDates[uniqueDates.length - 1];
+            console.log('✅ [SCHEDULE] Derived week info from schedule dates:', start, '-', end);
+            console.log('🔍 [SCHEDULE] Week start (first date):', start);
+            console.log('🔍 [SCHEDULE] Week end (last date):', end);
+            return { start, end };
+          }
+        }
+      }
+      
+      // Try to find dates in the EndDate parameter (from the XML-like content)
+      if (!weekMatch) {
+        console.log('🔍 [SCHEDULE] Trying to extract from EndDate parameter...');
+        const endDateMatch = html.match(/EndDate.*?2025-(\d{2})-(\d{2})/);
+        if (endDateMatch) {
+          const month = endDateMatch[1];
+          const day = endDateMatch[2];
+          const endDate = `${parseInt(month)}/${parseInt(day)}/2025`;
+          
+          // Calculate start date (assuming 7-day week)
+          const endDateObj = new Date(2025, parseInt(month) - 1, parseInt(day));
+          const startDateObj = new Date(endDateObj.getTime() - (6 * 24 * 60 * 60 * 1000));
+          const startDate = `${startDateObj.getMonth() + 1}/${startDateObj.getDate()}/2025`;
+          
+          console.log('✅ [SCHEDULE] Derived week info from EndDate parameter:', startDate, '-', endDate);
+          return { start: startDate, end: endDate };
+        }
+      }
+      
       if (weekMatch) {
+        console.log('✅ [SCHEDULE] Week info extracted:', weekMatch[1], '-', weekMatch[2]);
         return {
           start: weekMatch[1],
           end: weekMatch[2],
         };
       }
+      
+      console.log('❌ [SCHEDULE] Could not extract week info');
       return null;
     } catch (error) {
       console.error('Error extracting week info:', error);
@@ -147,23 +301,40 @@ export class ScheduleService {
    */
   private extractDataAsOf(html: string): string | null {
     try {
-      // Extract date from "Data as of:5/29/2025" pattern
-      const dateMatch = html.match(/Data as of:\s*([^<\s]+)/i);
+      // Extract date from "Data as of:" pattern with better HTML structure matching
+      let dateMatch = html.match(/<span[^>]*>Data as of:<\/span>[^<]*<span[^>]*>([^<]+)<\/span>/i);
       
-      // Extract time from "valid as of 7:24:02 AM" pattern
-      const timeMatch = html.match(/valid as of[^>]*>\s*([^<]+)/i);
+      // Try more flexible patterns
+      if (!dateMatch) {
+        dateMatch = html.match(/Data as of:[^<]*<\/span>[^<]*<span[^>]*>([^<]+)<\/span>/i);
+      }
+      
+      if (!dateMatch) {
+        dateMatch = html.match(/Data as of:\s*([^<\s]+)/i);
+      }
+      
+      // Extract time from "valid as of" pattern
+      let timeMatch = html.match(/valid as of[^>]*>\s*([^<]+)/i);
+      
+      // Try alternative time patterns
+      if (!timeMatch) {
+        timeMatch = html.match(/valid as of[^<]*([0-9]{1,2}:[0-9]{2}:[0-9]{2}\s*[AP]M)/i);
+      }
       
       if (dateMatch && timeMatch) {
         const date = dateMatch[1].trim();
         const time = timeMatch[1].trim();
+        console.log('✅ [SCHEDULE] Data as of extracted:', `${date} ${time}`);
         return `${date} ${time}`;
       }
       
       // Fallback to just date if time not found
       if (dateMatch) {
+        console.log('✅ [SCHEDULE] Data as of (date only) extracted:', dateMatch[1].trim());
         return dateMatch[1].trim();
       }
       
+      console.log('❌ [SCHEDULE] Could not extract data as of timestamp');
       return null;
     } catch (error) {
       console.error('Error extracting data as of:', error);
@@ -175,91 +346,179 @@ export class ScheduleService {
    * Extract schedule entries from the table
    */
   private extractScheduleEntries(html: string): ScheduleEntry[] {
+    const entries: ScheduleEntry[] = [];
+    
     try {
-      const entries: ScheduleEntry[] = [];
+      // Look for the schedule table - try multiple patterns
+      let tableMatch = html.match(/<table[^>]*class="ls"[^>]*>.*?<\/table>/s);
       
-      // Find the schedule table (look for table with "Weekly Schedule Detail")
-      const tableMatch = html.match(/<table[^>]*class="ls"[^>]*LID="List3_NS_"[^>]*>(.*?)<\/table>/s);
+      // Try alternative table patterns
       if (!tableMatch) {
-        return entries;
+        tableMatch = html.match(/<table[^>]*>.*?Weekly Schedule Detail.*?<\/table>/s);
       }
-
-      const tableContent = tableMatch[1];
       
-      // Extract all table rows (skip header rows)
-      const rowMatches = tableContent.match(/<tr[^>]*>.*?<\/tr>/gs);
-      if (!rowMatches) {
+      if (!tableMatch) {
+        tableMatch = html.match(/<table[^>]*>.*?<span[^>]*>Day<\/span>.*?<\/table>/s);
+      }
+      
+      if (!tableMatch) {
+        console.log('❌ [SCHEDULE] Could not find schedule table');
         return entries;
       }
-
+      
+      const tableHtml = tableMatch[0];
+      console.log('✅ [SCHEDULE] Found schedule table, length:', tableHtml.length);
+      
+      // Extract all table rows - more flexible pattern
+      const rowMatches = tableHtml.match(/<tr[^>]*>.*?<\/tr>/gs);
+      
+      if (!rowMatches) {
+        console.log('❌ [SCHEDULE] No table rows found');
+        return entries;
+      }
+      
+      console.log('🔍 [SCHEDULE] Found', rowMatches.length, 'table rows');
+      
+      // Skip header rows and process data rows
+      let dataRowsFound = 0;
       let currentDay = '';
       let currentDate = '';
       let currentShifts: ScheduleShift[] = [];
       let currentDailyHours = 0;
-
-      for (const row of rowMatches) {
-        // Skip header rows
-        if (row.includes('Weekly Schedule Detail') || 
-            row.includes('Start Time') || 
-            row.includes('Total Hours')) {
+      
+      for (let i = 0; i < rowMatches.length; i++) {
+        const row = rowMatches[i];
+        
+        // Skip header rows (contain "Day", "Date", etc.)
+        if (row.includes('Day</span>') || row.includes('Date</span>') || row.includes('Start Time</span>') || row.includes('Weekly Schedule Detail')) {
+          console.log('🔍 [SCHEDULE] Skipping header row', i);
           continue;
         }
-
-        // Extract cell contents
-        const cells = this.extractTableCells(row);
-        if (cells.length < 6) {
-          continue;
-        }
-
-        const day = cells[0].trim();
-        const date = cells[1].trim();
-        const startTime = cells[2].trim();
-        const endTime = cells[3].trim();
-        const shiftHours = parseFloat(cells[4]) || 0;
-        const dailyHours = parseFloat(cells[5]) || 0;
-        const altLocation = cells[6]?.trim() || '';
-        const altDeptJob = cells[7]?.trim() || '';
-        const payCode = cells[8]?.trim() || '';
-        const changedOn = cells[9]?.trim() || '';
-
-        // Check if this is a new day or continuation of current day
-        if (day && day !== currentDay) {
-          // Save previous day if it exists
-          if (currentDay && currentDate) {
-            entries.push({
-              day: currentDay,
-              date: currentDate,
-              shifts: [...currentShifts],
-              dailyHours: currentDailyHours,
-            });
+        
+        console.log('🔍 [SCHEDULE] ===== PROCESSING ROW', i, '=====');
+        console.log('🔍 [SCHEDULE] Raw HTML row:', row);
+        
+        // Extract day information using more flexible patterns
+        const dayMatch = row.match(/<span[^>]*>([A-Za-z]+)<\/span>/);
+        const dateMatch = row.match(/<span[^>]*>(\d+\/\d+\/\d+)<\/span>/);
+        
+        console.log('🔍 [SCHEDULE] Day regex match:', dayMatch);
+        console.log('🔍 [SCHEDULE] Date regex match:', dateMatch);
+        
+        // Extract times - handle both 12-hour and 24-hour formats, more flexible
+        const allSpans = row.match(/<span[^>]*>([^<]*)<\/span>/g) || [];
+        console.log('🔍 [SCHEDULE] All span matches (raw):', allSpans);
+        
+        const spanContents = allSpans.map(span => {
+          const match = span.match(/>([^<]*)</);
+          return match ? match[1].trim() : '';
+        });
+        
+        console.log('🔍 [SCHEDULE] All span contents for row:', spanContents);
+        
+        // Look for time patterns in span contents
+        const timePattern = /(\d{1,2}:\d{2}\s*[AP]M)/;
+        const hourPattern = /^(\d+\.?\d*)$/;
+        
+        const times = spanContents.filter(content => timePattern.test(content));
+        const hours = spanContents.filter(content => hourPattern.test(content) && parseFloat(content) > 0 && parseFloat(content) <= 24);
+        
+        console.log('🔍 [SCHEDULE] Extracted times:', times);
+        console.log('🔍 [SCHEDULE] Extracted hours:', hours);
+        
+        // Check if this is a data row (has either day name or date with times)
+        const hasDay = dayMatch && dayMatch[1];
+        const hasDate = dateMatch && dateMatch[1];
+        const hasTimes = times.length >= 2;
+        const hasHours = hours.length >= 1;
+        
+        console.log('🔍 [SCHEDULE] Row analysis - hasDay:', hasDay, 'hasDate:', hasDate, 'hasTimes:', hasTimes, 'hasHours:', hasHours);
+        
+        if ((hasDay && hasDate) || (hasDate && hasTimes && hasHours)) {
+          dataRowsFound++;
+          
+          let dayName = '';
+          let date = '';
+          
+          if (hasDay) {
+            // This is a new day row
+            dayName = dayMatch[1];
+            date = dateMatch[1];
+          } else if (hasDate && currentDate === dateMatch[1]) {
+            // This is a continuation row for the same date
+            dayName = currentDay;
+            date = currentDate;
+            console.log('🔍 [SCHEDULE] Found continuation row for same date:', date);
+          } else {
+            // Skip this row if we can't determine the day
+            console.log('🔍 [SCHEDULE] Skipping row - cannot determine day/date relationship');
+            continue;
           }
+          
+          // Extract start and end times
+          let startTime = '';
+          let endTime = '';
+          
+          if (times.length >= 2) {
+            startTime = times[0];
+            endTime = times[1];
+          }
+          
+          // Extract hours
+          let shiftHours = 0;
+          let dailyHours = 0;
+          
+          if (hours.length >= 1) {
+            shiftHours = parseFloat(hours[0]);
+          }
+          if (hours.length >= 2) {
+            dailyHours = parseFloat(hours[1]);
+          }
+          
+          console.log('🔍 [SCHEDULE] Parsed values - Day:', dayName, 'Date:', date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours);
+          
+          // Check if this is a new day or continuation of current day
+          if (dayName && dayName !== currentDay) {
+            // Save previous day if it exists
+            if (currentDay && currentDate) {
+              entries.push({
+                day: currentDay,
+                date: currentDate,
+                shifts: [...currentShifts],
+                dailyHours: currentDailyHours,
+              });
+            }
 
-          // Start new day
-          currentDay = day;
-          currentDate = date;
-          currentShifts = [];
-          currentDailyHours = dailyHours;
-        }
-
-        // Add shift if there are times
-        if (startTime && endTime) {
-          currentShifts.push({
-            startTime,
-            endTime,
-            shiftHours,
-            altLocation: altLocation || undefined,
-            altDeptJob: altDeptJob || undefined,
-            payCode: payCode || undefined,
-            changedOn: changedOn || undefined,
-          });
-        }
-
-        // Update daily hours if provided
-        if (dailyHours > 0) {
-          currentDailyHours = dailyHours;
+            // Start new day
+            currentDay = dayName;
+            currentDate = date;
+            currentShifts = [];
+            currentDailyHours = dailyHours;
+          } else if (dayName === currentDay && date === currentDate) {
+            // Same day, same date - this is an additional shift for the same day
+            console.log('🔍 [SCHEDULE] Found additional shift for same day:', dayName, date);
+          }
+          
+          // Add shift if there are times and hours
+          if (startTime && endTime && shiftHours > 0) {
+            currentShifts.push({
+              startTime,
+              endTime,
+              shiftHours,
+            });
+            console.log('✅ [SCHEDULE] Added shift:', { startTime, endTime, shiftHours });
+          }
+          
+          // Update daily hours if provided (use the latest non-zero value)
+          if (dailyHours > 0) {
+            currentDailyHours = dailyHours;
+            console.log('✅ [SCHEDULE] Updated daily hours to:', dailyHours);
+          }
+          
+          console.log('✅ [SCHEDULE] Processed row for day:', dayName, date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours);
         }
       }
-
+      
       // Add the last day
       if (currentDay && currentDate) {
         entries.push({
@@ -269,31 +528,14 @@ export class ScheduleService {
           dailyHours: currentDailyHours,
         });
       }
-
+      
+      console.log('✅ [SCHEDULE] Extracted', entries.length, 'schedule entries from', dataRowsFound, 'data rows');
       return entries;
+      
     } catch (error) {
-      console.error('Error extracting schedule entries:', error);
-      return [];
+      console.error('❌ [SCHEDULE] Error extracting schedule entries:', error);
+      return entries;
     }
-  }
-
-  /**
-   * Extract cell contents from a table row
-   */
-  private extractTableCells(row: string): string[] {
-    const cells: string[] = [];
-    const cellMatches = row.match(/<td[^>]*>.*?<\/td>/gs);
-    
-    if (cellMatches) {
-      for (const cell of cellMatches) {
-        // Extract text content, handling nested spans
-        const textMatch = cell.match(/<span[^>]*>([^<]*)<\/span>/);
-        const text = textMatch ? textMatch[1] : '';
-        cells.push(text.replace(/&nbsp;/g, ' ').trim());
-      }
-    }
-    
-    return cells;
   }
 
   /**
@@ -301,8 +543,55 @@ export class ScheduleService {
    */
   private extractTotalHours(html: string): number | null {
     try {
-      const totalMatch = html.match(/<span[^>]*>Total Hours<\/span>[^<]*<\/td>[^<]*<td[^>]*><span[^>]*>([0-9.]+)<\/span>/);
-      return totalMatch ? parseFloat(totalMatch[1]) : null;
+      // Try the original pattern first
+      let totalMatch = html.match(/<span[^>]*>Total Hours<\/span>[^<]*<\/td>[^<]*<td[^>]*><span[^>]*>([0-9.]+)<\/span>/);
+      
+      // Try more flexible patterns
+      if (!totalMatch) {
+        totalMatch = html.match(/Total Hours<\/span>.*?<span[^>]*>([0-9.]+)<\/span>/s);
+      }
+      
+      if (!totalMatch) {
+        totalMatch = html.match(/<span[^>]*>Total Hours[^<]*<\/span>.*?<span[^>]*>([0-9.]+)<\/span>/s);
+      }
+      
+      // If no explicit total found, calculate from daily hours in the schedule
+      if (!totalMatch) {
+        console.log('🔍 [SCHEDULE] No explicit total hours found, calculating from schedule...');
+        
+        // Extract all daily hours from the schedule table
+        const dailyHoursMatches = html.match(/<span[^>]*>(\d+\.\d+|\d+)<\/span>/g);
+        if (dailyHoursMatches) {
+          let totalHours = 0;
+          let hoursFound = 0;
+          
+          for (const match of dailyHoursMatches) {
+            const hourMatch = match.match(/>(\d+\.\d+|\d+)</);
+            if (hourMatch) {
+              const hours = parseFloat(hourMatch[1]);
+              // Only count reasonable hour values (0-24 range)
+              if (hours >= 0 && hours <= 24) {
+                totalHours += hours;
+                hoursFound++;
+              }
+            }
+          }
+          
+          if (hoursFound > 0) {
+            console.log('✅ [SCHEDULE] Calculated total hours from schedule:', totalHours);
+            return totalHours;
+          }
+        }
+      }
+      
+      const result = totalMatch ? parseFloat(totalMatch[1]) : null;
+      if (result) {
+        console.log('✅ [SCHEDULE] Total hours extracted:', result);
+      } else {
+        console.log('❌ [SCHEDULE] Could not extract total hours');
+      }
+      
+      return result;
     } catch (error) {
       console.error('Error extracting total hours:', error);
       return null;
@@ -725,6 +1014,40 @@ export class ScheduleService {
       return selectedSchedule;
     } catch (error) {
       console.error('ScheduleService: Error loading demo schedule:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Parse and save real schedule data from HTML content
+   */
+  public async parseAndSaveRealSchedule(html: string): Promise<WeeklySchedule | null> {
+    try {
+      console.log('📅 [SCHEDULE] Parsing and saving real schedule from provided HTML...');
+      
+      if (!html || html.length < 1000) { // Basic sanity check for HTML content
+        console.log('❌ [SCHEDULE] Invalid or empty HTML provided for parsing.');
+        return null;
+      }
+      
+      console.log('📄 [SCHEDULE] HTML content received, length:', html.length);
+      
+      // Parse the HTML to extract schedule data
+      const schedule = this.parseScheduleHTML(html);
+      
+      if (schedule) {
+        console.log('✅ [SCHEDULE] Schedule parsed successfully for week:', schedule.weekStart, '-', schedule.weekEnd);
+        
+        // Save the schedule locally
+        await this.saveSchedule(schedule);
+        console.log('💾 [SCHEDULE] Real schedule saved locally.');
+        return schedule;
+      } else {
+        console.log('❌ [SCHEDULE] Failed to parse schedule HTML');
+        return null;
+      }
+    } catch (error) {
+      console.error('💥 [SCHEDULE] Error parsing/saving real schedule:', error);
       return null;
     }
   }

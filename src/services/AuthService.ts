@@ -1,12 +1,12 @@
-import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { UserCredentials, LoginResponse, AuthResult } from '../types';
 import { APP_CONFIG } from '../constants';
 import StorageService from './StorageService';
+import { RateLimitedHttpClient } from './RateLimitedHttpClient';
 
 export class AuthService {
   private static instance: AuthService;
-  private httpClient: AxiosInstance;
+  private httpClient: RateLimitedHttpClient;
   private sessionToken: string | null = null;
   private f5SessionId: string | null = null;
   private currentUserAgent: string;
@@ -22,19 +22,8 @@ export class AuthService {
       ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
-    // Configure HTTP client for ESS requests
-    this.httpClient = axios.create({
-      timeout: APP_CONFIG.SYNC_TIMEOUT_MS,
-      headers: {
-        'User-Agent': this.currentUserAgent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-      },
-    });
+    // Use the rate-limited HTTP client
+    this.httpClient = RateLimitedHttpClient.getInstance();
 
     this.storageService = StorageService;
   }
@@ -61,10 +50,12 @@ export class AuthService {
    */
   public async login(credentials: UserCredentials): Promise<AuthResult> {
     try {
-      console.log('🔐 Starting corporate portal authentication...');
+      console.log('🎯 [LOGIN] Starting corporate portal authentication');
+      console.log('👤 [LOGIN] Employee ID:', credentials.employeeId.substring(0, 3) + '***');
       
       // Check platform limitations
       if (Platform.OS === 'web') {
+        console.log('🌐 [LOGIN] Web platform detected - CORS limitations');
         return {
           success: false,
           error: 'Web platform authentication not supported due to CORS restrictions. Please use the mobile app.',
@@ -73,6 +64,7 @@ export class AuthService {
 
       // Validate credentials
       if (!credentials.employeeId || !credentials.password) {
+        console.log('❌ [LOGIN] Missing credentials');
         return {
           success: false,
           error: 'Employee ID and password are required',
@@ -87,6 +79,7 @@ export class AuthService {
 
       // Step 2: Handle SAML redirect
       if (initialResult.requiresMFA) {
+        console.log('🔐 [LOGIN] MFA required - switching to SMS verification');
         return {
           success: false,
           requiresMFA: true,
@@ -98,16 +91,18 @@ export class AuthService {
 
       // If we somehow get past SAML (unlikely), save credentials
       if (credentials.rememberMe) {
+        console.log('💾 [LOGIN] Saving credentials for future use');
         await this.saveCredentials(credentials);
       }
 
+      console.log('✅ [LOGIN] Authentication completed successfully');
       return {
         success: true,
         sessionData: initialResult.sessionData,
       };
 
     } catch (error) {
-      console.error('❌ Authentication error:', error);
+      console.error('💥 [ERROR] Authentication exception:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown authentication error',
@@ -121,6 +116,9 @@ export class AuthService {
   private async attemptESSLogin(credentials: UserCredentials): Promise<AuthResult> {
     try {
       const loginUrl = APP_CONFIG.PORTAL_URLS.LOGIN;
+      
+      console.log('🚀 [AUTH FLOW] Starting login attempt');
+      console.log('📍 [URL] POST:', loginUrl);
       
       // Prepare login request
       const loginData = new FormData();
@@ -146,18 +144,48 @@ export class AuthService {
       const responseText = await response.text();
       const responseUrl = response.url;
 
-      console.log('📍 Response URL:', responseUrl);
-      console.log('📊 Response Status:', response.status);
+      console.log('📊 [RESPONSE] Status:', response.status);
+      console.log('📍 [URL] Response:', responseUrl);
+      console.log('🔗 [REDIRECT] Location:', response.headers.get('Location') || 'None');
+      
+      // Log key response characteristics without overwhelming detail
+      const responseLength = responseText.length;
+      const hasForm = responseText.toLowerCase().includes('<form');
+      const hasScript = responseText.toLowerCase().includes('<script');
+      console.log('📄 [CONTENT] Length:', responseLength, 'HasForm:', hasForm, 'HasScript:', hasScript);
+
+      // DEBUG: If we're at an intermediate page, let's see what forms are available
+      if (responseUrl.includes('/my.policy') || responseUrl.includes('policy')) {
+        console.log('🔍 [DEBUG] Policy/intermediate page detected');
+        this.logFormDetails(responseText);
+      }
+
+      // DEBUG: If we have a short response, log more details
+      if (responseLength < 2000) {
+        console.log('🔍 [DEBUG] Short response - logging first 500 chars:');
+        console.log(responseText.substring(0, 500));
+      }
 
       // Check for various response patterns
       if (this.isLogoutPage(responseText)) {
+        console.log('❌ [AUTH] Logout/error page detected');
         return {
           success: false,
           error: 'Login failed: Invalid credentials or session expired',
         };
       }
 
+      // Handle intermediate pages (like policy acceptance)
+      if (this.isIntermediatePage(responseText, responseUrl)) {
+        console.log('📋 [AUTH] Intermediate page detected - attempting to continue');
+        const continueResult = await this.handleIntermediatePage(responseText, responseUrl);
+        if (continueResult) {
+          return continueResult;
+        }
+      }
+
       if (this.isSAMLRedirect(responseText, responseUrl)) {
+        console.log('🔄 [AUTH] SAML/PingOne redirect detected');
         return {
           success: false,
           requiresMFA: true,
@@ -168,6 +196,7 @@ export class AuthService {
       }
 
       if (this.isSuccessfulLogin(responseText, responseUrl)) {
+        console.log('✅ [AUTH] Successful login detected');
         return {
           success: true,
           sessionData: { responseText, responseUrl },
@@ -176,6 +205,7 @@ export class AuthService {
 
       // Extract any error messages
       const errorMessage = this.extractErrorMessage(responseText);
+      console.log('❌ [AUTH] Login failed:', errorMessage || 'Unknown error');
       
       return {
         success: false,
@@ -183,7 +213,7 @@ export class AuthService {
       };
 
     } catch (error) {
-      console.error('ESS login error:', error);
+      console.error('💥 [ERROR] ESS login exception:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Network error during login',
@@ -192,14 +222,18 @@ export class AuthService {
   }
 
   /**
-   * Check if response indicates a logout page
+   * Check if response indicates a logout page or session error
    */
   private isLogoutPage(html: string): boolean {
     const logoutIndicators = [
       'BIG-IP logout page',
+      'big-ip can not find session information',
+      'your session could not be established',
       'session expired',
       'logged out',
       'session has been terminated',
+      'cookies are disabled in your browser',
+      'f5 networks', // F5 load balancer error pages
     ];
     
     const lowerHtml = html.toLowerCase();
@@ -207,15 +241,79 @@ export class AuthService {
   }
 
   /**
-   * Check if response indicates SAML redirect
+   * Enhanced SAML redirect detection with PingOne specifics
    */
   private isSAMLRedirect(html: string, url: string): boolean {
-    return (
-      html.includes('SAMLRequest') ||
-      url.includes('login.costco.com') ||
-      url.includes('authenticator.pingone.com') ||
-      html.includes('saml2')
+    const lowerHtml = html.toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    
+    // PingOne specific indicators (most reliable)
+    const pingOneIndicators = [
+      'authenticator.pingone.com',
+      'pingid',
+      'ping identity',
+      'pingone',
+    ];
+    
+    // SAML indicators in content
+    const samlContentIndicators = [
+      'samlrequest',
+      'saml2',
+      'sso.saml',
+      'idp/sso',
+      'shibboleth',
+      'federation',
+    ];
+    
+    // SAML indicators in URL
+    const samlUrlIndicators = [
+      'login.costco.com',
+      'sso.costco.com',
+      'idp.costco.com',
+      'saml',
+      'sso',
+    ];
+    
+    // Check for PingOne (most specific)
+    const hasPingOneIndicator = pingOneIndicators.some(indicator => 
+      lowerHtml.includes(indicator) || lowerUrl.includes(indicator),
     );
+    
+    // Check content
+    const hasContentIndicator = samlContentIndicators.some(indicator => 
+      lowerHtml.includes(indicator),
+    );
+    
+    // Check URL
+    const hasUrlIndicator = samlUrlIndicators.some(indicator => 
+      lowerUrl.includes(indicator),
+    );
+    
+    // Check for SAML form elements
+    const hasSamlForm = lowerHtml.includes('<form') && (
+      lowerHtml.includes('samlrequest') || 
+      lowerHtml.includes('samlresponse') ||
+      lowerHtml.includes('action="') && (
+        lowerHtml.includes('sso') || 
+        lowerHtml.includes('saml') ||
+        lowerHtml.includes('pingone')
+      )
+    );
+    
+    const isSamlRedirect = hasPingOneIndicator || hasContentIndicator || hasUrlIndicator || hasSamlForm;
+    
+    if (isSamlRedirect) {
+      console.log('🔍 [DETECTION] SAML/PingOne redirect confirmed');
+      console.log('🎯 [INDICATORS] Found:', {
+        pingOne: hasPingOneIndicator,
+        content: hasContentIndicator,
+        url: hasUrlIndicator,
+        form: hasSamlForm,
+      });
+      console.log('📍 [TARGET URL]:', url.substring(0, 50) + (url.length > 50 ? '...' : ''));
+    }
+    
+    return isSamlRedirect;
   }
 
   /**
@@ -329,382 +427,8 @@ export class AuthService {
   }
 
   /**
-   * Handle 2FA verification (placeholder for future implementation)
+   * Enhanced MFA detection with PingOne SMS patterns
    */
-  public async verify2FA(_code: string, _sessionData: Record<string, unknown>): Promise<AuthResult> {
-    // This would handle the PingOne 2FA verification
-    return {
-      success: false,
-      error: '2FA verification not yet implemented. This requires handling the PingOne authentication flow.',
-    };
-  }
-
-  /**
-   * Navigate to schedule page (placeholder for future implementation)
-   */
-  public async navigateToSchedules(_sessionData: Record<string, unknown>): Promise<AuthResult> {
-    // This would handle navigation through the ESS portal to the Cognos BI schedules
-    return {
-      success: false,
-      error: 'Schedule navigation not yet implemented. This requires automating the ESS portal navigation.',
-    };
-  }
-
-  // Attempt to login to corporate ESS portal
-  async loginToCorporatePortal(username: string, password: string): Promise<LoginResponse> {
-    try {
-      console.log('🔐 Starting corporate portal login...');
-      
-      // Reset session state
-      this.sessionToken = null;
-      this.f5SessionId = null;
-      this.sessionData = null;
-
-      // Validate inputs
-      if (!username || !password) {
-        return {
-          success: false,
-          requiresSMS: false,
-          error: 'Username and password are required',
-        };
-      }
-
-      console.log('Target URL:', APP_CONFIG.PORTAL_URLS.LOGIN);
-
-      // Step 1: Get login page to establish session
-      const loginPageResponse = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.LOGIN);
-      
-      // Extract any session cookies or form fields
-      this.extractF5Session(loginPageResponse.headers['set-cookie']);
-      const formFields = this.extractESSFormFields(loginPageResponse.data);
-
-      // Step 2: Submit credentials
-      if (this.f5SessionId) {
-        // If we have an F5 session, try to establish a new session first
-        const newSessionResponse = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.BASE);
-        this.extractF5Session(newSessionResponse.headers['set-cookie']);
-      }
-
-      // Prepare login data
-      const loginData = new URLSearchParams({
-        username: username,
-        password: password,
-        ...formFields, // Include any hidden form fields
-      });
-
-      // Submit login request
-      const loginResponse = await this.httpClient.post(
-        APP_CONFIG.PORTAL_URLS.LOGIN,
-        loginData,
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': APP_CONFIG.PORTAL_URLS.LOGIN,
-            'Origin': APP_CONFIG.PORTAL_URLS.BASE,
-            ...this.getESSHeaders(),
-          },
-          maxRedirects: 0, // Handle redirects manually
-          validateStatus: () => true, // Accept all status codes
-        }
-      );
-
-      console.log('Login response status:', loginResponse.status);
-      console.log('Login response headers:', Object.keys(loginResponse.headers));
-      console.log('Login response URL:', loginResponse.config?.url);
-
-      // Extract ESS session information
-      console.log('Step 5: Extracting session information...');
-      this.extractESSSession(loginResponse.headers['set-cookie']);
-      console.log('Session token:', this.sessionToken ? 'extracted' : 'not found');
-      
-      const responseText = loginResponse.data;
-      console.log('Response content length:', responseText?.length || 0);
-      console.log('Response content preview:', responseText?.substring(0, 500) + '...');
-      
-      // Log more details about the response for debugging
-      if (responseText?.includes('SAMLRequest')) {
-        console.log('🔍 SAML Request detected in response');
-        console.log('🔍 Full response (first 1000 chars):', responseText.substring(0, 1000));
-      }
-      
-      if (responseText?.includes('logout')) {
-        console.log('🔍 Logout page detected');
-        console.log('🔍 Looking for session establishment message...');
-        const sessionMatch = responseText.match(/To open a new session[^<]*</i);
-        if (sessionMatch) {
-          console.log('🔍 Session message found:', sessionMatch[0]);
-        }
-      }
-
-      // Check for ESS-specific success indicators
-      console.log('Step 6: Checking for success indicators...');
-      const isSuccess = this.isESSLoginSuccessful(responseText);
-      console.log('Login success check result:', isSuccess);
-      
-      if (isSuccess) {
-        console.log('✅ ESS login successful');
-        return {
-          success: true,
-          requiresSMS: false,
-          sessionToken: this.sessionToken || undefined,
-        };
-      }
-
-      // Check for SAML authentication flow BEFORE checking MFA
-      if (responseText.includes('SAMLRequest') || responseText.includes('saml')) {
-        console.log('🔄 SAML authentication flow detected - following SAML redirect...');
-        return await this.handleSAMLFlow(responseText, formFields);
-      }
-
-      // Check for SMS/MFA requirement (only if not SAML and not logout page)
-      console.log('Step 7: Checking for MFA requirement...');
-      const requiresMFA = this.requiresMFA(responseText);
-      console.log('MFA required check result:', requiresMFA);
-      
-      if (requiresMFA) {
-        console.log('🔐 MFA verification required');
-        return {
-          success: false,
-          requiresSMS: true,
-        };
-      }
-
-      // Check for ESS authentication errors
-      console.log('Step 8: Checking for error messages...');
-      const errorMessage = this.extractESSError(responseText);
-      console.log('Extracted error message:', errorMessage || 'none found');
-      
-      if (errorMessage) {
-        console.log('❌ Login failed with error:', errorMessage);
-        return {
-          success: false,
-          requiresSMS: false,
-          error: errorMessage,
-        };
-      }
-
-      // Unknown response
-      console.log('❓ Unknown response - login status unclear');
-      console.log('Full response for debugging:', responseText);
-      return {
-        success: false,
-        requiresSMS: false,
-        error: 'Unexpected response from ESS server',
-      };
-
-    } catch (error) {
-      console.error('💥 ESS login failed with exception:', error);
-      console.error('Error details:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        response: (error as { response?: { data?: string } })?.response?.data?.substring(0, 200),
-        status: (error as { response?: { status?: number } })?.response?.status,
-      });
-      return {
-        success: false,
-        requiresSMS: false,
-        error: error instanceof Error ? error.message : 'Network error',
-      };
-    }
-  }
-
-  // Handle MFA verification for ESS portal
-  async handleESSMFA(verificationCode: string): Promise<LoginResponse> {
-    try {
-      // This is a placeholder - actual implementation would depend on the specific MFA system
-      const mfaResponse = await this.httpClient.post(
-        APP_CONFIG.PORTAL_URLS.LOGIN, // Or specific MFA endpoint
-        {
-          verificationCode,
-          sessionToken: this.sessionToken,
-        },
-        {
-          headers: this.getESSHeaders(),
-        }
-      );
-
-      const responseText = mfaResponse.data;
-      
-      if (this.isESSLoginSuccessful(responseText)) {
-        this.extractESSSession(mfaResponse.headers['set-cookie']);
-        return {
-          success: true,
-          requiresSMS: false,
-          sessionToken: this.sessionToken || undefined,
-        };
-      }
-
-      return {
-        success: false,
-        requiresSMS: false,
-        error: 'Invalid verification code',
-      };
-
-    } catch (error) {
-      console.error('ESS MFA verification failed:', error);
-      return {
-        success: false,
-        requiresSMS: false,
-        error: error instanceof Error ? error.message : 'MFA verification failed',
-      };
-    }
-  }
-
-  // Validate current ESS session
-  async validateESSSession(): Promise<boolean> {
-    try {
-      if (!this.sessionToken && !this.f5SessionId) {
-        return false;
-      }
-
-      // Try to access a protected page to validate session
-      const response = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.BASE, {
-        headers: this.getESSHeaders(),
-        validateStatus: () => true,
-      });
-
-      // Check if we're still authenticated (not redirected to login)
-      return !response.data.includes('BIG-IP can not find session information') &&
-             !response.data.includes('username') &&
-             !response.data.includes('password');
-    } catch (error) {
-      console.error('ESS session validation failed:', error);
-      return false;
-    }
-  }
-
-  // Extract F5 BIG-IP session information
-  private extractF5Session(cookies: string[] | undefined): void {
-    console.log('🍪 Extracting F5 session from cookies:', cookies);
-    if (!cookies) {
-      console.log('No cookies provided for F5 session extraction');
-      return;
-    }
-    
-    for (const cookie of cookies) {
-      console.log('Checking cookie for F5 session:', cookie);
-      // Look for F5 session cookies
-      if (cookie.includes('BIGipServer') || cookie.includes('F5_')) {
-        const match = cookie.match(/([^=]+)=([^;]+)/);
-        if (match) {
-          this.f5SessionId = match[2];
-          console.log('✅ F5 session extracted:', match[1]);
-          break;
-        }
-      }
-    }
-    
-    if (!this.f5SessionId) {
-      console.log('❌ No F5 session found in cookies');
-    }
-  }
-
-  // Extract ESS session information
-  private extractESSSession(cookies: string[] | undefined): void {
-    console.log('🍪 Extracting ESS session from cookies:', cookies);
-    if (!cookies) {
-      console.log('No cookies provided for ESS session extraction');
-      return;
-    }
-    
-    for (const cookie of cookies) {
-      console.log('Checking cookie for ESS session:', cookie);
-      // Look for ESS session cookies
-      if (cookie.includes('JSESSIONID') || cookie.includes('session') || cookie.includes('auth')) {
-        const match = cookie.match(/([^=]+)=([^;]+)/);
-        if (match) {
-          this.sessionToken = match[2];
-          console.log('✅ ESS session extracted:', match[1]);
-          break;
-        }
-      }
-    }
-    
-    if (!this.sessionToken) {
-      console.log('❌ No ESS session found in cookies');
-    }
-  }
-
-  // Extract ESS-specific form fields using regex
-  private extractESSFormFields(html: string): Record<string, string> {
-    const fields: Record<string, string> = {};
-    
-    // Use regex to find hidden input fields
-    const hiddenInputRegex = /<input[^>]*type=["']hidden["'][^>]*>/gi;
-    const matches = html.match(hiddenInputRegex);
-    
-    if (matches) {
-      for (const match of matches) {
-        const nameMatch = match.match(/name=["']([^"']+)["']/i);
-        const valueMatch = match.match(/value=["']([^"']*)["']/i);
-        
-        if (nameMatch && valueMatch) {
-          fields[nameMatch[1]] = valueMatch[1];
-        }
-      }
-    }
-    
-    return fields;
-  }
-
-  // Check if ESS login was successful using string matching
-  private isESSLoginSuccessful(responseText: string): boolean {
-    const lowerResponse = responseText.toLowerCase();
-    
-    // Check for explicit failure indicators first
-    const failureIndicators = [
-      'logout page',
-      'big-ip logout',
-      'session expired',
-      'authentication failed',
-      'invalid credentials',
-      'access denied',
-      'unauthorized',
-    ];
-    
-    const hasFailureIndicator = failureIndicators.some(indicator => 
-      lowerResponse.includes(indicator),
-    );
-    
-    if (hasFailureIndicator) {
-      console.log('❌ Failure indicator detected:', failureIndicators.find(indicator => 
-        lowerResponse.includes(indicator),
-      ));
-      return false;
-    }
-    
-    // Check for login form presence (indicates we're still on login page)
-    const hasLoginForm = (lowerResponse.includes('username') || lowerResponse.includes('user name')) && 
-                        (lowerResponse.includes('password') || lowerResponse.includes('pwd')) &&
-                        (lowerResponse.includes('login') || lowerResponse.includes('sign in'));
-    
-    if (hasLoginForm) {
-      console.log('❌ Login form still present - authentication not completed');
-      return false;
-    }
-    
-    // ESS success indicators (only if no failure indicators)
-    const successIndicators = [
-      'welcome',
-      'dashboard',
-      'employee portal',
-      'my schedule',
-      'home page',
-      'main menu',
-    ];
-    
-    const hasSuccessIndicator = successIndicators.some(indicator => 
-      lowerResponse.includes(indicator),
-    );
-    
-    console.log('Success indicators found:', successIndicators.filter(indicator => 
-      lowerResponse.includes(indicator),
-    ));
-    
-    return hasSuccessIndicator;
-  }
-
-  // Check if MFA is required using string matching
   private requiresMFA(responseText: string): boolean {
     const lowerResponse = responseText.toLowerCase();
     
@@ -719,157 +443,657 @@ export class AuthService {
       return false;
     }
     
-    const mfaIndicators = [
+    // PingOne specific MFA indicators (most reliable)
+    const pingOneMfaIndicators = [
+      'sms sent to mobile',
+      'enter the passcode you received',
+      'resend passcode',
+      'costco will never ask for your password',
+      'pingid',
+      'ping identity mfa',
+    ];
+    
+    // General MFA indicators
+    const generalMfaIndicators = [
+      // SMS/Text message indicators
       'verification code',
       'enter code',
       'sms code',
       'text message',
       'authentication code',
+      'mobile code',
+      'phone code',
+      
+      // General MFA indicators
       'two-factor',
       '2fa',
       'mfa',
+      'multi-factor',
+      'second factor',
+      
+      // Form indicators
+      'enter the code',
+      'verification',
+      'passcode',
+      'security code',
     ];
     
-    const hasMFAIndicator = mfaIndicators.some(indicator => lowerResponse.includes(indicator));
+    // Check PingOne specific patterns first (higher confidence)
+    const foundPingOneIndicators = pingOneMfaIndicators.filter(indicator => 
+      lowerResponse.includes(indicator),
+    );
     
-    if (hasMFAIndicator) {
-      console.log('🔐 MFA indicator found:', mfaIndicators.find(indicator => 
-        lowerResponse.includes(indicator),
-      ));
-    }
+    // Check general patterns
+    const foundGeneralIndicators = generalMfaIndicators.filter(indicator => 
+      lowerResponse.includes(indicator),
+    );
     
-    return hasMFAIndicator;
-  }
-
-  // Extract ESS error messages using regex
-  private extractESSError(html: string): string | null {
-    // Handle BIG-IP specific messages first
-    if (html.includes('BIG-IP can not find session information')) {
-      return 'Session expired. Please try logging in again.';
-    }
+    const foundAnyIndicators = foundPingOneIndicators.length > 0 || foundGeneralIndicators.length > 0;
     
-    if (html.includes('To open a new session, please')) {
-      return 'Session could not be established. Please try again or contact IT support.';
-    }
-    
-    // Common error patterns
-    const errorPatterns = [
-      // Look for complete sentences in error divs/spans
-      /<div[^>]*class="[^"]*error[^"]*"[^>]*>([^<]+(?:<[^>]*>[^<]*<\/[^>]*>[^<]*)*)<\/div>/i,
-      /<span[^>]*class="[^"]*error[^"]*"[^>]*>([^<]+(?:<[^>]*>[^<]*<\/[^>]*>[^<]*)*)<\/span>/i,
-      /<p[^>]*class="[^"]*error[^"]*"[^>]*>([^<]+(?:<[^>]*>[^<]*<\/[^>]*>[^<]*)*)<\/p>/i,
-      
-      // Look for error messages in text
-      /error[^:]*:\s*([^<\n.!?]+[.!?])/i,
-      /invalid[^:]*:\s*([^<\n.!?]+[.!?])/i,
-      /failed[^:]*:\s*([^<\n.!?]+[.!?])/i,
-      
-      // Look for authentication specific messages
-      /authentication\s+failed[^<\n.!?]*[.!?]/i,
-      /invalid\s+credentials[^<\n.!?]*[.!?]/i,
-      /access\s+denied[^<\n.!?]*[.!?]/i,
-    ];
-    
-    for (const pattern of errorPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        const errorText = match[1].trim();
-        // Clean up HTML entities and extra whitespace
-        const cleanError = errorText
-          .replace(/&nbsp;/g, ' ')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        if (cleanError.length > 5) { // Only return meaningful errors
-          return cleanError;
-        }
+    if (foundAnyIndicators) {
+      console.log('🔍 [DETECTION] MFA indicators confirmed');
+      if (foundPingOneIndicators.length > 0) {
+        console.log('🎯 [PINGONE MFA]:', foundPingOneIndicators);
       }
+      if (foundGeneralIndicators.length > 0) {
+        console.log('🎯 [GENERAL MFA]:', foundGeneralIndicators);
+      }
+      return true;
     }
     
-    // If no specific error found but it's clearly a logout/error page
-    if (html.toLowerCase().includes('logout page')) {
-      return 'Authentication failed. Please check your credentials and try again.';
-    }
-    
-    return null;
+    return false;
   }
 
-  // Get headers for ESS requests
-  private getESSHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'User-Agent': this.currentUserAgent,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Cache-Control': 'max-age=0',
-      'Referer': APP_CONFIG.PORTAL_URLS.BASE,
-    };
-    
-    // Add session cookies if available
-    const cookies: string[] = [];
-    if (this.f5SessionId) {
-      cookies.push(`F5_SESSION=${this.f5SessionId}`);
-    }
-    if (this.sessionToken) {
-      cookies.push(`JSESSIONID=${this.sessionToken}`);
-    }
-    
-    if (cookies.length > 0) {
-      headers['Cookie'] = cookies.join('; ');
-    }
-    
-    return headers;
-  }
-
-  // Handle SAML authentication flow
+  /**
+   * Enhanced SAML flow handling with better data extraction
+   */
   private async handleSAMLFlow(responseText: string, formFields: Record<string, string>): Promise<LoginResponse> {
     try {
       console.log('🔄 Processing SAML authentication flow...');
       
       // Extract SAML request from the response
-      const samlRequest = formFields.SAMLRequest;
+      const samlRequest = this.extractSAMLRequest(responseText, formFields);
       if (!samlRequest) {
-        console.log('❌ No SAML request found in form fields');
+        console.log('❌ No SAML request found in response');
         return {
           success: false,
           requiresSMS: false,
           error: 'SAML authentication failed - no SAML request found',
+          errorType: 'SAML_REQUIRED',
         };
       }
       
-      console.log('📋 SAML Request found, length:', samlRequest.length);
+      console.log('📋 SAML Request found, preparing to follow redirect...');
       
-      // Look for the SAML destination URL
-      const destinationMatch = responseText.match(/action=["']([^"']+)["']/i);
-      const destination = destinationMatch ? destinationMatch[1] : 'https://login.costco.com/idp/SSO.saml2';
-      
+      // Extract destination URL
+      const destination = this.extractSAMLDestination(responseText);
       console.log('🎯 SAML Destination:', destination);
       
-      // This is where we would need to implement the full SAML flow
-      // For now, return an informative error
+      // Extract relay state if present
+      const relayState = this.extractRelayState(responseText, formFields);
+      if (relayState) {
+        console.log('🔗 RelayState found:', relayState.substring(0, 50) + '...');
+      }
+      
+      // For now, we'll return a helpful message to guide the user
+      // In the future, we could attempt to automate this flow
       return {
         success: false,
         requiresSMS: false,
-        error: 'SAML authentication detected. This requires additional implementation to handle corporate SSO flow.',
+        error: 'SAML Single Sign-On detected. Please complete authentication manually in your browser, then return to enter your MFA code.',
+        errorType: 'SAML_REQUIRED',
       };
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('SAML flow handling failed:', error);
       return {
         success: false,
         requiresSMS: false,
         error: 'SAML authentication flow failed',
+        errorType: 'SAML_REQUIRED',
       };
+    }
+  }
+
+  /**
+   * Extract SAML request from HTML response
+   */
+  private extractSAMLRequest(html: string, formFields: Record<string, string>): string | null {
+    // First check form fields
+    if (formFields.SAMLRequest) {
+      return formFields.SAMLRequest;
+    }
+    
+    // Look for SAML request in various formats
+    const samlPatterns = [
+      /name=["']SAMLRequest["'][^>]*value=["']([^"']+)["']/i,
+      /value=["']([^"']*)['"]\s*name=["']SAMLRequest["']/i,
+      /<input[^>]*SAMLRequest[^>]*value=["']([^"']+)["']/i,
+      /SAMLRequest[^>]*=\s*["']([^"']+)["']/i,
+    ];
+    
+    for (const pattern of samlPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Extract SAML destination URL
+   */
+  private extractSAMLDestination(html: string): string {
+    // Look for form action URLs
+    const actionPatterns = [
+      /action=["']([^"']+)["']/i,
+      /form[^>]*action=["']([^"']+)["']/i,
+    ];
+    
+    for (const pattern of actionPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        // Decode HTML entities
+        return match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      }
+    }
+    
+    // Default SAML endpoints
+    return 'https://login.costco.com/idp/SSO.saml2';
+  }
+
+  /**
+   * Extract RelayState from response
+   */
+  private extractRelayState(html: string, formFields: Record<string, string>): string | null {
+    // First check form fields
+    if (formFields.RelayState) {
+      return formFields.RelayState;
+    }
+    
+    // Look for RelayState in HTML
+    const relayPatterns = [
+      /name=["']RelayState["'][^>]*value=["']([^"']+)["']/i,
+      /value=["']([^"']*)['"]\s*name=["']RelayState["']/i,
+    ];
+    
+    for (const pattern of relayPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Handle MFA code verification with enhanced error handling
+   */
+  public async verifyMFACode(code: string, sessionData?: Record<string, unknown>): Promise<AuthResult> {
+    try {
+      console.log('🔐 [MFA FLOW] Starting MFA verification');
+      console.log('📱 [MFA] Code length:', code.length);
+      
+      if (!code || code.length < 4) {
+        console.log('❌ [MFA] Invalid code format');
+        return {
+          success: false,
+          error: 'Please enter a valid verification code',
+          errorType: 'INVALID_CREDENTIALS',
+        };
+      }
+      
+      console.log('✅ [MFA] Code format validation passed');
+      console.log('📡 [MFA] Would verify code with PingOne server (rate-limited)');
+      
+      // This would be the actual MFA verification endpoint
+      // For now, we'll simulate the process
+      if (sessionData) {
+        console.log('📋 [MFA] Session data available:', Object.keys(sessionData));
+      } else {
+        console.log('⚠️ [MFA] No session data provided');
+      }
+      
+      // In real implementation, this would:
+      // 1. POST the MFA code to the PingOne verification endpoint
+      // 2. Handle the response 
+      // 3. Extract final session tokens
+      // 4. Navigate to the main portal
+      
+      console.log('🚧 [MFA] MFA verification endpoint needs implementation');
+      
+      return {
+        success: false,
+        error: 'MFA verification endpoint needs to be implemented based on the actual SAML flow',
+        errorType: 'MFA_REQUIRED',
+      };
+      
+    } catch (error: unknown) {
+      console.error('💥 [ERROR] MFA verification exception:', error instanceof Error ? error.message : 'Unknown error');
+      
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'MFA verification failed',
+        errorType: 'MFA_REQUIRED',
+      };
+    }
+  }
+
+  /**
+   * Log form details for debugging intermediate pages
+   */
+  private logFormDetails(responseText: string) {
+    try {
+      // Find form actions
+      const actionMatches = responseText.match(/action=["']([^"']+)["']/gi);
+      if (actionMatches) {
+        console.log('🎯 [DEBUG] Form actions found:', actionMatches.map(m => m.replace(/action=["']/i, '').replace(/["']/, '')));
+      }
+      
+      // Find input fields
+      const inputMatches = responseText.match(/<input[^>]*name=["']([^"']+)["'][^>]*>/gi);
+      if (inputMatches) {
+        const inputNames = inputMatches.map(match => {
+          const nameMatch = match.match(/name=["']([^"']+)["']/i);
+          const typeMatch = match.match(/type=["']([^"']+)["']/i);
+          const valueMatch = match.match(/value=["']([^"']+)["']/i);
+          return {
+            name: nameMatch ? nameMatch[1] : 'unknown',
+            type: typeMatch ? typeMatch[1] : 'text',
+            hasValue: !!valueMatch,
+          };
+        });
+        console.log('📝 [DEBUG] Input fields:', inputNames);
+      }
+      
+      // Find submit buttons
+      const submitMatches = responseText.match(/<input[^>]*type=["']submit["'][^>]*>|<button[^>]*type=["']submit["'][^>]*>/gi);
+      if (submitMatches) {
+        console.log('🔘 [DEBUG] Submit buttons found:', submitMatches.length);
+      }
+      
+      // Check for redirects or meta refresh
+      const metaRefresh = responseText.match(/<meta[^>]*http-equiv=["']refresh["'][^>]*>/gi);
+      if (metaRefresh) {
+        console.log('🔄 [DEBUG] Meta refresh detected:', metaRefresh);
+      }
+      
+    } catch (error) {
+      console.log('❌ [DEBUG] Error parsing form details:', error);
+    }
+  }
+
+  /**
+   * Check if response indicates an intermediate page
+   */
+  private isIntermediatePage(responseText: string, responseUrl: string): boolean {
+    const lowerText = responseText.toLowerCase();
+    const lowerUrl = responseUrl.toLowerCase();
+    
+    // Check for policy/terms pages
+    const isPolicy = lowerUrl.includes('/my.policy') || 
+                    lowerUrl.includes('policy') || 
+                    lowerText.includes('terms of use') ||
+                    lowerText.includes('acceptable use policy') ||
+                    lowerText.includes('user agreement');
+    
+    // Check for pages that have continue/accept buttons
+    const hasContinueForm = lowerText.includes('continue') && lowerText.includes('<form');
+    const hasAcceptButton = lowerText.includes('accept') || lowerText.includes('agree');
+    
+    return isPolicy || (hasContinueForm && hasAcceptButton);
+  }
+
+  /**
+   * Handle intermediate page and continue the authentication flow
+   */
+  private async handleIntermediatePage(responseText: string, responseUrl: string): Promise<AuthResult | null> {
+    try {
+      console.log('🔄 [INTERMEDIATE] Processing intermediate page:', responseUrl);
+      
+      // Extract form data from the intermediate page
+      const formData = this.extractFormData(responseText);
+      if (!formData.action) {
+        console.log('❌ [INTERMEDIATE] No form action found');
+        return null;
+      }
+      
+      console.log('📝 [INTERMEDIATE] Submitting form to:', formData.action);
+      console.log('📋 [INTERMEDIATE] Form fields:', Object.keys(formData.fields));
+      
+      // Submit the form to continue
+      const formBody = new URLSearchParams();
+      Object.entries(formData.fields).forEach(([key, value]) => {
+        formBody.append(key, value as string);
+      });
+      
+      const response = await this.httpClient.post(formData.action, formBody, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': responseUrl,
+        },
+      });
+      
+      const newResponseText = response.data;
+      const newResponseUrl = response.request?.responseURL || formData.action;
+      
+      console.log('📊 [INTERMEDIATE] Continue response status:', response.status);
+      console.log('📍 [INTERMEDIATE] Continue response URL:', newResponseUrl);
+      
+      // Check if we reached PingOne now
+      if (newResponseUrl.includes('authenticator.pingone.com')) {
+        console.log('✅ [INTERMEDIATE] Successfully reached PingOne!');
+        return {
+          success: false,
+          requiresMFA: true,
+          mfaMethod: 'sms',
+          error: 'PingOne authentication page reached - SMS should be sent to your phone',
+          sessionData: { responseText: newResponseText, responseUrl: newResponseUrl },
+        };
+      }
+      
+      // Check if we got blocked by CAPTCHA
+      if (this.isCaptchaBlocked(newResponseText)) {
+        console.log('🤖 [INTERMEDIATE] CAPTCHA challenge detected at SAML endpoint');
+        return {
+          success: false,
+          requiresMFA: false,
+          error: 'CAPTCHA challenge detected. The server is blocking automated authentication. Please try logging in manually through your browser first, then return to the app.',
+          errorType: 'CAPTCHA_REQUIRED',
+        };
+      }
+      
+      // Check if we need to handle another intermediate step
+      if (this.isIntermediatePage(newResponseText, newResponseUrl)) {
+        console.log('🔄 [INTERMEDIATE] Another intermediate page - recursing');
+        return await this.handleIntermediatePage(newResponseText, newResponseUrl);
+      }
+      
+      return null;
+      
+    } catch (error) {
+      console.error('💥 [INTERMEDIATE] Error handling intermediate page:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract form data from HTML response
+   */
+  private extractFormData(html: string): { action: string; fields: Record<string, string> } {
+    const formData = { action: '', fields: {} as Record<string, string> };
+    
+    try {
+      // Extract form action
+      const actionMatch = html.match(/<form[^>]*action=["']([^"']+)["']/i);
+      if (actionMatch) {
+        formData.action = actionMatch[1];
+        // Handle relative URLs
+        if (formData.action.startsWith('/')) {
+          formData.action = APP_CONFIG.PORTAL_URLS.BASE + formData.action;
+        }
+      }
+      
+      // Extract input fields with values
+      const inputMatches = html.match(/<input[^>]*>/gi) || [];
+      for (const inputMatch of inputMatches) {
+        const nameMatch = inputMatch.match(/name=["']([^"']+)["']/i);
+        const valueMatch = inputMatch.match(/value=["']([^"']+)["']/i);
+        const typeMatch = inputMatch.match(/type=["']([^"']+)["']/i);
+        
+        if (nameMatch) {
+          const name = nameMatch[1];
+          const value = valueMatch ? valueMatch[1] : '';
+          const type = typeMatch ? typeMatch[1].toLowerCase() : 'text';
+          
+          // Include hidden fields and submit buttons, skip password/text fields
+          if (type === 'hidden' || type === 'submit' || (value && type !== 'password' && type !== 'text')) {
+            formData.fields[name] = value;
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ [FORM] Error extracting form data:', error);
+    }
+    
+    return formData;
+  }
+
+  private isCaptchaBlocked(responseText: string): boolean {
+    const lowerText = responseText.toLowerCase();
+    
+    // Common CAPTCHA indicators
+    const captchaIndicators = [
+      'captcha',
+      'recaptcha',
+      'verify you are human',
+      'prove you are human',
+      'security check',
+      'verify your identity',
+      'please complete the security challenge',
+      'robot verification',
+      'human verification',
+      'verify that you are not a robot',
+      'hcaptcha',
+    ];
+    
+    return captchaIndicators.some(indicator => lowerText.includes(indicator));
+  }
+
+  /**
+   * Store WebView session data for use with HTTP client
+   */
+  public async storeWebViewSession(cookies?: string, sessionInfo?: Record<string, unknown>): Promise<void> {
+    try {
+      console.log('💾 [SESSION] Storing WebView authentication session');
+      
+      if (cookies && cookies.length > 0) {
+        console.log('🍪 [SESSION] Storing cookies:', cookies.length, 'characters');
+        console.log('🔍 [SESSION] Cookie preview:', cookies.substring(0, 100) + '...');
+        
+        // Update HTTP client headers with cookies
+        this.httpClient.updateHeaders({
+          'Cookie': cookies,
+        });
+        console.log('🍪 [SESSION] Updated HTTP client with session cookies');
+      }
+      
+      // Store session data
+      this.sessionData = {
+        authenticated: true,
+        authMethod: 'webview',
+        timestamp: Date.now(),
+        cookies: cookies,
+        cookieLength: cookies?.length || 0,
+        ...sessionInfo,
+      };
+      
+      console.log('✅ [SESSION] WebView session stored successfully');
+      console.log('📊 [SESSION] Session data keys:', Object.keys(this.sessionData));
+      
+    } catch (error) {
+      console.error('❌ [SESSION] Failed to store WebView session:', error);
+    }
+  }
+
+  /**
+   * Test if the stored session can access authenticated endpoints
+   */
+  public async testAuthenticatedAccess(): Promise<boolean> {
+    try {
+      console.log('🧪 [SESSION] Testing authenticated access to portal');
+      
+      if (!this.sessionData) {
+        console.log('❌ [SESSION] No session data available');
+        return false;
+      }
+      
+      console.log('📋 [SESSION] Current session age:', Math.round((Date.now() - (this.sessionData.timestamp as number)) / 1000), 'seconds');
+      console.log('🍪 [SESSION] Using cookies length:', this.sessionData.cookieLength || 0);
+      
+      // Test access to the main portal with enhanced request headers
+      const response = await this.httpClient.get(APP_CONFIG.PORTAL_URLS.PORTAL_MAIN, {
+        headers: {
+          'User-Agent': this.currentUserAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
+      
+      console.log('📊 [SESSION] Test response status:', response.status);
+      const responseUrl = response.request?.responseURL || response.config?.url || 'Unknown';
+      console.log('📍 [SESSION] Test response URL:', responseUrl);
+      
+      // Enhanced authentication check
+      const isAuthenticated = this.checkAuthenticatedResponse(response, responseUrl);
+      
+      if (isAuthenticated) {
+        console.log('✅ [SESSION] Authenticated access confirmed!');
+        
+        // Update session with successful test
+        this.sessionData.lastSuccessfulTest = Date.now();
+        this.sessionData.confirmedAccess = true;
+        
+        return true;
+      } else {
+        console.log('❌ [SESSION] Authentication session expired or invalid');
+        console.log('🔍 [SESSION] Response indicates redirect to:', responseUrl);
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ [SESSION] Error testing authenticated access:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Enhanced check for authenticated response
+   */
+  private checkAuthenticatedResponse(response: { status: number; data?: string; request?: { responseURL?: string }; config?: { url?: string } }, responseUrl: string): boolean {
+    // Check status code
+    if (response.status !== 200) {
+      console.log('❌ [SESSION] Non-200 response:', response.status);
+      return false;
+    }
+    
+    // Check if redirected to login/policy pages
+    const redirectsToAuth = responseUrl.includes('my.policy') || 
+                           responseUrl.includes('login') ||
+                           responseUrl.includes('/idp/') ||
+                           responseUrl.includes('authenticator');
+    
+    if (redirectsToAuth) {
+      console.log('❌ [SESSION] Redirected to authentication page');
+      return false;
+    }
+    
+    // Check if we're on the main portal
+    const isPortalPage = responseUrl.includes('irj/portal/external');
+    
+    if (!isPortalPage) {
+      console.log('❌ [SESSION] Not on portal page, URL:', responseUrl);
+      return false;
+    }
+    
+    // Check response content if available
+    if (response.data && typeof response.data === 'string') {
+      const content = response.data.toLowerCase();
+      
+      // Look for positive indicators
+      const positiveIndicators = [
+        'employee self service',
+        'online employee schedules',
+        'timesheet',
+        'schedule',
+        'payroll',
+      ];
+      
+      const hasPositiveIndicator = positiveIndicators.some(indicator => 
+        content.includes(indicator),
+      );
+      
+      // Look for negative indicators
+      const negativeIndicators = [
+        'session expired',
+        'login required',
+        'unauthorized',
+        'access denied',
+        'authentication failed',
+      ];
+      
+      const hasNegativeIndicator = negativeIndicators.some(indicator => 
+        content.includes(indicator),
+      );
+      
+      console.log('🔍 [SESSION] Content analysis:', {
+        hasPositive: hasPositiveIndicator,
+        hasNegative: hasNegativeIndicator,
+        contentLength: content.length,
+      });
+      
+      if (hasNegativeIndicator) {
+        return false;
+      }
+      
+      if (hasPositiveIndicator) {
+        console.log('✅ [SESSION] Positive content indicators found');
+        return true;
+      }
+    }
+    
+    // If we reach here, we're on the portal page with 200 status and no negative indicators
+    console.log('✅ [SESSION] Portal access confirmed (basic check)');
+    return true;
+  }
+
+  /**
+   * Make an authenticated HTTP request using the stored session
+   */
+  public async makeAuthenticatedRequest(url: string, options?: { method?: string; headers?: Record<string, string> }): Promise<{ ok: boolean; status: number; text: () => Promise<string> }> {
+    try {
+      console.log('🌐 [AUTH] Making authenticated request to:', url);
+      
+      if (!this.sessionData) {
+        throw new Error('No authenticated session available');
+      }
+      
+      const method = options?.method || 'GET';
+      const additionalHeaders = options?.headers || {};
+      
+      const requestHeaders = {
+        'User-Agent': this.currentUserAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        ...additionalHeaders,
+      };
+      
+      if (method.toLowerCase() === 'get') {
+        const response = await this.httpClient.get(url, { headers: requestHeaders });
+        
+        // Return simplified response object
+        return {
+          ok: response.status >= 200 && response.status < 300,
+          status: response.status,
+          text: async () => response.data,
+        };
+      } else {
+        throw new Error(`HTTP method ${method} not implemented yet`);
+      }
+      
+    } catch (error) {
+      console.error('❌ [AUTH] Error making authenticated request:', error);
+      throw error;
     }
   }
 } 

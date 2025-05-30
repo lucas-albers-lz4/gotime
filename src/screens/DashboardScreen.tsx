@@ -30,7 +30,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const authService = AuthService.getInstance();
 
   useEffect(() => {
-    loadDemoSchedule();
+    loadScheduleData();
   }, []);
 
   useEffect(() => {
@@ -45,10 +45,45 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
     }
   }, [schedule, loading]);
 
+  const loadScheduleData = async () => {
+    try {
+      console.log('DashboardScreen: Starting to load schedule data...');
+      setLoading(true);
+      
+      // Attempt to load the most recently saved/parsed real schedule
+      console.log('DashboardScreen: Attempting to load most recent real schedule from storage...');
+      const scheduleList = await scheduleService.getScheduleList();
+      
+      if (scheduleList.length > 0) {
+        // Sort by savedAt to get the most recent one
+        const mostRecentMetadata = scheduleList.sort((a, b) => b.savedAt - a.savedAt)[0];
+        const realSchedule = await scheduleService.getSchedule(mostRecentMetadata.employeeId, mostRecentMetadata.weekEnd);
+        
+        if (realSchedule) {
+          console.log('DashboardScreen: ✅ Most recent real schedule loaded from storage!');
+          setAvailableWeeks([realSchedule]); // For now, only show the single most recent real schedule
+          setSchedule(realSchedule);
+          console.log('DashboardScreen: Set real schedule for week:', realSchedule.weekStart, '-', realSchedule.weekEnd);
+          return;
+        }
+      }
+      
+      // Fall back to demo schedules if no real data is available in storage
+      console.log('DashboardScreen: No real schedule found in storage, loading demo schedules...');
+      await loadDemoSchedule();
+      
+    } catch (error) {
+      console.error('DashboardScreen: Error loading schedule data:', error);
+      // Fall back to demo schedules on error
+      await loadDemoSchedule();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadDemoSchedule = async () => {
     try {
-      console.log('DashboardScreen: Starting to load demo schedules...');
-      setLoading(true);
+      console.log('DashboardScreen: Loading demo schedules...');
       
       // Load all available demo schedules
       const allSchedules = await scheduleService.getAllDemoSchedules();
@@ -64,8 +99,6 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       }
     } catch (error) {
       console.error('DashboardScreen: Error loading demo schedules:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -88,7 +121,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadDemoSchedule();
+    await loadScheduleData();
     setRefreshing(false);
   };
 
