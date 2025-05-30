@@ -2256,6 +2256,113 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </Text>
         </TouchableOpacity>
 
+        <TouchableOpacity 
+          style={[styles.demoButton, { borderColor: COLORS.primary, marginBottom: SPACING.md }]} 
+          onPress={async () => {
+            console.log('🔄 [UI] Attempting to navigate to parameter page...');
+            if (!webViewRef.current) {
+              Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
+              return;
+            }
+            try {
+              const navigateScript = `
+              (function() { 
+                try { 
+                  console.log('🔄 [NAVIGATE] Attempting to navigate to parameter page...');
+                  
+                  const currentURL = window.location.href;
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const perspective = urlParams.get('perspective');
+                  const pathRef = urlParams.get('pathRef');
+                  const reportId = urlParams.get('id');
+                  
+                  console.log('🔄 [NAVIGATE] Current URL: ' + currentURL);
+                  console.log('🔄 [NAVIGATE] Current perspective: ' + perspective);
+                  
+                  if (perspective === 'classicviewer') {
+                    // Construct parameter page URL
+                    const baseUrl = window.location.origin + window.location.pathname;
+                    const parameterUrl = baseUrl + '?perspective=prompting&pathRef=' + encodeURIComponent(pathRef || '') + '&id=' + (reportId || '');
+                    
+                    console.log('🔄 [NAVIGATE] Navigating to parameter URL: ' + parameterUrl);
+                    
+                    // Navigate to parameter page
+                    window.location.href = parameterUrl;
+                    
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'navigation_attempted',
+                      fromUrl: currentURL,
+                      toUrl: parameterUrl,
+                      method: 'URL change'
+                    }));
+                    
+                  } else {
+                    console.log('🔄 [NAVIGATE] Not on viewer page, looking for navigation links...');
+                    
+                    // Look for links that might lead to parameter page
+                    const allLinks = document.querySelectorAll('a');
+                    let parameterLink = null;
+                    
+                    for (let i = 0; i < allLinks.length; i++) {
+                      const link = allLinks[i];
+                      const linkText = (link.innerText || link.textContent || '').toLowerCase();
+                      const href = link.href || '';
+                      
+                      if (linkText.includes('parameter') || 
+                          linkText.includes('prompt') || 
+                          linkText.includes('edit') || 
+                          linkText.includes('modify') ||
+                          href.includes('prompt') ||
+                          href.includes('parameter')) {
+                        parameterLink = link;
+                        console.log('🔄 [NAVIGATE] Found parameter link: "' + linkText + '" -> ' + href);
+                        break;
+                      }
+                    }
+                    
+                    if (parameterLink) {
+                      console.log('🔄 [NAVIGATE] Clicking parameter link...');
+                      parameterLink.click();
+                      
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'navigation_attempted',
+                        fromUrl: currentURL,
+                        method: 'Link click',
+                        linkText: parameterLink.innerText || parameterLink.textContent
+                      }));
+                    } else {
+                      console.log('🔄 [NAVIGATE] No parameter links found');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'navigation_failed',
+                        error: 'No parameter links found and not on viewer page'
+                      }));
+                    }
+                  }
+                  
+                  return true;
+                } catch (e) { 
+                  console.log('❌ [NAVIGATE] Error: ' + e.message);
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                    type: 'navigation_error', 
+                    error: e.message 
+                  })); 
+                  return false; 
+                } 
+              })();`;
+              
+              webViewRef.current.injectJavaScript(navigateScript);
+              Alert.alert('Navigation', 'Attempting to navigate to parameter page...');
+            } catch (error) {
+              console.error('❌ [UI] Navigation error:', error);
+              Alert.alert('Navigation Error', 'Error attempting navigation: ' + (error as Error).message);
+            }
+          }}
+        >
+          <Text style={[styles.demoButtonText, { color: COLORS.primary }]}>
+            🔄 Go to Parameter Page
+          </Text>
+        </TouchableOpacity>
+
         <View style={styles.bottomRow}>
           <TouchableOpacity style={styles.backButton} onPress={handleBackToCredentials}>
             <Text style={styles.backButtonText}>← Back to Login Options</Text>
