@@ -20,6 +20,19 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Ignore React packages that are pinned by Expo SDK 53
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-safe-area-context"
+      - dependency-name: "react-native-screens"
+      - dependency-name: "react-native-gesture-handler"
+      - dependency-name: "react-native-reanimated"
+      - dependency-name: "react-native-svg"
+      - dependency-name: "react-native-webview"
+      # Add other React Native packages that are managed by Expo SDK
+      - dependency-name: "@react-native*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     # Group Expo SDK updates together
     groups:
       expo-sdk:
