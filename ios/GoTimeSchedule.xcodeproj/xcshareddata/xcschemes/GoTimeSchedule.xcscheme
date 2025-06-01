@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "costcoscheduleapp.app"
-               BlueprintName = "costcoscheduleapp"
-               ReferencedContainer = "container:costcoscheduleapp.xcodeproj">
+               BuildableName = "GoTimeSchedule.app"
+               BlueprintName = "GoTimeSchedule"
+               ReferencedContainer = "container:GoTimeSchedule.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "costcoscheduleappTests.xctest"
-               BlueprintName = "costcoscheduleappTests"
-               ReferencedContainer = "container:costcoscheduleapp.xcodeproj">
+               BuildableName = "GoTimeScheduleTests.xctest"
+               BlueprintName = "GoTimeScheduleTests"
+               ReferencedContainer = "container:GoTimeSchedule.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "costcoscheduleapp.app"
-            BlueprintName = "costcoscheduleapp"
-            ReferencedContainer = "container:costcoscheduleapp.xcodeproj">
+            BuildableName = "GoTimeSchedule.app"
+            BlueprintName = "GoTimeSchedule"
+            ReferencedContainer = "container:GoTimeSchedule.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "costcoscheduleapp.app"
-            BlueprintName = "costcoscheduleapp"
-            ReferencedContainer = "container:costcoscheduleapp.xcodeproj">
+            BuildableName = "GoTimeSchedule.app"
+            BlueprintName = "GoTimeSchedule"
+            ReferencedContainer = "container:GoTimeSchedule.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
