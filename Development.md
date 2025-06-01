@@ -49,33 +49,22 @@ A mobile application for employees to securely view their work schedules from co
 - **Web Requests**: Axios with proper rate limiting
 - **Architecture**: Modular service-based design
 
-## Corporate Portal Integration Discovery
+## Backend Integration
 
-### **Identified System: Enterprise ESS Portal + IBM Cognos BI**
-Through investigation, we've mapped the actual employee scheduling infrastructure:
+### **Corporate System Overview**
+The app integrates with a complex enterprise infrastructure:
 
-- **Primary Portal**: `https://ess.costco.com/` (Employee Self Service)
-- **Authentication**: SAML Single Sign-On with PingOne 2FA
+- **Primary Portal**: Employee Self Service (ESS) portal
+- **Authentication**: SAML 2.0 Single Sign-On with PingOne 2FA
 - **Infrastructure**: F5 BIG-IP load balancer with session management
-- **Schedule System**: IBM Cognos BI at `https://bireport.costco.com/cognos_ext/bi/`
-- **Data Format**: Complex HTML reports with nested table structures
+- **Reporting System**: IBM Cognos BI for schedule generation
+- **Data Format**: Complex HTML reports with nested iframe structures
 
-### **Complete Authentication Flow Mapped:**
-1. **Initial Login**: Enterprise portal entry point
-2. **SAML Redirect**: SAML 2.0 authentication flow
-3. **2FA Challenge**: SMS verification via PingOne
-4. **Portal Return**: Authenticated session establishment
-5. **Schedule Access**: Navigation to schedule reporting section
-6. **Cognos BI**: IBM business intelligence report generation
-7. **Schedule Selection**: Weekly report generation with parameters
-
-### **Real Schedule Data Structure:**
-From actual corporate schedule HTML files, we've identified:
-- **Employee Info**: Name, ID, Location, Department, Job Title, Status, Hire Date
-- **Schedule Format**: Weekly table with detailed shift information
-- **Split Shifts**: Multiple entries per day support
-- **Week Selection**: Multi-week availability
-- **Comprehensive Tracking**: Hours, earnings, pay codes, change tracking
+### **Integration Method**
+- **WebView-based automation** for enterprise portal navigation
+- **JavaScript injection** for iframe interaction and data extraction
+- **Multi-week navigation** with respectful rate limiting
+- **Real-time schedule parsing** with comprehensive error handling
 
 ### **Technical Implementation Status:**
 - ✅ **Real URL Integration**: Updated from placeholder to actual portal
@@ -84,6 +73,16 @@ From actual corporate schedule HTML files, we've identified:
 - ✅ **Demo Mode**: Working demonstration with actual parsed data
 - 🔄 **Rate Limiting**: Implementing respectful server interaction
 - ❌ **Full Authentication**: Limited by enterprise security (SAML SSO + 2FA)
+
+> **📋 For comprehensive backend technical details, see [Backend-Integration.md](./Backend-Integration.md)**
+> 
+> This dedicated document covers:
+> - Complete IBM Cognos BI system architecture
+> - Authentication flow diagrams and implementation
+> - HTML structure analysis and parsing patterns
+> - JavaScript injection methods and iframe handling
+> - Rate limiting strategies and error handling
+> - Security considerations and session management
 
 ## Core Requirements & Compliance
 
