@@ -129,7 +129,7 @@ export const testOfflineStorage = async (): Promise<void> => {
     const firstSchedule = testSchedules[0];
     const retrievedSchedule = await scheduleService.getSchedule(
       firstSchedule.employee.employeeId, 
-      firstSchedule.weekEnd
+      firstSchedule.weekEnd,
     );
     
     if (retrievedSchedule) {
