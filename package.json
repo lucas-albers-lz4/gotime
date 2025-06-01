@@ -1,6 +1,6 @@
 {
   "name": "gotime-schedule",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -23,10 +23,11 @@
   "dependencies": {
     "@expo/metro-runtime": "~5.0.4",
     "@react-native-async-storage/async-storage": "^2.1.2",
-    "@react-native-clipboard/clipboard": "^1.16.2",
     "axios": "^1.9.0",
     "expo": "~53.0.9",
+    "expo-clipboard": "~7.1.4",
     "expo-constants": "^17.1.6",
+    "expo-dev-client": "~5.1.8",
     "expo-device": "^7.1.4",
     "expo-notifications": "^0.31.2",
     "expo-secure-store": "^14.2.3",
@@ -37,8 +38,7 @@
     "react-native": "0.79.2",
     "react-native-safe-area-context": "5.4.0",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "^13.13.5",
-    "expo-dev-client": "~5.1.8"
+    "react-native-webview": "^13.13.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
