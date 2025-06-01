@@ -25,6 +25,54 @@ export class ScheduleService {
   }
 
   /**
+   * Safely parse a numeric value, returning 0 if invalid
+   */
+  private safeParseFloat(value: string | undefined | null): number {
+    if (!value || typeof value !== 'string') {
+      return 0;
+    }
+    
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      return 0;
+    }
+    
+    const parsed = parseFloat(trimmed);
+    
+    // Check for NaN, Infinity, or other invalid numbers
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      console.log('⚠️ [SCHEDULE] Invalid numeric value detected and converted to 0:', value);
+      return 0;
+    }
+    
+    return parsed;
+  }
+
+  /**
+   * Safely parse an integer value, returning 0 if invalid
+   */
+  private safeParseInt(value: string | undefined | null): number {
+    if (!value || typeof value !== 'string') {
+      return 0;
+    }
+    
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      return 0;
+    }
+    
+    const parsed = parseInt(trimmed, 10);
+    
+    // Check for NaN or other invalid numbers
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      console.log('⚠️ [SCHEDULE] Invalid integer value detected and converted to 0:', value);
+      return 0;
+    }
+    
+    return parsed;
+  }
+
+  /**
    * Parse corporate BI HTML schedule format
    */
   public parseScheduleHTML(html: string): WeeklySchedule | null {
@@ -261,21 +309,46 @@ export class ScheduleService {
         }
       }
       
-      // Try to find dates in the EndDate parameter (from the XML-like content)
+      // Try to find dates in the EndDate parameter (from the XML-like content) 
+      // This handles both ISO format (2025-06-01) and ISO with time (2025-06-01T00:00:00)
       if (!weekMatch) {
         console.log('🔍 [SCHEDULE] Trying to extract from EndDate parameter...');
-        const endDateMatch = html.match(/EndDate.*?2025-(\d{2})-(\d{2})/);
+        
+        // Enhanced pattern to match ISO dates with or without time component
+        const endDateMatch = html.match(/EndDate.*?(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}:\d{2})?/);
         if (endDateMatch) {
-          const month = endDateMatch[1];
-          const day = endDateMatch[2];
-          const endDate = `${parseInt(month)}/${parseInt(day)}/2025`;
+          const year = endDateMatch[1];
+          const month = endDateMatch[2];
+          const day = endDateMatch[3];
+          
+          // Convert from ISO format (YYYY-MM-DD) to MM/dd/yyyy format
+          const endDate = `${this.safeParseInt(month)}/${this.safeParseInt(day)}/${year}`;
+          
+          console.log('🔍 [SCHEDULE] Extracted ISO date from EndDate parameter:', `${year}-${month}-${day}`);
+          console.log('🔍 [SCHEDULE] Converted to MM/dd/yyyy format:', endDate);
           
           // Calculate start date (assuming 7-day week)
-          const endDateObj = new Date(2025, parseInt(month) - 1, parseInt(day));
+          const endDateObj = new Date(this.safeParseInt(year), this.safeParseInt(month) - 1, this.safeParseInt(day));
+          const startDateObj = new Date(endDateObj.getTime() - (6 * 24 * 60 * 60 * 1000));
+          const startDate = `${startDateObj.getMonth() + 1}/${startDateObj.getDate()}/${startDateObj.getFullYear()}`;
+          
+          console.log('✅ [SCHEDULE] Derived week info from EndDate parameter (ISO converted):', startDate, '-', endDate);
+          return { start: startDate, end: endDate };
+        }
+        
+        // Fallback: try the old pattern for backward compatibility
+        const oldEndDateMatch = html.match(/EndDate.*?2025-(\d{2})-(\d{2})/);
+        if (oldEndDateMatch) {
+          const month = oldEndDateMatch[1];
+          const day = oldEndDateMatch[2];
+          const endDate = `${this.safeParseInt(month)}/${this.safeParseInt(day)}/2025`;
+          
+          // Calculate start date (assuming 7-day week)
+          const endDateObj = new Date(2025, this.safeParseInt(month) - 1, this.safeParseInt(day));
           const startDateObj = new Date(endDateObj.getTime() - (6 * 24 * 60 * 60 * 1000));
           const startDate = `${startDateObj.getMonth() + 1}/${startDateObj.getDate()}/2025`;
           
-          console.log('✅ [SCHEDULE] Derived week info from EndDate parameter:', startDate, '-', endDate);
+          console.log('✅ [SCHEDULE] Derived week info from EndDate parameter (legacy pattern):', startDate, '-', endDate);
           return { start: startDate, end: endDate };
         }
       }
@@ -469,10 +542,10 @@ export class ScheduleService {
           let dailyHours = 0;
           
           if (hours.length >= 1) {
-            shiftHours = parseFloat(hours[0]);
+            shiftHours = this.safeParseFloat(hours[0]);
           }
           if (hours.length >= 2) {
-            dailyHours = parseFloat(hours[1]);
+            dailyHours = this.safeParseFloat(hours[1]);
           }
           
           console.log('🔍 [SCHEDULE] Parsed values - Day:', dayName, 'Date:', date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours);
@@ -568,7 +641,7 @@ export class ScheduleService {
           for (const match of dailyHoursMatches) {
             const hourMatch = match.match(/>(\d+\.\d+|\d+)</);
             if (hourMatch) {
-              const hours = parseFloat(hourMatch[1]);
+              const hours = this.safeParseFloat(hourMatch[1]);
               // Only count reasonable hour values (0-24 range)
               if (hours >= 0 && hours <= 24) {
                 totalHours += hours;
@@ -584,8 +657,8 @@ export class ScheduleService {
         }
       }
       
-      const result = totalMatch ? parseFloat(totalMatch[1]) : null;
-      if (result) {
+      const result = totalMatch ? this.safeParseFloat(totalMatch[1]) : null;
+      if (result && result > 0) {
         console.log('✅ [SCHEDULE] Total hours extracted:', result);
       } else {
         console.log('❌ [SCHEDULE] Could not extract total hours');
@@ -604,7 +677,7 @@ export class ScheduleService {
   private extractStraightTimeEarnings(html: string): number | null {
     try {
       const earningsMatch = html.match(/<span[^>]*>Straight Time Earnings<\/span>[^<]*<\/td>[^<]*<td[^>]*><span[^>]*>([0-9.]+)<\/span>/);
-      return earningsMatch ? parseFloat(earningsMatch[1]) : null;
+      return earningsMatch ? this.safeParseFloat(earningsMatch[1]) : null;
     } catch (error) {
       console.error('Error extracting straight time earnings:', error);
       return null;
