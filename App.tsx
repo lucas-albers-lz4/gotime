@@ -24,7 +24,7 @@ export default function App() {
 
   const initializeApp = async () => {
     try {
-      console.log('Initializing Costco Schedule App...');
+      console.log('Initializing Corporate  Schedule App...');
 
       // Initialize database
       await StorageService.initializeDatabase();

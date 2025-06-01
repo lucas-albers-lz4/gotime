@@ -285,7 +285,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     const fillCredentialsScript = `
     (function() {
       try {
-        console.log('🔑 [CREDENTIALS] Starting credential fill...');
+        console.log('🔑 [CREDENTIALS] Starting enhanced credential fill for strict validation...');
         
         const employeeId = '${employeeId}';
         const password = '${password}';
@@ -299,29 +299,42 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           return;
         }
         
-        console.log('🔑 [CREDENTIALS] Looking for login fields...');
+        console.log('🔑 [CREDENTIALS] Looking for login fields with enhanced selectors...');
         
-        // Common selectors for username/employee ID fields
+        // Enhanced selectors for second login forms (often have different naming)
         const usernameSelectors = [
           'input[name="username"]',
           'input[name="employeeId"]',
           'input[name="employee_id"]', 
           'input[name="userid"]',
           'input[name="user"]',
+          'input[name="uid"]',
+          'input[name="login"]',
+          'input[name="userID"]',
+          'input[name="User_ID"]',
           'input[type="text"]',
           'input[id*="username"]',
           'input[id*="employee"]',
-          'input[id*="user"]'
+          'input[id*="user"]',
+          'input[id*="login"]',
+          'input[placeholder*="User"]',
+          'input[placeholder*="Employee"]',
+          'input[placeholder*="ID"]'
         ];
         
-        // Common selectors for password fields
+        // Enhanced password selectors
         const passwordSelectors = [
           'input[name="password"]',
           'input[name="passwd"]',
           'input[name="pwd"]',
+          'input[name="pass"]',
+          'input[name="Password"]',
           'input[type="password"]',
           'input[id*="password"]',
-          'input[id*="passwd"]'
+          'input[id*="passwd"]',
+          'input[id*="pwd"]',
+          'input[placeholder*="Password"]',
+          'input[placeholder*="password"]'
         ];
         
         let usernameField = null;
@@ -351,48 +364,242 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         console.log('  - Username field found:', !!usernameField);
         console.log('  - Password field found:', !!passwordField);
         
+        // Enhanced function to simulate ultra-realistic user input with manual-like behavior
+        function fillFieldWithUltraRealisticEvents(field, value, fieldType) {
+          if (!field) return false;
+          
+          console.log('🔑 [CREDENTIALS] Starting ultra-realistic fill for', fieldType, 'field...');
+          
+          // Step 1: Clear any existing value and focus
+          field.value = '';
+          field.focus();
+          
+          // Step 2: Dispatch initial focus events
+          field.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+          field.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+          field.dispatchEvent(new Event('click', { bubbles: true }));
+          
+          // Step 3: Simulate typing each character with realistic delays
+          let currentValue = '';
+          const typeCharacter = (index) => {
+            if (index >= value.length) {
+              // Finished typing, continue with validation
+              finalizeField();
+              return;
+            }
+            
+            const char = value[index];
+            currentValue += char;
+            field.value = currentValue;
+            
+            // Dispatch all the keyboard events for this character
+            field.dispatchEvent(new KeyboardEvent('keydown', { 
+              key: char,
+              code: 'Key' + char.toUpperCase(),
+              keyCode: char.charCodeAt(0),
+              which: char.charCodeAt(0),
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            field.dispatchEvent(new KeyboardEvent('keypress', { 
+              key: char,
+              code: 'Key' + char.toUpperCase(),
+              keyCode: char.charCodeAt(0),
+              which: char.charCodeAt(0),
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            field.dispatchEvent(new Event('input', { 
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            field.dispatchEvent(new KeyboardEvent('keyup', { 
+              key: char,
+              code: 'Key' + char.toUpperCase(),
+              keyCode: char.charCodeAt(0),
+              which: char.charCodeAt(0),
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            // Continue with next character after small delay
+            setTimeout(() => typeCharacter(index + 1), 25);
+          };
+          
+          const finalizeField = () => {
+            console.log('🔑 [CREDENTIALS] Finalizing', fieldType, 'field with value length:', field.value.length);
+            
+            // Step 4: Simulate the "delete one character and re-type" behavior that makes it work
+            console.log('🔑 [CREDENTIALS] Simulating manual validation trigger (delete + retype)...');
+            
+            // Delete the last character
+            const originalValue = field.value;
+            const shortenedValue = originalValue.slice(0, -1);
+            field.value = shortenedValue;
+            
+            // Dispatch backspace events
+            field.dispatchEvent(new KeyboardEvent('keydown', { 
+              key: 'Backspace',
+              code: 'Backspace',
+              keyCode: 8,
+              which: 8,
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            
+            field.dispatchEvent(new KeyboardEvent('keyup', { 
+              key: 'Backspace',
+              code: 'Backspace',
+              keyCode: 8,
+              which: 8,
+              bubbles: true, 
+              cancelable: true 
+            }));
+            
+            // Small delay, then retype the last character
+            setTimeout(() => {
+              const lastChar = originalValue.slice(-1);
+              field.value = originalValue; // Restore full value
+              
+              // Dispatch events for retyping the last character
+              field.dispatchEvent(new KeyboardEvent('keydown', { 
+                key: lastChar,
+                code: 'Key' + lastChar.toUpperCase(),
+                keyCode: lastChar.charCodeAt(0),
+                which: lastChar.charCodeAt(0),
+                bubbles: true, 
+                cancelable: true 
+              }));
+              
+              field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+              
+              field.dispatchEvent(new KeyboardEvent('keyup', { 
+                key: lastChar,
+                code: 'Key' + lastChar.toUpperCase(),
+                keyCode: lastChar.charCodeAt(0),
+                which: lastChar.charCodeAt(0),
+                bubbles: true, 
+                cancelable: true 
+              }));
+              
+              // Step 5: Final validation events
+              setTimeout(() => {
+                // Comprehensive validation event sequence
+                field.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+                
+                // React/modern framework compatibility
+                if (field._valueTracker) {
+                  field._valueTracker.setValue('');
+                }
+                
+                // Custom validation events
+                field.dispatchEvent(new Event('validate', { bubbles: true }));
+                field.dispatchEvent(new Event('blur', { bubbles: true }));
+                field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+                
+                // Tab simulation (many forms validate on tab)
+                field.dispatchEvent(new KeyboardEvent('keydown', { 
+                  key: 'Tab',
+                  code: 'Tab',
+                  keyCode: 9,
+                  which: 9,
+                  bubbles: true, 
+                  cancelable: true 
+                }));
+                
+                console.log('✅ [CREDENTIALS] Ultra-realistic fill complete for', fieldType, 'field');
+              }, 100);
+            }, 100);
+          };
+          
+          // Start the character-by-character typing
+          setTimeout(() => typeCharacter(0), 100);
+          
+          return true;
+        }
+        
         let usernameFound = false;
         let passwordFound = false;
         
-        // Fill username/employee ID
+        // Fill username first with ultra-realistic simulation
         if (usernameField) {
-          usernameField.focus();
-          usernameField.value = employeeId;
-          usernameField.dispatchEvent(new Event('input', { bubbles: true }));
-          usernameField.dispatchEvent(new Event('change', { bubbles: true }));
-          usernameField.blur();
-          usernameFound = true;
-          console.log('✅ [CREDENTIALS] Filled username field');
+          usernameFound = fillFieldWithUltraRealisticEvents(usernameField, employeeId, 'username');
         }
         
-        // Fill password
-        if (passwordField) {
-          passwordField.focus();
-          passwordField.value = password;
-          passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-          passwordField.dispatchEvent(new Event('change', { bubbles: true }));
-          passwordField.blur();
-          passwordFound = true;
-          console.log('✅ [CREDENTIALS] Filled password field');
-        }
-        
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'credentials_filled',
-          success: usernameFound && passwordFound,
-          usernameFound: usernameFound,
-          passwordFound: passwordFound,
-          error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
-        }));
+        // Wait for username to complete, then fill password
+        setTimeout(() => {
+          if (passwordField) {
+            passwordFound = fillFieldWithUltraRealisticEvents(passwordField, password, 'password');
+          }
+          
+          // Final validation after both fields are filled
+          setTimeout(() => {
+            if (usernameField && passwordField) {
+              console.log('🔑 [CREDENTIALS] Performing final form validation...');
+              
+              // Trigger form-level events
+              const form = usernameField.closest('form') || passwordField.closest('form');
+              if (form) {
+                form.dispatchEvent(new Event('change', { bubbles: true }));
+                form.dispatchEvent(new Event('input', { bubbles: true }));
+                form.dispatchEvent(new Event('validate', { bubbles: true }));
+              }
+              
+              // Final focus management - focus away and back to trigger validation
+              const body = document.body;
+              if (body) {
+                body.focus();
+                setTimeout(() => {
+                  usernameField.focus();
+                  setTimeout(() => {
+                    passwordField.focus();
+                    setTimeout(() => {
+                      body.focus(); // Focus away from form
+                      
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'credentials_filled',
+                        success: usernameFound && passwordFound,
+                        usernameFound: usernameFound,
+                        passwordFound: passwordFound,
+                        enhanced: true,
+                        message: 'Ultra-realistic credential fill with manual-like behavior completed',
+                        error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
+                      }));
+                    }, 50);
+                  }, 50);
+                }, 50);
+              } else {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'credentials_filled',
+                  success: usernameFound && passwordFound,
+                  usernameFound: usernameFound,
+                  passwordFound: passwordFound,
+                  enhanced: true,
+                  message: 'Ultra-realistic credential fill completed',
+                  error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
+                }));
+              }
+            }
+          }, 2000); // Wait 2 seconds for both fields to complete
+        }, 1500); // Wait 1.5 seconds for username to complete before starting password
         
       } catch (error) {
         console.log('❌ [CREDENTIALS] Error:', error);
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'credentials_filled',
           success: false,
-          error: error.message
+          error: error.message,
+          enhanced: true
         }));
       }
-    })();`;
+    })();
+    `;
 
     webViewRef.current.injectJavaScript(fillCredentialsScript);
   };
@@ -493,12 +700,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       <TouchableOpacity 
         style={[styles.demoButton, { 
           borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
-          marginTop: SPACING.sm 
+          marginTop: SPACING.sm, 
         }]} 
         onPress={toggleOfflineStorage}
       >
         <Text style={[styles.demoButtonText, { 
-          color: hasStoredSchedules ? COLORS.error : COLORS.warning 
+          color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
         }]}>
           {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
         </Text>
@@ -2527,12 +2734,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <TouchableOpacity 
           style={[styles.demoButton, { 
             borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
-            marginBottom: SPACING.md 
+            marginBottom: SPACING.md, 
           }]} 
           onPress={toggleOfflineStorage}
         >
           <Text style={[styles.demoButtonText, { 
-            color: hasStoredSchedules ? COLORS.error : COLORS.warning 
+            color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
           }]}>
             {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
           </Text>
