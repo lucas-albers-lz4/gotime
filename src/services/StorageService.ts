@@ -2,12 +2,45 @@ import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { UserCredentials, ScheduleEntry, AppSettings } from '../types';
+import * as Crypto from 'expo-crypto';
+import { UserCredentials, ScheduleEntry, AppSettings, WeeklySchedule } from '../types';
 import { APP_CONFIG } from '../constants';
 
 class StorageService {
   private db: SQLite.SQLiteDatabase | null = null;
   private isWeb = Platform.OS === 'web';
+
+  /**
+   * Generate a deterministic hash of the password for secure storage
+   * This adds an extra layer of security beyond SecureStore/Keychain
+   */
+  private async hashPassword(password: string, salt: string = 'gotime_salt_2025'): Promise<string> {
+    try {
+      const combined = password + salt;
+      const hash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        combined,
+        { encoding: Crypto.CryptoEncoding.HEX }
+      );
+      return hash;
+    } catch (error) {
+      console.error('Password hashing failed:', error);
+      throw new Error('Failed to hash password - credential storage not possible');
+    }
+  }
+
+  /**
+   * Verify a password against its stored hash
+   */
+  private async verifyPassword(password: string, hashedPassword: string, salt: string = 'gotime_salt_2025'): Promise<boolean> {
+    try {
+      const hash = await this.hashPassword(password, salt);
+      return hash === hashedPassword;
+    } catch (error) {
+      console.warn('Password verification failed:', error);
+      return false; // Fail secure - no fallback to plain text
+    }
+  }
 
   // Initialize the database
   async initializeDatabase(): Promise<void> {
@@ -19,8 +52,31 @@ class StorageService {
 
       this.db = await SQLite.openDatabaseAsync(APP_CONFIG.DB_NAME);
       
-      // Create schedules table
+      // Create schedules table with updated schema for new data structure
       await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS weekly_schedules (
+          id TEXT PRIMARY KEY,
+          employeeId TEXT NOT NULL,
+          weekStart TEXT NOT NULL,
+          weekEnd TEXT NOT NULL,
+          dataAsOf TEXT NOT NULL,
+          employeeName TEXT NOT NULL,
+          location TEXT NOT NULL,
+          department TEXT NOT NULL,
+          jobTitle TEXT NOT NULL,
+          status TEXT NOT NULL,
+          hireDate TEXT NOT NULL,
+          totalHours REAL NOT NULL,
+          straightTimeEarnings REAL NOT NULL,
+          scheduleData TEXT NOT NULL,
+          syncedAt INTEGER NOT NULL
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_weekly_schedules_employee ON weekly_schedules(employeeId);
+        CREATE INDEX IF NOT EXISTS idx_weekly_schedules_week ON weekly_schedules(weekStart, weekEnd);
+        CREATE INDEX IF NOT EXISTS idx_weekly_schedules_synced ON weekly_schedules(syncedAt);
+        
+        -- Legacy schedules table - keep for backwards compatibility but mark as deprecated
         CREATE TABLE IF NOT EXISTS schedules (
           id TEXT PRIMARY KEY,
           date TEXT NOT NULL,
@@ -30,12 +86,9 @@ class StorageService {
           position TEXT NOT NULL,
           syncedAt INTEGER NOT NULL
         );
-        
-        CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date);
-        CREATE INDEX IF NOT EXISTS idx_schedules_synced ON schedules(syncedAt);
       `);
       
-      console.log('Database initialized successfully');
+      console.log('Database initialized successfully with updated schema');
     } catch (error) {
       console.error('Failed to initialize database:', error);
       throw error;
@@ -45,8 +98,13 @@ class StorageService {
   // Secure credential storage
   async storeCredentials(credentials: UserCredentials): Promise<void> {
     try {
+      // Hash the password for additional security layer
+      const hashedPassword = await this.hashPassword(credentials.password);
+      
       const encryptedData = JSON.stringify({
-        ...credentials,
+        employeeId: credentials.employeeId,
+        password: hashedPassword,
+        rememberMe: credentials.rememberMe,
         lastLogin: Date.now(),
       });
       
@@ -59,6 +117,7 @@ class StorageService {
           APP_CONFIG.STORAGE_KEYS.CREDENTIALS,
           encryptedData,
         );
+        console.log('🔐 Credentials stored securely with SHA-256 password hashing');
       }
     } catch (error) {
       console.error('Failed to store credentials:', error);
@@ -80,10 +139,38 @@ class StorageService {
       
       if (!encryptedData) return null;
       
-      return JSON.parse(encryptedData) as UserCredentials;
+      const parsedData = JSON.parse(encryptedData);
+      
+      // Return credentials - all passwords are now required to be hashed
+      return {
+        employeeId: parsedData.employeeId,
+        password: parsedData.password,
+        rememberMe: parsedData.rememberMe,
+        lastLogin: parsedData.lastLogin,
+      } as UserCredentials & { lastLogin?: number };
+      
     } catch (error) {
       console.error('Failed to retrieve credentials:', error);
       return null;
+    }
+  }
+
+  /**
+   * Verify stored credentials against provided password
+   * All stored passwords are required to be hashed
+   */
+  async verifyStoredCredentials(employeeId: string, password: string): Promise<boolean> {
+    try {
+      const storedCredentials = await this.getCredentials();
+      if (!storedCredentials || storedCredentials.employeeId !== employeeId) {
+        return false;
+      }
+
+      // All stored passwords are hashed - verify against hash
+      return await this.verifyPassword(password, storedCredentials.password);
+    } catch (error) {
+      console.error('Failed to verify stored credentials:', error);
+      return false;
     }
   }
 
@@ -100,18 +187,46 @@ class StorageService {
     }
   }
 
-  // Schedule data management
-  async saveSchedules(_schedules: ScheduleEntry[]): Promise<void> {
+  // Schedule data management - Updated for new WeeklySchedule structure
+  async saveWeeklySchedule(schedule: WeeklySchedule): Promise<void> {
     try {
-      // TODO: Update this method to work with new ScheduleEntry structure
-      console.log('saveSchedules temporarily disabled - needs refactoring for new data structure');
-      return;
+      const scheduleId = `${schedule.employee.employeeId}_${schedule.weekEnd}`;
       
-      /*
       if (this.isWeb) {
         // Use AsyncStorage on web as fallback
-        await AsyncStorage.setItem('schedules_data', JSON.stringify(schedules));
-        console.log('Web platform: Schedules saved to AsyncStorage');
+        const key = `weekly_schedule_${scheduleId}`;
+        await AsyncStorage.setItem(key, JSON.stringify(schedule));
+        
+        // Update schedule list
+        const scheduleListKey = 'weekly_schedules_list';
+        const existingListData = await AsyncStorage.getItem(scheduleListKey);
+        const scheduleList: WeeklySchedule[] = existingListData ? JSON.parse(existingListData) : [];
+        
+        // Remove existing entry for this employee/week if it exists
+        const filteredList = scheduleList.filter(s => 
+          !(s.employee.employeeId === schedule.employee.employeeId && s.weekEnd === schedule.weekEnd)
+        );
+        
+        // Add the new schedule
+        filteredList.push(schedule);
+        
+        // Keep only the last 10 weeks per employee to avoid storage bloat
+        const sortedList = filteredList.sort((a, b) => b.weekEnd.localeCompare(a.weekEnd));
+        const employeeSchedules: { [key: string]: WeeklySchedule[] } = {};
+        
+        for (const sched of sortedList) {
+          if (!employeeSchedules[sched.employee.employeeId]) {
+            employeeSchedules[sched.employee.employeeId] = [];
+          }
+          if (employeeSchedules[sched.employee.employeeId].length < 10) {
+            employeeSchedules[sched.employee.employeeId].push(sched);
+          }
+        }
+        
+        const finalList = Object.values(employeeSchedules).flat();
+        await AsyncStorage.setItem(scheduleListKey, JSON.stringify(finalList));
+        
+        console.log('Web platform: Weekly schedule saved to AsyncStorage');
         return;
       }
 
@@ -120,78 +235,161 @@ class StorageService {
       }
 
       await this.db.withTransactionAsync(async () => {
-        // Clear existing schedules
-        await this.db!.runAsync('DELETE FROM schedules');
+        // Remove existing schedule for this employee/week if it exists
+        await this.db!.runAsync(
+          'DELETE FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
+          [schedule.employee.employeeId, schedule.weekEnd]
+        );
         
-        // Insert new schedules
-        for (const schedule of schedules) {
-          await this.db!.runAsync(
-            'INSERT INTO schedules (id, date, startTime, endTime, department, position, syncedAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [schedule.id, schedule.date, schedule.startTime, schedule.endTime, schedule.department, schedule.position, schedule.syncedAt]
-          );
-        }
+        // Insert new schedule
+        await this.db!.runAsync(
+          `INSERT INTO weekly_schedules (
+            id, employeeId, weekStart, weekEnd, dataAsOf, 
+            employeeName, location, department, jobTitle, status, hireDate,
+            totalHours, straightTimeEarnings, scheduleData, syncedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            scheduleId,
+            schedule.employee.employeeId,
+            schedule.weekStart,
+            schedule.weekEnd,
+            schedule.dataAsOf,
+            schedule.employee.name,
+            schedule.employee.location,
+            schedule.employee.department,
+            schedule.employee.jobTitle,
+            schedule.employee.status,
+            schedule.employee.hireDate,
+            schedule.totalHours,
+            schedule.straightTimeEarnings,
+            JSON.stringify(schedule.entries), // Store the detailed schedule entries as JSON
+            Date.now()
+          ]
+        );
       });
-      */
+      
+      console.log(`Saved weekly schedule for employee ${schedule.employee.employeeId}, week ${schedule.weekStart} - ${schedule.weekEnd}`);
     } catch (error) {
-      console.error('Failed to save schedules:', error);
+      console.error('Failed to save weekly schedule:', error);
       throw error;
     }
   }
 
-  async getSchedules(_fromDate?: string, _toDate?: string): Promise<ScheduleEntry[]> {
+  async getWeeklySchedule(employeeId: string, weekEnd: string): Promise<WeeklySchedule | null> {
     try {
-      // TODO: Update this method to work with new ScheduleEntry structure
-      console.log('getSchedules temporarily disabled - needs refactoring for new data structure');
-      return [];
+      const scheduleId = `${employeeId}_${weekEnd}`;
       
-      /*
       if (this.isWeb) {
         // Use AsyncStorage on web as fallback
-        const schedulesData = await AsyncStorage.getItem('schedules_data');
-        if (!schedulesData) return [];
-        
-        const allSchedules: ScheduleEntry[] = JSON.parse(schedulesData);
-        
-        // Filter by date range if provided
-        let filteredSchedules = allSchedules;
-        if (_fromDate && _toDate) {
-          filteredSchedules = allSchedules.filter(s => s.date >= _fromDate && s.date <= _toDate);
-        } else if (_fromDate) {
-          filteredSchedules = allSchedules.filter(s => s.date >= _fromDate);
-        }
-        
-        // Sort by date and time
-        return filteredSchedules.sort((a, b) => {
-          const dateCompare = a.date.localeCompare(b.date);
-          if (dateCompare !== 0) return dateCompare;
-          return a.startTime.localeCompare(b.startTime);
-        });
+        const key = `weekly_schedule_${scheduleId}`;
+        const scheduleData = await AsyncStorage.getItem(key);
+        return scheduleData ? JSON.parse(scheduleData) : null;
       }
 
       if (!this.db) {
         throw new Error('Database not initialized');
       }
 
-      let query = 'SELECT * FROM schedules';
-      const params: string[] = [];
+      const result = await this.db.getFirstAsync(
+        'SELECT * FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
+        [employeeId, weekEnd]
+      ) as any;
 
-      if (_fromDate && _toDate) {
-        query += ' WHERE date BETWEEN ? AND ?';
-        params.push(_fromDate, _toDate);
-      } else if (_fromDate) {
-        query += ' WHERE date >= ?';
-        params.push(_fromDate);
+      if (!result) {
+        return null;
       }
 
-      query += ' ORDER BY date ASC, startTime ASC';
+      // Reconstruct the WeeklySchedule object
+      const schedule: WeeklySchedule = {
+        weekStart: result.weekStart,
+        weekEnd: result.weekEnd,
+        dataAsOf: result.dataAsOf,
+        employee: {
+          name: result.employeeName,
+          employeeId: result.employeeId,
+          location: result.location,
+          department: result.department,
+          jobTitle: result.jobTitle,
+          status: result.status,
+          hireDate: result.hireDate,
+        },
+        entries: JSON.parse(result.scheduleData),
+        totalHours: result.totalHours,
+        straightTimeEarnings: result.straightTimeEarnings,
+      };
 
-      const result = await this.db.getAllAsync(query, params);
-      return result as ScheduleEntry[];
-      */
+      return schedule;
     } catch (error) {
-      console.error('Failed to get schedules:', error);
-      throw error;
+      console.error('Failed to get weekly schedule:', error);
+      return null;
     }
+  }
+
+  async getAllWeeklySchedules(employeeId?: string): Promise<WeeklySchedule[]> {
+    try {
+      if (this.isWeb) {
+        // Use AsyncStorage on web as fallback
+        const scheduleListKey = 'weekly_schedules_list';
+        const scheduleListData = await AsyncStorage.getItem(scheduleListKey);
+        const allSchedules: WeeklySchedule[] = scheduleListData ? JSON.parse(scheduleListData) : [];
+        
+        if (employeeId) {
+          return allSchedules.filter(s => s.employee.employeeId === employeeId);
+        }
+        
+        return allSchedules;
+      }
+
+      if (!this.db) {
+        throw new Error('Database not initialized');
+      }
+
+      let query = 'SELECT * FROM weekly_schedules';
+      const params: string[] = [];
+
+      if (employeeId) {
+        query += ' WHERE employeeId = ?';
+        params.push(employeeId);
+      }
+
+      query += ' ORDER BY weekEnd DESC';
+
+      const results = await this.db.getAllAsync(query, params) as any[];
+      
+      return results.map(result => ({
+        weekStart: result.weekStart,
+        weekEnd: result.weekEnd,
+        dataAsOf: result.dataAsOf,
+        employee: {
+          name: result.employeeName,
+          employeeId: result.employeeId,
+          location: result.location,
+          department: result.department,
+          jobTitle: result.jobTitle,
+          status: result.status,
+          hireDate: result.hireDate,
+        },
+        entries: JSON.parse(result.scheduleData),
+        totalHours: result.totalHours,
+        straightTimeEarnings: result.straightTimeEarnings,
+      }));
+    } catch (error) {
+      console.error('Failed to get all weekly schedules:', error);
+      return [];
+    }
+  }
+
+  // Legacy method - Updated to use new structure but marked as deprecated
+  async saveSchedules(_schedules: ScheduleEntry[]): Promise<void> {
+    console.log('⚠️ saveSchedules method is deprecated. Use saveWeeklySchedule instead.');
+    console.log('This method is no longer functional with the current data structure.');
+    return;
+  }
+
+  async getSchedules(_fromDate?: string, _toDate?: string): Promise<ScheduleEntry[]> {
+    console.log('⚠️ getSchedules method is deprecated. Use getAllWeeklySchedules instead.');
+    console.log('This method is no longer functional with the current data structure.');
+    return [];
   }
 
   async getNextSchedule(): Promise<ScheduleEntry | null> {
@@ -312,23 +510,44 @@ class StorageService {
     }
   }
 
-  // Cleanup old schedules (keep only last 3 weeks)
+  // Cleanup old schedules (keep only last 8 weeks per employee)
   async cleanupOldSchedules(): Promise<void> {
     try {
-      const threeWeeksAgo = new Date();
-      threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
-      const cutoffDate = threeWeeksAgo.toISOString().split('T')[0];
-
       if (this.isWeb) {
         // Use AsyncStorage on web as fallback
-        const schedulesData = await AsyncStorage.getItem('schedules_data');
-        if (!schedulesData) return;
+        const scheduleListKey = 'weekly_schedules_list';
+        const scheduleListData = await AsyncStorage.getItem(scheduleListKey);
+        if (!scheduleListData) return;
         
-        const allSchedules: ScheduleEntry[] = JSON.parse(schedulesData);
-        const filteredSchedules = allSchedules.filter(schedule => schedule.date >= cutoffDate);
+        const allSchedules: WeeklySchedule[] = JSON.parse(scheduleListData);
         
-        await AsyncStorage.setItem('schedules_data', JSON.stringify(filteredSchedules));
-        console.log('Web platform: Old schedules cleaned up from AsyncStorage');
+        // Group by employee
+        const employeeSchedules: { [key: string]: WeeklySchedule[] } = {};
+        for (const schedule of allSchedules) {
+          if (!employeeSchedules[schedule.employee.employeeId]) {
+            employeeSchedules[schedule.employee.employeeId] = [];
+          }
+          employeeSchedules[schedule.employee.employeeId].push(schedule);
+        }
+        
+        // Keep only the last 8 weeks per employee
+        const filteredSchedules: WeeklySchedule[] = [];
+        for (const employeeId in employeeSchedules) {
+          const schedules = employeeSchedules[employeeId]
+            .sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))
+            .slice(0, 8); // Keep only the 8 most recent
+          filteredSchedules.push(...schedules);
+          
+          // Remove individual schedule items for old weeks
+          const oldSchedules = employeeSchedules[employeeId].slice(8);
+          for (const oldSchedule of oldSchedules) {
+            const key = `weekly_schedule_${oldSchedule.employee.employeeId}_${oldSchedule.weekEnd}`;
+            await AsyncStorage.removeItem(key);
+          }
+        }
+        
+        await AsyncStorage.setItem(scheduleListKey, JSON.stringify(filteredSchedules));
+        console.log('Web platform: Old weekly schedules cleaned up from AsyncStorage');
         return;
       }
 
@@ -336,12 +555,164 @@ class StorageService {
         throw new Error('Database not initialized');
       }
 
-      await this.db.runAsync(
-        'DELETE FROM schedules WHERE date < ?',
-        [cutoffDate],
-      );
+      // Get all employees
+      const employees = await this.db.getAllAsync(
+        'SELECT DISTINCT employeeId FROM weekly_schedules'
+      ) as { employeeId: string }[];
+
+      // For each employee, keep only the 8 most recent weeks
+      for (const { employeeId } of employees) {
+        const schedules = await this.db.getAllAsync(
+          'SELECT weekEnd FROM weekly_schedules WHERE employeeId = ? ORDER BY weekEnd DESC',
+          [employeeId]
+        ) as { weekEnd: string }[];
+
+        if (schedules.length > 8) {
+          const weekEndsToDelete = schedules.slice(8).map(s => s.weekEnd);
+          
+          for (const weekEnd of weekEndsToDelete) {
+            await this.db.runAsync(
+              'DELETE FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
+              [employeeId, weekEnd]
+            );
+          }
+          
+          console.log(`Cleaned up ${weekEndsToDelete.length} old schedules for employee ${employeeId}`);
+        }
+      }
+      
+      console.log('Database: Old weekly schedules cleaned up');
     } catch (error) {
       console.error('Failed to cleanup old schedules:', error);
+      throw error;
+    }
+  }
+
+  // Get the most recent schedule for an employee
+  async getMostRecentSchedule(employeeId: string): Promise<WeeklySchedule | null> {
+    try {
+      if (this.isWeb) {
+        const schedules = await this.getAllWeeklySchedules(employeeId);
+        return schedules.length > 0 ? schedules[0] : null; // Already sorted by weekEnd DESC
+      }
+
+      if (!this.db) {
+        throw new Error('Database not initialized');
+      }
+
+      const result = await this.db.getFirstAsync(
+        'SELECT * FROM weekly_schedules WHERE employeeId = ? ORDER BY weekEnd DESC LIMIT 1',
+        [employeeId]
+      ) as any;
+
+      if (!result) {
+        return null;
+      }
+
+      return {
+        weekStart: result.weekStart,
+        weekEnd: result.weekEnd,
+        dataAsOf: result.dataAsOf,
+        employee: {
+          name: result.employeeName,
+          employeeId: result.employeeId,
+          location: result.location,
+          department: result.department,
+          jobTitle: result.jobTitle,
+          status: result.status,
+          hireDate: result.hireDate,
+        },
+        entries: JSON.parse(result.scheduleData),
+        totalHours: result.totalHours,
+        straightTimeEarnings: result.straightTimeEarnings,
+      };
+    } catch (error) {
+      console.error('Failed to get most recent schedule:', error);
+      return null;
+    }
+  }
+
+  // Get storage statistics
+  async getStorageStats(): Promise<{ totalSchedules: number; employeeCount: number; oldestWeek: string | null; newestWeek: string | null }> {
+    try {
+      if (this.isWeb) {
+        const schedules = await this.getAllWeeklySchedules();
+        const uniqueEmployees = new Set(schedules.map(s => s.employee.employeeId));
+        const weekEnds = schedules.map(s => s.weekEnd).sort();
+        
+        return {
+          totalSchedules: schedules.length,
+          employeeCount: uniqueEmployees.size,
+          oldestWeek: weekEnds.length > 0 ? weekEnds[0] : null,
+          newestWeek: weekEnds.length > 0 ? weekEnds[weekEnds.length - 1] : null,
+        };
+      }
+
+      if (!this.db) {
+        throw new Error('Database not initialized');
+      }
+
+      const totalResult = await this.db.getFirstAsync(
+        'SELECT COUNT(*) as count FROM weekly_schedules'
+      ) as { count: number };
+
+      const employeeResult = await this.db.getFirstAsync(
+        'SELECT COUNT(DISTINCT employeeId) as count FROM weekly_schedules'
+      ) as { count: number };
+
+      const oldestResult = await this.db.getFirstAsync(
+        'SELECT MIN(weekEnd) as oldest FROM weekly_schedules'
+      ) as { oldest: string | null };
+
+      const newestResult = await this.db.getFirstAsync(
+        'SELECT MAX(weekEnd) as newest FROM weekly_schedules'
+      ) as { newest: string | null };
+
+      return {
+        totalSchedules: totalResult.count,
+        employeeCount: employeeResult.count,
+        oldestWeek: oldestResult.oldest,
+        newestWeek: newestResult.newest,
+      };
+    } catch (error) {
+      console.error('Failed to get storage stats:', error);
+      return {
+        totalSchedules: 0,
+        employeeCount: 0,
+        oldestWeek: null,
+        newestWeek: null,
+      };
+    }
+  }
+
+  // Clear all weekly schedules (return to demo mode)
+  async clearAllWeeklySchedules(): Promise<void> {
+    try {
+      if (this.isWeb) {
+        // Clear AsyncStorage on web
+        const scheduleListKey = 'weekly_schedules_list';
+        await AsyncStorage.removeItem(scheduleListKey);
+        
+        // Also remove individual schedule items
+        const schedules = await this.getAllWeeklySchedules();
+        for (const schedule of schedules) {
+          const key = `weekly_schedule_${schedule.employee.employeeId}_${schedule.weekEnd}`;
+          await AsyncStorage.removeItem(key);
+        }
+        
+        console.log('Web platform: All weekly schedules cleared from AsyncStorage');
+        return;
+      }
+
+      if (!this.db) {
+        throw new Error('Database not initialized');
+      }
+
+      await this.db.runAsync('DELETE FROM weekly_schedules');
+      
+      console.log('Database: All weekly schedules cleared');
+    } catch (error) {
+      console.error('Failed to clear all weekly schedules:', error);
       throw error;
     }
   }

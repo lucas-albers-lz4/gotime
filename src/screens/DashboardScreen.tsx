@@ -50,26 +50,30 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       console.log('DashboardScreen: Starting to load schedule data...');
       setLoading(true);
       
-      // Attempt to load the most recently saved/parsed real schedule
-      console.log('DashboardScreen: Attempting to load most recent real schedule from storage...');
-      const scheduleList = await scheduleService.getScheduleList();
+      // Try to load all available real schedules first
+      console.log('DashboardScreen: Loading all stored schedules...');
+      const allStoredSchedules = await scheduleService.getAllWeeklySchedules();
       
-      if (scheduleList.length > 0) {
-        // Sort by savedAt to get the most recent one
-        const mostRecentMetadata = scheduleList.sort((a, b) => b.savedAt - a.savedAt)[0];
-        const realSchedule = await scheduleService.getSchedule(mostRecentMetadata.employeeId, mostRecentMetadata.weekEnd);
+      if (allStoredSchedules.length > 0) {
+        console.log('DashboardScreen: ✅ Found', allStoredSchedules.length, 'stored schedules');
         
-        if (realSchedule) {
-          console.log('DashboardScreen: ✅ Most recent real schedule loaded from storage!');
-          setAvailableWeeks([realSchedule]); // For now, only show the single most recent real schedule
-          setSchedule(realSchedule);
-          console.log('DashboardScreen: Set real schedule for week:', realSchedule.weekStart, '-', realSchedule.weekEnd);
-          return;
-        }
+        // Sort schedules by week end date (most recent first)
+        const sortedSchedules = allStoredSchedules.sort((a: WeeklySchedule, b: WeeklySchedule) => b.weekEnd.localeCompare(a.weekEnd));
+        
+        setAvailableWeeks(sortedSchedules);
+        
+        // Set the most recent schedule as current
+        setSchedule(sortedSchedules[0]);
+        setCurrentWeekIndex(0);
+        
+        console.log('DashboardScreen: Set current schedule for week:', sortedSchedules[0].weekStart, '-', sortedSchedules[0].weekEnd);
+        console.log('DashboardScreen: Available weeks:', sortedSchedules.map((s: WeeklySchedule) => `${s.weekStart} - ${s.weekEnd}`));
+        
+        return;
       }
       
       // Fall back to demo schedules if no real data is available in storage
-      console.log('DashboardScreen: No real schedule found in storage, loading demo schedules...');
+      console.log('DashboardScreen: No stored schedules found, loading demo schedules...');
       await loadDemoSchedule();
       
     } catch (error) {
@@ -266,7 +270,36 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
   const renderScheduleEntry = (entry: ScheduleEntry, index: number) => {
     const hasShifts = entry.shifts.length > 0;
-    const isToday = new Date().toDateString() === new Date(entry.date).toDateString();
+    
+    // More robust today comparison that handles different date formats
+    // and prevents highlighting when viewing demo/stored schedules from different time periods
+    const isToday = (() => {
+      try {
+        const today = new Date();
+        const entryDate = new Date(entry.date);
+        
+        // Normalize both dates to compare only year, month, day (ignore time)
+        const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const entryNormalized = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
+        
+        // Only highlight as "today" if we're viewing current week schedules
+        // Check if the schedule week contains today's date
+        if (schedule) {
+          const weekStart = new Date(schedule.weekStart);
+          const weekEnd = new Date(schedule.weekEnd);
+          const isCurrentWeek = today >= weekStart && today <= weekEnd;
+          
+          // Only apply today highlighting if we're in the current week
+          return isCurrentWeek && todayNormalized.getTime() === entryNormalized.getTime();
+        }
+        
+        return false;
+      } catch (error) {
+        // If date parsing fails, don't highlight
+        return false;
+      }
+    })();
+    
     const dayAbbr = getAbbreviatedDay(entry.day);
     
     // Merge consecutive shifts for display
@@ -398,6 +431,22 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
               <Text style={styles.demoText}>
                 {'\n'}* = Schedule changed after original posting
               </Text>
+            </View>
+
+            {/* Offline Storage Status */}
+            <View style={styles.offlineStatus}>
+              <Text style={styles.offlineTitle}>📱 Offline Storage</Text>
+              <Text style={styles.offlineText}>
+                {availableWeeks.length > 0 
+                  ? `✅ ${availableWeeks.length} schedule${availableWeeks.length === 1 ? '' : 's'} stored locally`
+                  : '❌ No schedules stored offline'
+                }
+              </Text>
+              {availableWeeks.length > 0 && (
+                <Text style={styles.offlineSubtext}>
+                  Browse between weeks using ← Prev / Next → buttons above
+                </Text>
+              )}
             </View>
           </>
         ) : (
@@ -659,5 +708,26 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  offlineStatus: {
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  offlineTitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.primary,
+    fontWeight: 'bold',
+    marginBottom: SPACING.xs,
+  },
+  offlineText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.text,
+  },
+  offlineSubtext: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
   },
 }); 

@@ -646,32 +646,11 @@ export class ScheduleService {
    */
   public async saveSchedule(schedule: WeeklySchedule): Promise<void> {
     try {
-      const key = `schedule_${schedule.employee.employeeId}_${schedule.weekEnd}`;
-      await this.storageService.setItem(key, JSON.stringify(schedule));
-      
-      // Update schedule list
-      const scheduleList = await this.getScheduleList();
-      const existingIndex = scheduleList.findIndex(s => 
-        s.employeeId === schedule.employee.employeeId && s.weekEnd === schedule.weekEnd,
-      );
-      
-      const scheduleInfo = {
-        employeeId: schedule.employee.employeeId,
-        weekStart: schedule.weekStart,
-        weekEnd: schedule.weekEnd,
-        totalHours: schedule.totalHours,
-        savedAt: Date.now(),
-      };
-      
-      if (existingIndex >= 0) {
-        scheduleList[existingIndex] = scheduleInfo;
-      } else {
-        scheduleList.push(scheduleInfo);
-      }
-      
-      await this.storageService.setItem('schedule_list', JSON.stringify(scheduleList));
+      // Use the new StorageService method
+      await this.storageService.saveWeeklySchedule(schedule);
+      console.log('✅ [SCHEDULE] Schedule saved to local storage:', schedule.weekStart, '-', schedule.weekEnd);
     } catch (error) {
-      console.error('Error saving schedule:', error);
+      console.error('❌ [SCHEDULE] Error saving schedule:', error);
       throw error;
     }
   }
@@ -681,11 +660,14 @@ export class ScheduleService {
    */
   public async getSchedule(employeeId: string, weekEnd: string): Promise<WeeklySchedule | null> {
     try {
-      const key = `schedule_${employeeId}_${weekEnd}`;
-      const data = await this.storageService.getItem(key);
-      return data ? JSON.parse(data) : null;
+      // Use the new StorageService method
+      const schedule = await this.storageService.getWeeklySchedule(employeeId, weekEnd);
+      if (schedule) {
+        console.log('✅ [SCHEDULE] Schedule loaded from local storage:', schedule.weekStart, '-', schedule.weekEnd);
+      }
+      return schedule;
     } catch (error) {
-      console.error('Error getting schedule:', error);
+      console.error('❌ [SCHEDULE] Error getting schedule:', error);
       return null;
     }
   }
@@ -695,11 +677,111 @@ export class ScheduleService {
    */
   public async getScheduleList(): Promise<ScheduleMetadata[]> {
     try {
-      const data = await this.storageService.getItem('schedule_list');
-      return data ? JSON.parse(data) : [];
+      // Use the new StorageService method and convert to metadata format
+      const schedules = await this.storageService.getAllWeeklySchedules();
+      
+      const metadata: ScheduleMetadata[] = schedules.map(schedule => ({
+        employeeId: schedule.employee.employeeId,
+        weekStart: schedule.weekStart,
+        weekEnd: schedule.weekEnd,
+        totalHours: schedule.totalHours,
+        savedAt: Date.now(), // We'll use current time as approximate since we don't track this separately
+      }));
+      
+      console.log('📋 [SCHEDULE] Schedule list loaded:', metadata.length, 'schedules found');
+      return metadata;
     } catch (error) {
-      console.error('Error getting schedule list:', error);
+      console.error('❌ [SCHEDULE] Error getting schedule list:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get all schedules for a specific employee
+   */
+  public async getEmployeeSchedules(employeeId: string): Promise<WeeklySchedule[]> {
+    try {
+      const schedules = await this.storageService.getAllWeeklySchedules(employeeId);
+      console.log('👤 [SCHEDULE] Employee schedules loaded:', schedules.length, 'schedules for employee', employeeId);
+      return schedules;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error getting employee schedules:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all stored weekly schedules (optionally for a specific employee)
+   */
+  public async getAllWeeklySchedules(employeeId?: string): Promise<WeeklySchedule[]> {
+    try {
+      const schedules = await this.storageService.getAllWeeklySchedules(employeeId);
+      console.log('📅 [SCHEDULE] All weekly schedules loaded:', schedules.length, 'schedules');
+      return schedules;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error getting all weekly schedules:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get the most recent schedule for an employee
+   */
+  public async getMostRecentSchedule(employeeId: string): Promise<WeeklySchedule | null> {
+    try {
+      const schedule = await this.storageService.getMostRecentSchedule(employeeId);
+      if (schedule) {
+        console.log('📅 [SCHEDULE] Most recent schedule loaded:', schedule.weekStart, '-', schedule.weekEnd);
+      }
+      return schedule;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error getting most recent schedule:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get storage statistics
+   */
+  public async getStorageStats() {
+    try {
+      const stats = await this.storageService.getStorageStats();
+      console.log('📊 [SCHEDULE] Storage stats:', stats);
+      return stats;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error getting storage stats:', error);
+      return {
+        totalSchedules: 0,
+        employeeCount: 0,
+        oldestWeek: null,
+        newestWeek: null,
+      };
+    }
+  }
+
+  /**
+   * Clean up old schedules
+   */
+  public async cleanupOldSchedules(): Promise<void> {
+    try {
+      await this.storageService.cleanupOldSchedules();
+      console.log('🧹 [SCHEDULE] Old schedules cleaned up');
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error cleaning up old schedules:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear all stored schedules (return to demo mode)
+   */
+  public async clearAllWeeklySchedules(): Promise<void> {
+    try {
+      await this.storageService.clearAllWeeklySchedules();
+      console.log('🗑️ [SCHEDULE] All weekly schedules cleared - returned to demo mode');
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error clearing all weekly schedules:', error);
+      throw error;
     }
   }
 
@@ -1038,9 +1120,13 @@ export class ScheduleService {
       if (schedule) {
         console.log('✅ [SCHEDULE] Schedule parsed successfully for week:', schedule.weekStart, '-', schedule.weekEnd);
         
-        // Save the schedule locally
+        // Save the schedule locally using the new storage method
         await this.saveSchedule(schedule);
-        console.log('💾 [SCHEDULE] Real schedule saved locally.');
+        console.log('💾 [SCHEDULE] Real schedule saved to local storage.');
+        
+        // Clean up old schedules to keep storage manageable
+        await this.cleanupOldSchedules();
+        
         return schedule;
       } else {
         console.log('❌ [SCHEDULE] Failed to parse schedule HTML');

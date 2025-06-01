@@ -63,13 +63,69 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [authSessionData, setAuthSessionData] = useState<Record<string, unknown> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [hasStoredSchedules, setHasStoredSchedules] = useState(false);
 
   const authService = AuthService.getInstance();
+  const scheduleService = ScheduleService.getInstance();
   const webViewRef = useRef<WebView>(null);
 
   useEffect(() => {
     loadSavedCredentials();
   }, []);
+
+  // Check for stored schedules on component mount
+  useEffect(() => {
+    checkStoredSchedules();
+  }, []);
+
+  const checkStoredSchedules = async () => {
+    try {
+      const stats = await scheduleService.getStorageStats();
+      setHasStoredSchedules(stats.totalSchedules > 0);
+    } catch (error) {
+      console.error('Error checking stored schedules:', error);
+      setHasStoredSchedules(false);
+    }
+  };
+
+  const toggleOfflineStorage = async () => {
+    try {
+      if (hasStoredSchedules) {
+        // Clear stored schedules
+        console.log('🗑️ [UI] Clearing offline storage...');
+        await scheduleService.clearAllWeeklySchedules();
+        
+        Alert.alert(
+          'Offline Storage Cleared ✅',
+          'All stored schedules have been removed.\n\nThe app will now use demo schedules.',
+          [{ text: 'OK' }],
+        );
+        
+        setHasStoredSchedules(false);
+      } else {
+        // Test offline storage
+        console.log('🧪 [UI] Testing offline storage...');
+        const { testOfflineStorage } = await import('../test-utils/offlineTest');
+        
+        await testOfflineStorage();
+        
+        Alert.alert(
+          'Offline Storage Test ✅',
+          'Offline storage test completed successfully!\n\n• Created 3 test schedules\n• Saved to local storage\n• Retrieved schedules\n• Verified storage stats\n\nTap "My Schedule" to see stored schedules.',
+          [{ text: 'Great!' }],
+        );
+        
+        setHasStoredSchedules(true);
+      }
+    } catch (error) {
+      console.error('❌ [UI] Offline storage toggle failed:', error);
+      Alert.alert(
+        'Operation Failed ❌',
+        `Failed: ${(error as Error).message}\n\nCheck console logs for more details.`,
+        [{ text: 'OK' }],
+      );
+    }
+  };
 
   const loadSavedCredentials = async () => {
     try {
@@ -110,12 +166,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       } else if (result.requiresMFA) {
         console.log('🔐 [UI] MFA required - switching to code input screen');
         setCurrentStep('MFA_CODE');
-        setAuthSessionData(result.sessionData || null);
         setErrorMessage('Please enter the verification code sent to your phone');
       } else if (result.errorType === 'SAML_REQUIRED') {
         console.log('🔄 [UI] SAML authentication required - showing SAML instructions');
         setCurrentStep('SAML_REDIRECT');
-        setAuthSessionData(result.sessionData || null);
         setErrorMessage(result.error || 'SAML authentication required');
       } else {
         console.log('❌ [UI] Authentication failed:', result.errorType || 'Unknown');
@@ -187,7 +241,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const handleBackToCredentials = () => {
     setCurrentStep('CREDENTIALS');
     setMfaCode('');
-    setAuthSessionData(null);
     setErrorMessage(null);
     setShowPassword(false);
   };
@@ -416,7 +469,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.demoButton} onPress={handleDemoMode}>
-        <Text style={styles.demoButtonText}>View Demo Schedule</Text>
+        <Text style={styles.demoButtonText}>📱 Demo Mode</Text>
       </TouchableOpacity>
 
       <TouchableOpacity 
@@ -434,6 +487,20 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       >
         <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
           Authenticate in App (WebView)
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={[styles.demoButton, { 
+          borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
+          marginTop: SPACING.sm 
+        }]} 
+        onPress={toggleOfflineStorage}
+      >
+        <Text style={[styles.demoButtonText, { 
+          color: hasStoredSchedules ? COLORS.error : COLORS.warning 
+        }]}>
+          {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
         </Text>
       </TouchableOpacity>
 
@@ -2445,15 +2512,29 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 }
               })();`;
               
-              webViewRef.current.injectJavaScript(loadNext2WeeksScript);
+              await webViewRef.current.injectJavaScript(loadNext2WeeksScript);
             } catch (error) {
-              console.error('❌ [UI] Load next 2 weeks error:', error);
-              Alert.alert('Load Next 2 Weeks Error', 'Error loading next 2 weeks: ' + (error as Error).message);
+              console.error('❌ [UI] Error running Load Next 2 Weeks script:', error);
+              Alert.alert('Error', 'Failed to run Load Next 2 Weeks script');
             }
           }}
         >
           <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
             📅 Load Next 2 Weeks
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { 
+            borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
+            marginBottom: SPACING.md 
+          }]} 
+          onPress={toggleOfflineStorage}
+        >
+          <Text style={[styles.demoButtonText, { 
+            color: hasStoredSchedules ? COLORS.error : COLORS.warning 
+          }]}>
+            {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
           </Text>
         </TouchableOpacity>
 
@@ -2489,341 +2570,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                             iframeContent.includes('IBM Cognos Viewer') &&
                             iframeContent.includes('PRMT_SV_')) {
                           console.log('✅ [IMPORT] Found Cognos schedule interface in iframe', i);
-                          cognosIframe = iframe;
-                          cognosDoc = iframe.contentDocument;
-                          break;
-                        }
-                      }
-                    } catch (e) {
-                      console.log('❌ [IMPORT] Cannot access iframe', i, ':', e.message);
-                    }
-                  }
-                  
-                  if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [IMPORT] Cognos iframe not found or not accessible!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'multiple_schedules_extracted',
-                      schedules: [],
-                      totalWeeks: 0,
-                      error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
-                    }));
-                    return;
-                  }
-                  
-                  console.log('🔍 [IMPORT] Using Cognos iframe, searching for elements...');
-                  
-                  // Find the Week End Date dropdown using Cognos-specific selectors
-                  const weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]') ||
-                                     cognosDoc.querySelector('select.clsSelectControl') ||
-                                     cognosDoc.querySelector('select[role="listbox"]');
-                                     
-                  if (!weekDropdown) {
-                    console.log('❌ [IMPORT] Week dropdown not found in iframe!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'multiple_schedules_extracted',
-                      schedules: [],
-                      totalWeeks: 0,
-                      error: 'Week dropdown not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  // Find the run button using Cognos-specific selectors
-                  const runButton = cognosDoc.querySelector('button[id*="next"][id*="_NS_"]') ||
-                                   cognosDoc.querySelector('button.bp') ||
-                                   cognosDoc.querySelector('button[onclick*="promptAction"]') ||
-                                   cognosDoc.querySelector('input[type="submit"]');
-                                   
-                  if (!runButton) {
-                    console.log('❌ [IMPORT] Run button not found in iframe!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'multiple_schedules_extracted',
-                      schedules: [],
-                      totalWeeks: 0,
-                      error: 'Run button not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  console.log('🔍 [IMPORT] Found Cognos elements:');
-                  console.log('  - Week dropdown ID:', weekDropdown.id);
-                  console.log('  - Week dropdown options:', weekDropdown.options.length);
-                  console.log('  - Run button ID:', runButton.id);
-                  console.log('  - Run button disabled:', runButton.disabled);
-                  
-                  const totalWeeks = weekDropdown.options.length;
-                  let currentWeek = 0;
-                  const extractedSchedules = [];
-                  
-                  function importNextWeek() {
-                    if (currentWeek >= totalWeeks) {
-                      console.log('✅ [IMPORT] Import completed! Extracted', extractedSchedules.length, 'schedules');
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'multiple_schedules_extracted',
-                        schedules: extractedSchedules,
-                        totalWeeks: totalWeeks,
-                        url: window.location.href,
-                        title: document.title,
-                        extractionMode: 'cognos_iframe_navigation_with_parsing'
-                      }));
-                      return;
-                    }
-                    
-                    const option = weekDropdown.options[currentWeek];
-                    const weekText = option.text;
-                    const weekValue = option.value;
-                    
-                    console.log('🔍 [IMPORT] Importing week', (currentWeek + 1) + '/' + totalWeeks + ':', weekText);
-                    
-                    // Select the week using Cognos approach
-                    weekDropdown.selectedIndex = currentWeek;
-                    weekDropdown.value = weekValue;
-                    weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
-                    
-                    // Enable the run button if disabled
-                    if (runButton.disabled) {
-                      runButton.disabled = false;
-                      console.log('🔍 [IMPORT] Enabled run button');
-                    }
-                    
-                    // Wait a bit, then click run
-                    setTimeout(() => {
-                      console.log('🔍 [IMPORT] Clicking run for week:', weekText);
-                      
-                      try {
-                        runButton.click();
-                        console.log('✅ [IMPORT] Run clicked for week:', weekText);
-                        
-                        // Wait for page load and capture schedule content from iframe
-                        let checkCount = 0;
-                        const maxChecks = 20; // 10 seconds max
-                        
-                        const checkForSchedule = setInterval(() => {
-                          checkCount++;
-                          
-                          // Check iframe content for schedule results
-                          const currentContent = cognosDoc.body.innerHTML;
-                          const hasEmployeeNum = currentContent.includes('Employee #');
-                          const hasTotalHours = currentContent.includes('Total Hours');
-                          const hasScheduleDetail = currentContent.includes('Schedule Detail');
-                          const hasWeeklyScheduleTitle = currentContent.includes('Weekly Schedule');
-                          const hasScheduleData = hasEmployeeNum || hasTotalHours || hasScheduleDetail || hasWeeklyScheduleTitle;
-                          
-                          // Check if we're still on the parameter page (bad) or on results page (good)
-                          const stillOnParameterPage = currentContent.includes('Week End Date') && 
-                                                      cognosDoc.querySelectorAll('select').length > 0;
-                          
-                          console.log('🔍 [IMPORT] Schedule check', checkCount + '/' + maxChecks, 'for week', (currentWeek + 1) + ':');
-                          console.log('  - Content length:', currentContent.length);
-                          console.log('  - Has schedule data:', hasScheduleData);
-                          console.log('  - Still on parameter page:', stillOnParameterPage);
-                          
-                          // Check if schedule data has loaded (and we're not still on parameter page)
-                          if (hasScheduleData && !stillOnParameterPage) {
-                            clearInterval(checkForSchedule);
-                            console.log('✅ [IMPORT] Schedule data loaded for week', (currentWeek + 1), 'after', checkCount, 'checks');
-                            
-                            // Extract this week's schedule with parsing info
-                            extractedSchedules.push({
-                              weekNumber: currentWeek + 1,
-                              weekText: weekText,
-                              weekValue: weekValue,
-                              html: currentContent,
-                              extractedAt: new Date().toISOString(),
-                              extractionContext: 'cognos_iframe_navigation_with_parsing',
-                              hasEmployeeInfo: hasEmployeeNum,
-                              hasTotalHours: hasTotalHours,
-                              hasScheduleDetail: hasScheduleDetail,
-                              hasWeeklyScheduleTitle: hasWeeklyScheduleTitle,
-                              contentLength: currentContent.length,
-                              checksRequired: checkCount
-                            });
-                            
-                            console.log('📅 [IMPORT] Added schedule to collection (week', (currentWeek + 1) + ')');
-                            console.log('  - HTML length:', currentContent.length);
-                            console.log('  - Total schedules so far:', extractedSchedules.length);
-                            
-                            // Move to next week
-                            currentWeek++;
-                            setTimeout(() => {
-                              importNextWeek();
-                            }, 2000); // 2 second delay before next week
-                            
-                          } else if (checkCount >= maxChecks) {
-                            // Timeout - capture whatever we have
-                            clearInterval(checkForSchedule);
-                            console.log('⚠️ [IMPORT] Timeout waiting for week', (currentWeek + 1), 'after', checkCount, 'checks');
-                            
-                            // Still capture it for debugging, even if incomplete
-                            extractedSchedules.push({
-                              weekNumber: currentWeek + 1,
-                              weekText: weekText,
-                              weekValue: weekValue,
-                              html: currentContent,
-                              extractedAt: new Date().toISOString(),
-                              extractionContext: 'cognos_iframe_navigation_with_parsing',
-                              timeout: true,
-                              checksAttempted: checkCount,
-                              stuckOnParameterPage: stillOnParameterPage,
-                              hasScheduleData: hasScheduleData,
-                              contentLength: currentContent.length
-                            });
-                            
-                            console.log('📅 [IMPORT] Added timeout schedule (week', (currentWeek + 1) + ')');
-                            
-                            // Move to next week anyway
-                            currentWeek++;
-                            setTimeout(() => {
-                              importNextWeek();
-                            }, 500);
-                          }
-                        }, 500); // Check every 500ms
-                        
-                      } catch (clickError) {
-                        console.log('❌ [IMPORT] Error clicking run button:', clickError);
-                        
-                        // Add error entry and continue
-                        extractedSchedules.push({
-                          weekNumber: currentWeek + 1,
-                          weekText: weekText,
-                          weekValue: weekValue,
-                          html: '',
-                          extractedAt: new Date().toISOString(),
-                          extractionContext: 'cognos_iframe_navigation_with_parsing',
-                          error: 'Failed to click run button: ' + clickError.message,
-                          contentLength: 0
-                        });
-                        
-                        // Try to continue with next week anyway
-                        currentWeek++;
-                        setTimeout(() => {
-                          importNextWeek();
-                        }, 1000);
-                      }
-                    }, 1000); // 1 second delay after selecting option
-                  }
-                  
-                  // Start the import process
-                  console.log('🚀 [IMPORT] Starting Cognos iframe import through', totalWeeks, 'weeks...');
-                  importNextWeek();
-                } catch (error) {
-                  console.log('❌ [IMPORT] Script error:', error);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'multiple_schedules_extracted',
-                    schedules: [],
-                    totalWeeks: 0,
-                    error: error.message,
-                    stack: error.stack
-                  }));
-                }
-              })();`;
-              
-              webViewRef.current.injectJavaScript(getHtmlScript);
-              Alert.alert('Schedule Import', 'Starting proven navigation import with parsing of all available schedules...');
-            } catch (error) {
-              console.error('❌ [UI] Error extracting schedule HTML:', error);
-              Alert.alert('Extraction Error', 'Error extracting schedule HTML: ' + (error as Error).message);
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
-            🔍 Import Schedule
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🔄 [UI] Starting navigation through all weeks with element verification...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
-              return;
-            }
-            try {
-              const loadSchedulesScript = `
-              (function() { 
-                try { 
-                  console.log('🔄 [NAV] Starting automatic navigation with element verification...');
-                  console.log('🔄 [NAV] Step 1: Script injection successful');
-                  
-                  // Add safety check for ReactNativeWebView
-                  if (typeof window.ReactNativeWebView === 'undefined') {
-                    console.log('❌ [NAV] ReactNativeWebView not available - might not be in WebView context');
-                    return;
-                  }
-                  
-                  console.log('🔄 [NAV] Step 2: ReactNativeWebView available');
-                  
-                  // Check basic document state
-                  console.log('🔄 [NAV] Step 3: Document readiness check');
-                  console.log('  - URL:', window.location.href);
-                  console.log('  - Title:', document.title);
-                  console.log('  - Ready state:', document.readyState);
-                  console.log('  - Body exists:', !!document.body);
-                  
-                  // First, find the Cognos iframe with detailed logging
-                  console.log('🔄 [NAV] Step 4: Starting iframe search...');
-                  let cognosIframe = null;
-                  let cognosDoc = null;
-                  
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('🔄 [NAV] Found', allIframes.length, 'iframes to check');
-                  
-                  if (allIframes.length === 0) {
-                    console.log('❌ [NAV] No iframes found on this page!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'schedule_navigation_error',
-                      error: 'No iframes found on this page. Current URL: ' + window.location.href,
-                      step: 'iframe_search',
-                      pageInfo: {
-                        url: window.location.href,
-                        title: document.title,
-                        readyState: document.readyState
-                      }
-                    }));
-                    return;
-                  }
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    console.log('🔄 [NAV] Checking iframe', i + ':');
-                    console.log('  - Src:', iframe.src || '(no src)');
-                    console.log('  - ID:', iframe.id || '(no id)');
-                    console.log('  - Name:', iframe.name || '(no name)');
-                    console.log('  - Width:', iframe.width || 'auto');
-                    console.log('  - Height:', iframe.height || 'auto');
-                    console.log('  - Visible:', iframe.offsetParent !== null);
-                    
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        console.log('  - Accessible: YES');
-                        console.log('  - Content document exists:', !!iframe.contentDocument);
-                        console.log('  - Content window exists:', !!iframe.contentWindow);
-                        
-                        const iframeDoc = iframe.contentDocument;
-                        console.log('  - Iframe URL:', iframe.contentWindow.location.href);
-                        console.log('  - Iframe title:', iframeDoc.title);
-                        console.log('  - Iframe ready state:', iframeDoc.readyState);
-                        
-                        const iframeContent = iframeDoc.documentElement.outerHTML;
-                        console.log('  - Content length:', iframeContent.length);
-                        
-                        // Check for Cognos indicators
-                        const hasWeekEndDate = iframeContent.includes('Week End Date');
-                        const hasCognosViewer = iframeContent.includes('IBM Cognos Viewer');
-                        const hasPRMT_SV = iframeContent.includes('PRMT_SV_');
-                        const hasScheduleTitle = iframeDoc.title.includes('Schedule');
-                        
-                        console.log('  - Contains "Week End Date":', hasWeekEndDate);
-                        console.log('  - Contains "IBM Cognos Viewer":', hasCognosViewer);
-                        console.log('  - Contains "PRMT_SV_":', hasPRMT_SV);
-                        console.log('  - Title contains "Schedule":', hasScheduleTitle);
-                        
-                        // Look for Cognos-specific elements (Week End Date and IBM Cognos Viewer)
-                        if (hasWeekEndDate && hasCognosViewer && hasPRMT_SV) {
-                          console.log('✅ [NAV] Found Cognos schedule interface in iframe', i);
-                          console.log('✅ [NAV] Iframe URL:', iframe.src);
                           cognosIframe = iframe;
                           cognosDoc = iframe.contentDocument;
                           break;
@@ -3048,7 +2794,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 }
               })();`;
               
-              webViewRef.current.injectJavaScript(loadSchedulesScript);
+              webViewRef.current.injectJavaScript(getHtmlScript);
               
             } catch (error) {
               console.log('❌ [UI] Error injecting navigation script:', error);
