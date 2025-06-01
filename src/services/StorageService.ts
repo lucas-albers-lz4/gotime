@@ -20,7 +20,7 @@ class StorageService {
       const hash = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         combined,
-        { encoding: Crypto.CryptoEncoding.HEX }
+        { encoding: Crypto.CryptoEncoding.HEX },
       );
       return hash;
     } catch (error) {
@@ -204,7 +204,7 @@ class StorageService {
         
         // Remove existing entry for this employee/week if it exists
         const filteredList = scheduleList.filter(s => 
-          !(s.employee.employeeId === schedule.employee.employeeId && s.weekEnd === schedule.weekEnd)
+          !(s.employee.employeeId === schedule.employee.employeeId && s.weekEnd === schedule.weekEnd),
         );
         
         // Add the new schedule
@@ -238,7 +238,7 @@ class StorageService {
         // Remove existing schedule for this employee/week if it exists
         await this.db!.runAsync(
           'DELETE FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
-          [schedule.employee.employeeId, schedule.weekEnd]
+          [schedule.employee.employeeId, schedule.weekEnd],
         );
         
         // Insert new schedule
@@ -263,8 +263,8 @@ class StorageService {
             schedule.totalHours,
             schedule.straightTimeEarnings,
             JSON.stringify(schedule.entries), // Store the detailed schedule entries as JSON
-            Date.now()
-          ]
+            Date.now(),
+          ],
         );
       });
       
@@ -292,7 +292,7 @@ class StorageService {
 
       const result = await this.db.getFirstAsync(
         'SELECT * FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
-        [employeeId, weekEnd]
+        [employeeId, weekEnd],
       ) as any;
 
       if (!result) {
@@ -557,14 +557,14 @@ class StorageService {
 
       // Get all employees
       const employees = await this.db.getAllAsync(
-        'SELECT DISTINCT employeeId FROM weekly_schedules'
+        'SELECT DISTINCT employeeId FROM weekly_schedules',
       ) as { employeeId: string }[];
 
       // For each employee, keep only the 8 most recent weeks
       for (const { employeeId } of employees) {
         const schedules = await this.db.getAllAsync(
           'SELECT weekEnd FROM weekly_schedules WHERE employeeId = ? ORDER BY weekEnd DESC',
-          [employeeId]
+          [employeeId],
         ) as { weekEnd: string }[];
 
         if (schedules.length > 8) {
@@ -573,7 +573,7 @@ class StorageService {
           for (const weekEnd of weekEndsToDelete) {
             await this.db.runAsync(
               'DELETE FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
-              [employeeId, weekEnd]
+              [employeeId, weekEnd],
             );
           }
           
@@ -602,7 +602,7 @@ class StorageService {
 
       const result = await this.db.getFirstAsync(
         'SELECT * FROM weekly_schedules WHERE employeeId = ? ORDER BY weekEnd DESC LIMIT 1',
-        [employeeId]
+        [employeeId],
       ) as any;
 
       if (!result) {
@@ -653,19 +653,19 @@ class StorageService {
       }
 
       const totalResult = await this.db.getFirstAsync(
-        'SELECT COUNT(*) as count FROM weekly_schedules'
+        'SELECT COUNT(*) as count FROM weekly_schedules',
       ) as { count: number };
 
       const employeeResult = await this.db.getFirstAsync(
-        'SELECT COUNT(DISTINCT employeeId) as count FROM weekly_schedules'
+        'SELECT COUNT(DISTINCT employeeId) as count FROM weekly_schedules',
       ) as { count: number };
 
       const oldestResult = await this.db.getFirstAsync(
-        'SELECT MIN(weekEnd) as oldest FROM weekly_schedules'
+        'SELECT MIN(weekEnd) as oldest FROM weekly_schedules',
       ) as { oldest: string | null };
 
       const newestResult = await this.db.getFirstAsync(
-        'SELECT MAX(weekEnd) as newest FROM weekly_schedules'
+        'SELECT MAX(weekEnd) as newest FROM weekly_schedules',
       ) as { newest: string | null };
 
       return {
