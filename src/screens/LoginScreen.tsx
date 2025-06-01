@@ -285,7 +285,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     const fillCredentialsScript = `
     (function() {
       try {
-        console.log('🔑 [CREDENTIALS] Starting enhanced credential fill for strict validation...');
+        console.log('🔑 [CREDENTIALS] Starting smart credential fill...');
         
         const employeeId = '${employeeId}';
         const password = '${password}';
@@ -299,9 +299,34 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           return;
         }
         
-        console.log('🔑 [CREDENTIALS] Looking for login fields with enhanced selectors...');
+        // Detect which login form we're dealing with
+        const pageContent = document.body.textContent || document.body.innerText || '';
+        const pageTitle = document.title || '';
+        const currentURL = window.location.href || '';
         
-        // Enhanced selectors for second login forms (often have different naming)
+        // More specific detection for the SECOND login form that needs enhanced validation
+        const isCostcoExtSecondForm = pageContent.includes('Log in with your COSTCOEXT ID') || 
+                                     (pageContent.includes('User ID') && pageContent.includes('Password') && 
+                                      (pageContent.includes('COSTCOEXT') || currentURL.includes('costco'))) ||
+                                     document.querySelector('input[placeholder*="User ID"]') ||
+                                     document.querySelector('label[for*="userid"]');
+        
+        // This is NOT the enhanced form if it's just basic employee/password without COSTCOEXT context
+        const isFirstStandardForm = pageContent.includes('Employee') && 
+                                   !pageContent.includes('COSTCOEXT') && 
+                                   !pageContent.includes('User ID');
+        
+        console.log('🔑 [CREDENTIALS] Form detection:');
+        console.log('  - Page title:', pageTitle);
+        console.log('  - Is COSTCOEXT second form (needs enhanced):', isCostcoExtSecondForm);
+        console.log('  - Is first standard form (simple):', isFirstStandardForm);
+        console.log('  - Content includes "Log in with your COSTCOEXT ID":', pageContent.includes('Log in with your COSTCOEXT ID'));
+        console.log('  - Content includes "User ID":', pageContent.includes('User ID'));
+        console.log('  - URL contains costco:', currentURL.includes('costco'));
+        
+        console.log('🔑 [CREDENTIALS] Looking for login fields...');
+        
+        // Enhanced selectors for login forms
         const usernameSelectors = [
           'input[name="username"]',
           'input[name="employeeId"]',
@@ -322,7 +347,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           'input[placeholder*="ID"]'
         ];
         
-        // Enhanced password selectors
         const passwordSelectors = [
           'input[name="password"]',
           'input[name="passwd"]',
@@ -364,92 +388,115 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         console.log('  - Username field found:', !!usernameField);
         console.log('  - Password field found:', !!passwordField);
         
-        // Enhanced function to simulate ultra-realistic user input with manual-like behavior
-        function fillFieldWithUltraRealisticEvents(field, value, fieldType) {
+        // Simplified filling function for basic forms
+        function fillFieldSimplified(field, value, fieldType) {
           if (!field) return false;
           
-          console.log('🔑 [CREDENTIALS] Starting ultra-realistic fill for', fieldType, 'field...');
+          console.log('🔑 [CREDENTIALS] Filling', fieldType, 'with simplified approach...');
           
-          // Step 1: Clear any existing value and focus
+          field.value = '';
+          field.focus();
+          field.value = value;
+          
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+          field.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          if (field._valueTracker) {
+            field._valueTracker.setValue('');
+          }
+          
+          setTimeout(() => {
+            field.blur();
+            console.log('✅ [CREDENTIALS] Simplified fill complete for', fieldType);
+          }, 100);
+          
+          return true;
+        }
+        
+        // Enhanced filling function for CostCOEXT forms that need complex validation
+        function fillFieldEnhanced(field, value, fieldType) {
+          if (!field) return false;
+          
+          console.log('🔑 [CREDENTIALS] Filling', fieldType, 'with enhanced validation triggering...');
+          
+          // Debugging: Check initial field state
+          function logFieldState(stage) {
+            console.log('🔍 [DEBUG]', stage, 'field state for', fieldType, ':');
+            console.log('  - Value:', field.value);
+            console.log('  - Validity valid:', field.validity ? field.validity.valid : 'no validity');
+            console.log('  - Validity valueMissing:', field.validity ? field.validity.valueMissing : 'no validity');
+            console.log('  - Required:', field.required);
+            console.log('  - Disabled:', field.disabled);
+            console.log('  - ReadOnly:', field.readOnly);
+            console.log('  - aria-invalid:', field.getAttribute('aria-invalid'));
+            console.log('  - aria-required:', field.getAttribute('aria-required'));
+            console.log('  - Class list:', field.className);
+            console.log('  - Has error class:', field.classList.contains('error') || field.classList.contains('invalid') || field.classList.contains('ng-invalid'));
+            
+            // Check for validation error elements nearby
+            const parent = field.parentElement;
+            if (parent) {
+              const errorElements = parent.querySelectorAll('.error, .invalid, .validation-error, [role="alert"]');
+              console.log('  - Error elements in parent:', errorElements.length);
+              if (errorElements.length > 0) {
+                Array.from(errorElements).forEach((el, idx) => {
+                  console.log('    * Error element', idx, ':', el.textContent.trim());
+                });
+              }
+            }
+          }
+          
+          // Log initial state
+          logFieldState('INITIAL');
+          
+          // Clear and focus
           field.value = '';
           field.focus();
           
-          // Step 2: Dispatch initial focus events
+          // Initial events
           field.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-          field.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
           field.dispatchEvent(new Event('click', { bubbles: true }));
           
-          // Step 3: Simulate typing each character with realistic delays
-          let currentValue = '';
-          const typeCharacter = (index) => {
-            if (index >= value.length) {
-              // Finished typing, continue with validation
-              finalizeField();
-              return;
-            }
-            
-            const char = value[index];
-            currentValue += char;
-            field.value = currentValue;
-            
-            // Dispatch all the keyboard events for this character
-            field.dispatchEvent(new KeyboardEvent('keydown', { 
-              key: char,
-              code: 'Key' + char.toUpperCase(),
-              keyCode: char.charCodeAt(0),
-              which: char.charCodeAt(0),
-              bubbles: true, 
-              cancelable: true 
-            }));
-            
-            field.dispatchEvent(new KeyboardEvent('keypress', { 
-              key: char,
-              code: 'Key' + char.toUpperCase(),
-              keyCode: char.charCodeAt(0),
-              which: char.charCodeAt(0),
-              bubbles: true, 
-              cancelable: true 
-            }));
-            
-            field.dispatchEvent(new Event('input', { 
-              bubbles: true, 
-              cancelable: true 
-            }));
-            
-            field.dispatchEvent(new KeyboardEvent('keyup', { 
-              key: char,
-              code: 'Key' + char.toUpperCase(),
-              keyCode: char.charCodeAt(0),
-              which: char.charCodeAt(0),
-              bubbles: true, 
-              cancelable: true 
-            }));
-            
-            // Continue with next character after small delay
-            setTimeout(() => typeCharacter(index + 1), 25);
-          };
+          // Log after focus
+          logFieldState('AFTER_FOCUS');
           
-          const finalizeField = () => {
-            console.log('🔑 [CREDENTIALS] Finalizing', fieldType, 'field with value length:', field.value.length);
+          // Drop in the full value
+          console.log('🔑 [CREDENTIALS] Setting full value for', fieldType);
+          field.value = value;
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+          
+          // Log after value set
+          logFieldState('AFTER_VALUE_SET');
+          
+          // Now do the simple delete-and-retype of last character for validation
+          setTimeout(() => {
+            console.log('🔑 [CREDENTIALS] Performing delete-retype of last character for', fieldType);
             
-            // Step 4: Simulate the "delete one character and re-type" behavior that makes it work
-            console.log('🔑 [CREDENTIALS] Simulating manual validation trigger (delete + retype)...');
+            const originalValue = field.value;
+            const lastChar = originalValue.slice(-1);
+            const withoutLastChar = originalValue.slice(0, -1);
+            
+            console.log('🔑 [CREDENTIALS] Original value:', originalValue);
+            console.log('🔑 [CREDENTIALS] Last character to delete/retype:', lastChar);
+            
+            // Position cursor at the end
+            field.setSelectionRange(originalValue.length, originalValue.length);
             
             // Delete the last character
-            const originalValue = field.value;
-            const shortenedValue = originalValue.slice(0, -1);
-            field.value = shortenedValue;
-            
-            // Dispatch backspace events
             field.dispatchEvent(new KeyboardEvent('keydown', { 
               key: 'Backspace',
               code: 'Backspace',
               keyCode: 8,
               which: 8,
-              bubbles: true, 
-              cancelable: true 
+              bubbles: true,
+              cancelable: true
             }));
             
+            // Actually remove the character
+            field.value = withoutLastChar;
+            field.setSelectionRange(withoutLastChar.length, withoutLastChar.length);
+            
+            // Input event for deletion
             field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
             
             field.dispatchEvent(new KeyboardEvent('keyup', { 
@@ -457,137 +504,186 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               code: 'Backspace',
               keyCode: 8,
               which: 8,
-              bubbles: true, 
-              cancelable: true 
+              bubbles: true,
+              cancelable: true
             }));
             
-            // Small delay, then retype the last character
+            // Log after deletion
+            logFieldState('AFTER_DELETION');
+            
+            // Wait a moment, then retype the last character
             setTimeout(() => {
-              const lastChar = originalValue.slice(-1);
-              field.value = originalValue; // Restore full value
+              console.log('🔑 [CREDENTIALS] Retyping last character:', lastChar);
               
-              // Dispatch events for retyping the last character
+              // Simulate keydown for the character
               field.dispatchEvent(new KeyboardEvent('keydown', { 
                 key: lastChar,
-                code: 'Key' + lastChar.toUpperCase(),
+                code: lastChar === ' ' ? 'Space' : 'Key' + lastChar.toUpperCase(),
                 keyCode: lastChar.charCodeAt(0),
                 which: lastChar.charCodeAt(0),
-                bubbles: true, 
-                cancelable: true 
+                bubbles: true,
+                cancelable: true
               }));
               
+              // Add the character back
+              field.value = originalValue;
+              field.setSelectionRange(originalValue.length, originalValue.length);
+              
+              // Input event for addition
               field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
               
               field.dispatchEvent(new KeyboardEvent('keyup', { 
                 key: lastChar,
-                code: 'Key' + lastChar.toUpperCase(),
+                code: lastChar === ' ' ? 'Space' : 'Key' + lastChar.toUpperCase(),
                 keyCode: lastChar.charCodeAt(0),
                 which: lastChar.charCodeAt(0),
-                bubbles: true, 
-                cancelable: true 
+                bubbles: true,
+                cancelable: true
               }));
               
-              // Step 5: Final validation events
+              // Log after retyping
+              logFieldState('AFTER_RETYPING');
+              
+              // Final validation events
               setTimeout(() => {
-                // Comprehensive validation event sequence
+                // Change event
                 field.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-                field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
                 
-                // React/modern framework compatibility
+                // React compatibility
                 if (field._valueTracker) {
                   field._valueTracker.setValue('');
                 }
                 
-                // Custom validation events
-                field.dispatchEvent(new Event('validate', { bubbles: true }));
-                field.dispatchEvent(new Event('blur', { bubbles: true }));
-                field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+                // Log after change event
+                logFieldState('AFTER_CHANGE_EVENT');
                 
-                // Tab simulation (many forms validate on tab)
+                // Tab away simulation
                 field.dispatchEvent(new KeyboardEvent('keydown', { 
                   key: 'Tab',
                   code: 'Tab',
                   keyCode: 9,
                   which: 9,
-                  bubbles: true, 
-                  cancelable: true 
+                  bubbles: true,
+                  cancelable: true
                 }));
                 
-                console.log('✅ [CREDENTIALS] Ultra-realistic fill complete for', fieldType, 'field');
-              }, 100);
-            }, 100);
-          };
-          
-          // Start the character-by-character typing
-          setTimeout(() => typeCharacter(0), 100);
+                // Blur events
+                field.dispatchEvent(new Event('blur', { bubbles: true }));
+                field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+                
+                // Final state check
+                setTimeout(() => {
+                  logFieldState('FINAL');
+                  
+                  // If field still appears invalid, try alternative validation triggers
+                  const isStillInvalid = field.classList.contains('error') || 
+                                        field.classList.contains('invalid') || 
+                                        field.classList.contains('ng-invalid') ||
+                                        field.getAttribute('aria-invalid') === 'true';
+                  
+                  if (isStillInvalid) {
+                    console.log('⚠️ [CREDENTIALS] Field still appears invalid, trying alternative triggers...');
+                    
+                    // Alternative 1: Try triggering validation methods directly
+                    try {
+                      if (field.checkValidity && typeof field.checkValidity === 'function') {
+                        console.log('🔄 [ALT-1] Calling field.checkValidity()...');
+                        field.checkValidity();
+                      }
+                      
+                      if (field.reportValidity && typeof field.reportValidity === 'function') {
+                        console.log('🔄 [ALT-1] Calling field.reportValidity()...');
+                        field.reportValidity();
+                      }
+                    } catch (e) {
+                      console.log('⚠️ [ALT-1] Validation method call failed:', e.message);
+                    }
+                    
+                    // Alternative 2: Try form-level validation
+                    try {
+                      const form = field.closest('form');
+                      if (form && form.checkValidity && typeof form.checkValidity === 'function') {
+                        console.log('🔄 [ALT-2] Calling form.checkValidity()...');
+                        form.checkValidity();
+                      }
+                    } catch (e) {
+                      console.log('⚠️ [ALT-2] Form validation call failed:', e.message);
+                    }
+                    
+                    // Alternative 3: Try custom validation events
+                    console.log('🔄 [ALT-3] Trying custom validation events...');
+                    field.dispatchEvent(new Event('validate', { bubbles: true }));
+                    field.dispatchEvent(new Event('validation', { bubbles: true }));
+                    field.dispatchEvent(new Event('check', { bubbles: true }));
+                    
+                    // Alternative 4: Try different focus/blur patterns
+                    setTimeout(() => {
+                      console.log('🔄 [ALT-4] Trying alternative focus/blur pattern...');
+                      field.focus();
+                      setTimeout(() => {
+                        field.blur();
+                        setTimeout(() => {
+                          field.focus();
+                          setTimeout(() => {
+                            field.blur();
+                            
+                            // Final final check
+                            setTimeout(() => {
+                              logFieldState('AFTER_ALTERNATIVES');
+                            }, 300);
+                          }, 100);
+                        }, 100);
+                      }, 100);
+                    }, 200);
+                  }
+                  
+                  console.log('✅ [CREDENTIALS] Enhanced fill complete for', fieldType);
+                  console.log('🔑 [CREDENTIALS] Final field value:', field.value);
+                  console.log('🔑 [CREDENTIALS] Field appears valid:', !field.classList.contains('error') && field.getAttribute('aria-invalid') !== 'true');
+                }, 200);
+              }, 150);
+            }, 150);
+          }, 300);
           
           return true;
         }
         
+        // Choose the appropriate filling strategy
+        const fillStrategy = isCostcoExtSecondForm ? fillFieldEnhanced : fillFieldSimplified;
+        const strategyName = isCostcoExtSecondForm ? 'enhanced (CostCOEXT)' : 'simplified';
+        
+        console.log('🔑 [CREDENTIALS] Using', strategyName, 'filling strategy');
+        
         let usernameFound = false;
         let passwordFound = false;
         
-        // Fill username first with ultra-realistic simulation
+        // Fill username
         if (usernameField) {
-          usernameFound = fillFieldWithUltraRealisticEvents(usernameField, employeeId, 'username');
+          usernameFound = fillStrategy(usernameField, employeeId, 'username');
         }
         
-        // Wait for username to complete, then fill password
+        // Fill password after a delay
+        const delayTime = isCostcoExtSecondForm ? 1000 : 300; // Reasonable delay for simple enhanced strategy
         setTimeout(() => {
           if (passwordField) {
-            passwordFound = fillFieldWithUltraRealisticEvents(passwordField, password, 'password');
+            passwordFound = fillStrategy(passwordField, password, 'password');
           }
           
           // Final validation after both fields are filled
+          const finalDelayTime = isCostcoExtSecondForm ? 1200 : 500; // Allow time for validation to complete
           setTimeout(() => {
-            if (usernameField && passwordField) {
-              console.log('🔑 [CREDENTIALS] Performing final form validation...');
-              
-              // Trigger form-level events
-              const form = usernameField.closest('form') || passwordField.closest('form');
-              if (form) {
-                form.dispatchEvent(new Event('change', { bubbles: true }));
-                form.dispatchEvent(new Event('input', { bubbles: true }));
-                form.dispatchEvent(new Event('validate', { bubbles: true }));
-              }
-              
-              // Final focus management - focus away and back to trigger validation
-              const body = document.body;
-              if (body) {
-                body.focus();
-                setTimeout(() => {
-                  usernameField.focus();
-                  setTimeout(() => {
-                    passwordField.focus();
-                    setTimeout(() => {
-                      body.focus(); // Focus away from form
-                      
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'credentials_filled',
-                        success: usernameFound && passwordFound,
-                        usernameFound: usernameFound,
-                        passwordFound: passwordFound,
-                        enhanced: true,
-                        message: 'Ultra-realistic credential fill with manual-like behavior completed',
-                        error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
-                      }));
-                    }, 50);
-                  }, 50);
-                }, 50);
-              } else {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'credentials_filled',
-                  success: usernameFound && passwordFound,
-                  usernameFound: usernameFound,
-                  passwordFound: passwordFound,
-                  enhanced: true,
-                  message: 'Ultra-realistic credential fill completed',
-                  error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
-                }));
-              }
-            }
-          }, 2000); // Wait 2 seconds for both fields to complete
-        }, 1500); // Wait 1.5 seconds for username to complete before starting password
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'credentials_filled',
+              success: usernameFound && passwordFound,
+              usernameFound: usernameFound,
+              passwordFound: passwordFound,
+              strategy: strategyName,
+              isCostcoExtSecondForm: isCostcoExtSecondForm,
+              message: \`\${strategyName} credential fill completed\`,
+              error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
+            }));
+          }, finalDelayTime);
+        }, delayTime);
         
       } catch (error) {
         console.log('❌ [CREDENTIALS] Error:', error);
@@ -595,7 +691,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           type: 'credentials_filled',
           success: false,
           error: error.message,
-          enhanced: true
+          smart: true
         }));
       }
     })();
@@ -2695,24 +2791,27 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     }, 1000); // Wait 1 second after selection
                   }
                   
-                  // Load week 2 (index 1), then week 3 (index 2)
-                  console.log('📅 [NEXT-2-WEEKS] Starting to load weeks 2 and 3...');
+                  // Load weeks 1, 2, and 3 (indices 0, 1, 2)
+                  console.log('📅 [LOAD-3] Starting to load all 3 weeks (1, 2, and 3)...');
                   
-                  selectAndRunWeek(1, () => {
-                    // After week 2 is loaded, load week 3
-                    selectAndRunWeek(2, () => {
-                      console.log('✅ [NEXT-2-WEEKS] All 3 weeks have been loaded!');
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'next_2_weeks_complete',
-                        message: 'Successfully loaded weeks 2 and 3!'
-                      }));
+                  selectAndRunWeek(0, () => {
+                    // After week 1 is loaded, load week 2
+                    selectAndRunWeek(1, () => {
+                      // After week 2 is loaded, load week 3
+                      selectAndRunWeek(2, () => {
+                        console.log('✅ [LOAD-3] All 3 weeks have been loaded!');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'load_3_schedules_complete',
+                          message: 'Successfully loaded all 3 schedules (weeks 1, 2, and 3)!'
+                        }));
+                      });
                     });
                   });
                   
                 } catch (error) {
-                  console.log('❌ [NEXT-2-WEEKS] Script error:', error);
+                  console.log('❌ [LOAD-3] Script error:', error);
                   window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'next_2_weeks_error',
+                    type: 'load_3_schedules_error',
                     error: error.message,
                     stack: error.stack
                   }));
@@ -2727,7 +2826,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           }}
         >
           <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
-            📅 Load Next 2 Weeks
+            📅 Load 3 schedules
           </Text>
         </TouchableOpacity>
 
@@ -2748,7 +2847,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <TouchableOpacity 
           style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 
           onPress={async () => {
-            console.log('🧪 [UI] Attempting to extract and parse schedule HTML from WebView...');
+            console.log('🧪 [UI] Load 3 Schedules with Import - Navigation + Parsing...');
             if (!webViewRef.current) {
               Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
               return;
@@ -2757,244 +2856,253 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               const getHtmlScript = `
               (function() { 
                 try { 
-                  console.log('🔍 [IMPORT] Starting proven schedule import with parsing...');
+                  console.log('📅 [LOAD-IMPORT] Starting Load 3 Schedules with Import...');
+                  console.log('📅 [LOAD-IMPORT] This combines navigation from Load 3 schedules + import functionality');
                   
-                  // First, find the Cognos iframe
+                  // Find the Cognos iframe with enhanced search (same as Load 3 schedules)
                   let cognosIframe = null;
                   let cognosDoc = null;
                   
                   const allIframes = document.querySelectorAll('iframe');
-                  console.log('🔍 [IMPORT] Found', allIframes.length, 'iframes to check');
+                  console.log('📅 [LOAD-IMPORT] Found', allIframes.length, 'iframes to check');
                   
                   for (let i = 0; i < allIframes.length; i++) {
                     const iframe = allIframes[i];
+                    console.log('📅 [LOAD-IMPORT] Checking iframe', i, ':', {
+                      src: iframe.src ? iframe.src.substring(0, 100) + '...' : 'no src',
+                      id: iframe.id,
+                      name: iframe.name
+                    });
+                    
                     try {
                       if (iframe.contentDocument && iframe.contentWindow) {
                         const iframeContent = iframe.contentDocument.documentElement.outerHTML;
+                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'content length:', iframeContent.length);
                         
-                        // Look for Cognos-specific elements (Week End Date and IBM Cognos Viewer)
-                        if (iframeContent.includes('Week End Date') && 
-                            iframeContent.includes('IBM Cognos Viewer') &&
-                            iframeContent.includes('PRMT_SV_')) {
-                          console.log('✅ [IMPORT] Found Cognos schedule interface in iframe', i);
+                        // More flexible Cognos detection (same as Load 3 schedules)
+                        const hasCognosTitle = iframeContent.includes('IBM Cognos Viewer') || 
+                                             iframeContent.includes('Schedule - IBM Cognos');
+                        const hasWeekElements = iframeContent.includes('Week End Date') || 
+                                              iframeContent.includes('Please choose an End of Week') ||
+                                              iframeContent.includes('PRMT_SV_');
+                        const hasScheduleElements = iframeContent.includes('Weekly Schedule') ||
+                                                   iframeContent.includes('finishN') ||
+                                                   iframeContent.includes('2025-06-');
+                        
+                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'detection results:', {
+                          hasCognosTitle: hasCognosTitle,
+                          hasWeekElements: hasWeekElements,
+                          hasScheduleElements: hasScheduleElements,
+                          contentPreview: iframeContent.substring(0, 200)
+                        });
+                        
+                        // More lenient detection - any 2 of 3 indicators
+                        const cognosScore = (hasCognosTitle ? 1 : 0) + (hasWeekElements ? 1 : 0) + (hasScheduleElements ? 1 : 0);
+                        if (cognosScore >= 2) {
+                          console.log('✅ [LOAD-IMPORT] Found Cognos schedule interface in iframe', i, 'with score', cognosScore);
                           cognosIframe = iframe;
                           cognosDoc = iframe.contentDocument;
                           break;
                         } else {
-                          console.log('  - Not the target iframe (missing required Cognos elements)');
+                          console.log('📅 [LOAD-IMPORT] Iframe', i, 'score too low:', cognosScore);
                         }
                       } else {
-                        console.log('  - Accessible: NO (contentDocument or contentWindow null)');
+                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'content not accessible');
                       }
                     } catch (e) {
-                      console.log('  - Accessible: NO (error:', e.message, ')');
+                      console.log('❌ [LOAD-IMPORT] Cannot access iframe', i, ':', e.message);
                     }
                   }
-                  
-                  console.log('🔄 [NAV] Step 5: Iframe search complete');
                   
                   if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [NAV] Cognos iframe not found or not accessible!');
-                    
-                    // Provide detailed failure analysis
-                    const failureAnalysis = {
-                      totalIframes: allIframes.length,
-                      accessibleIframes: 0,
-                      cognosIndicators: {}
-                    };
-                    
-                    for (let i = 0; i < allIframes.length; i++) {
-                      try {
-                        if (allIframes[i].contentDocument) {
-                          failureAnalysis.accessibleIframes++;
-                          const content = allIframes[i].contentDocument.documentElement.outerHTML;
-                          failureAnalysis.cognosIndicators['iframe_' + i] = {
-                            hasWeekEndDate: content.includes('Week End Date'),
-                            hasCognosViewer: content.includes('IBM Cognos Viewer'),
-                            hasPRMT_SV: content.includes('PRMT_SV_'),
-                            title: allIframes[i].contentDocument.title,
-                            url: allIframes[i].src
-                          };
-                        }
-                      } catch (e) {
-                        // Skip iframes we can't access
+                    console.log('❌ [LOAD-IMPORT] Cognos iframe not found after enhanced search!');
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'load_3_schedules_error',
+                      error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
+                    }));
+                    return;
+                  }
+                  
+                  // Find elements with enhanced search (same as Load 3 schedules)
+                  let weekDropdown = null;
+                  let runButton = null;
+                  
+                  // Enhanced dropdown search
+                  const allSelects = cognosDoc.querySelectorAll('select');
+                  console.log('📅 [LOAD-IMPORT] Found', allSelects.length, 'select elements, checking each one...');
+                  
+                  for (let i = 0; i < allSelects.length; i++) {
+                    const select = allSelects[i];
+                    if (select.options.length > 0) {
+                      const firstOption = select.options[0];
+                      const hasDateOptions = firstOption.value.includes('2025-') || 
+                                           firstOption.text.includes('2025-') ||
+                                           firstOption.value.includes('T00:00:00');
+                      
+                      if (hasDateOptions) {
+                        console.log('✅ [LOAD-IMPORT] Found Week End Date dropdown:', select.id);
+                        weekDropdown = select;
+                        break;
                       }
                     }
+                  }
+                  
+                  if (!weekDropdown) {
+                    weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"]') ||
+                                 cognosDoc.querySelector('select.clsSelectControl') ||
+                                 cognosDoc.querySelector('select[role="listbox"]') ||
+                                 cognosDoc.querySelector('select');
+                  }
+                  
+                  // Enhanced button search
+                  const allButtons = cognosDoc.querySelectorAll('button');
+                  for (let i = 0; i < allButtons.length; i++) {
+                    const btn = allButtons[i];
+                    const btnText = (btn.textContent || '').trim().toLowerCase();
+                    const btnId = btn.id || '';
                     
+                    if (btnText === 'run' || 
+                        btnId.includes('finish') && btnId.includes('_NS_') ||
+                        btn.className.includes('bp')) {
+                      console.log('✅ [LOAD-IMPORT] Found Run button:', btnId);
+                      runButton = btn;
+                      break;
+                    }
+                  }
+                  
+                  if (!runButton) {
+                    runButton = cognosDoc.querySelector('button[id*="finish"]') ||
+                               cognosDoc.querySelector('button.bp') ||
+                               cognosDoc.querySelector('button[onclick*="promptAction"]') ||
+                               cognosDoc.querySelector('button');
+                  }
+                  
+                  if (!weekDropdown || !runButton) {
+                    console.log('❌ [LOAD-IMPORT] Required elements not found!');
                     window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'schedule_navigation_error',
-                      error: 'Cognos iframe not found. Total: ' + allIframes.length + ', Accessible: ' + failureAnalysis.accessibleIframes,
-                      step: 'cognos_iframe_not_found',
-                      analysis: failureAnalysis
+                      type: 'load_3_schedules_error',
+                      error: 'Week dropdown: ' + !!weekDropdown + ', Run button: ' + !!runButton
                     }));
                     return;
                   }
                   
-                  console.log('🔍 [NAV] Step 6: Starting element verification...');
-                  console.log('🔍 [NAV] === ELEMENT VERIFICATION AGAINST EXPECTED STRUCTURE ===');
-                  
-                  // VERIFICATION 1: Week End Date Dropdown  
-                  console.log('🔍 [NAV] VERIFICATION 1: Week End Date Dropdown');
-                  const weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"][name="p_EndDate"]') ||
-                                     cognosDoc.querySelector('select[id*="N4005B000x271F71A0_NS_"]') ||
-                                     cognosDoc.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]');
-                  const expectedWeeks = ['2025-06-01', '2025-06-08', '2025-06-15'];
-                  
-                  console.log('  Expected: <select id="PRMT_SV_N4005B000x271F71A0_NS_" name="p_EndDate">');
-                  console.log('  Found:', !!weekDropdown);
-                  
-                  if (weekDropdown) {
-                    console.log('  ✅ Week dropdown found!');
-                    console.log('    - ID:', weekDropdown.id);
-                    console.log('    - Name:', weekDropdown.name);
-                    console.log('    - Options count:', weekDropdown.options.length);
-                    console.log('    - Width style:', weekDropdown.style.width);
-                    console.log('    - ARIA invalid:', weekDropdown.getAttribute('aria-invalid'));
-                    
-                    console.log('    - Available weeks:');
-                    for (let i = 0; i < weekDropdown.options.length; i++) {
-                      const option = weekDropdown.options[i];
-                      console.log('      ' + i + ': "' + option.text + '" (value: "' + option.value + '")');
-                    }
-                    
-                    console.log('    - Expected weeks present:');
-                    expectedWeeks.forEach(week => {
-                      const found = Array.from(weekDropdown.options).some(opt => opt.value.includes(week));
-                      console.log('      ' + week + ':', found ? '✅' : '❌');
-                    });
-                  } else {
-                    console.log('  ❌ Week dropdown NOT found!');
-                  }
-                  
-                  // VERIFICATION 2: Run Button
-                  console.log('🔍 [NAV] VERIFICATION 2: Run Button');
-                  const runButton = cognosDoc.querySelector('button[id*="next"][id*="_NS_"]') ||
-                                   cognosDoc.querySelector('button[id*="N4005B000x271F7408_NS_"]') ||
-                                   cognosDoc.querySelector('button[onclick*="promptAction"]');
-                  
-                  console.log('  Expected: Run button with ID containing "next" and "_NS_"');
-                  console.log('  Found:', !!runButton);
-                  
-                  if (runButton) {
-                    console.log('  ✅ Run button found!');
-                    console.log('    - ID:', runButton.id);
-                    console.log('    - Name:', runButton.name);
-                    console.log('    - Text content:', runButton.textContent?.trim());
-                    console.log('    - Disabled:', runButton.disabled);
-                    console.log('    - OnClick:', runButton.getAttribute('onclick'));
-                    console.log('    - Class:', runButton.className);
-                  } else {
-                    console.log('  ❌ Run button NOT found!');
-                  }
-                  
-                  // SUMMARY
-                  console.log('🔍 [NAV] === ELEMENT VERIFICATION SUMMARY ===');
-                  const verificationResults = {
-                    weekDropdown: !!weekDropdown,
-                    runButton: !!runButton,
-                    allElementsFound: !!weekDropdown && !!runButton
-                  };
-                  
-                  console.log('  Week End Date Dropdown:', verificationResults.weekDropdown ? '✅' : '❌');
-                  console.log('  Run Button:', verificationResults.runButton ? '✅' : '❌');
-                  console.log('  All Required Elements:', verificationResults.allElementsFound ? '✅ READY' : '❌ MISSING');
-                  
-                  if (!verificationResults.allElementsFound) {
+                  if (weekDropdown.options.length < 3) {
+                    console.log('❌ [LOAD-IMPORT] Not enough week options available! Found:', weekDropdown.options.length);
                     window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'schedule_navigation_error',
-                      error: 'Required elements missing. Week: ' + verificationResults.weekDropdown + 
-                             ', Run: ' + verificationResults.runButton,
-                      verification: verificationResults
+                      type: 'load_3_schedules_error',
+                      error: 'Not enough week options available. Need at least 3, found: ' + weekDropdown.options.length
                     }));
                     return;
                   }
                   
-                  // Proceed with navigation if all elements are found
-                  const totalWeeks = weekDropdown.options.length;
-                  let currentWeek = 0;
+                  console.log('📅 [LOAD-IMPORT] Found elements:');
+                  console.log('  - Week dropdown ID:', weekDropdown.id);
+                  console.log('  - Week dropdown options:', weekDropdown.options.length);
+                  console.log('  - Run button ID:', runButton.id);
                   
-                  function loadNextWeek() {
-                    if (currentWeek >= totalWeeks) {
-                      console.log('✅ [NAV] Navigation completed!');
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'schedule_navigation_complete',
-                        totalWeeks: totalWeeks,
-                        weeksProcessed: currentWeek,
-                        verification: verificationResults,
-                        message: 'Successfully navigated through all ' + totalWeeks + ' weeks with verified elements'
-                      }));
-                      return;
-                    }
-                    
-                    const option = weekDropdown.options[currentWeek];
+                  // Function to select a week, run it, and import the schedule
+                  function selectAndRunWeekWithImport(weekIndex, callback) {
+                    const option = weekDropdown.options[weekIndex];
                     const weekText = option.text;
                     const weekValue = option.value;
                     
-                    console.log('🔄 [NAV] Loading week', (currentWeek + 1) + '/' + totalWeeks + ':', weekText);
-                    console.log('🔄 [NAV] Week value:', weekValue);
+                    console.log('📅 [LOAD-IMPORT] Selecting and importing week', weekIndex + 1, ':', weekText);
                     
-                    // Select the week using verified dropdown
-                    weekDropdown.selectedIndex = currentWeek;
+                    // Select the week
+                    weekDropdown.selectedIndex = weekIndex;
                     weekDropdown.value = weekValue;
+                    option.selected = true;
+                    
+                    // Trigger events
+                    weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
                     weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
                     weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
+                    weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
                     
-                    // Enable the run button if disabled
+                    // Enable run button if needed
                     if (runButton.disabled) {
                       runButton.disabled = false;
-                      console.log('🔄 [NAV] Enabled run button');
                     }
                     
                     // Wait a bit, then click run
                     setTimeout(() => {
-                      console.log('🔄 [NAV] Clicking verified run button for week:', weekText);
+                      console.log('📅 [LOAD-IMPORT] Clicking run for week', weekIndex + 1, ':', weekText);
                       
-                      try {
-                        runButton.click();
-                        console.log('✅ [NAV] Run clicked for week:', weekText);
+                      // Click the run button
+                      runButton.click();
+                      runButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                      
+                      // Wait for the page to load, then extract and import the schedule
+                      setTimeout(() => {
+                        console.log('📅 [LOAD-IMPORT] Week', weekIndex + 1, 'loaded, extracting schedule HTML...');
                         
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'schedule_week_loaded',
-                          weekNumber: currentWeek + 1,
-                          totalWeeks: totalWeeks,
-                          weekText: weekText,
-                          weekValue: weekValue,
-                          verification: verificationResults,
-                          contentLength: cognosDoc.body.innerHTML.length
-                        }));
-                        
-                        // Move to next week after a delay
-                        currentWeek++;
-                        setTimeout(() => {
-                          loadNextWeek();
-                        }, 3000); // 3 seconds to wait for page load
-                        
-                      } catch (clickError) {
-                        console.log('❌ [NAV] Error clicking run button:', clickError);
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'schedule_navigation_error',
-                          error: 'Failed to click run button: ' + clickError.message,
-                          weekNumber: currentWeek + 1,
-                          weekText: weekText,
-                          verification: verificationResults
-                        }));
-                        
-                        // Try to continue with next week anyway
-                        currentWeek++;
-                        setTimeout(() => {
-                          loadNextWeek();
-                        }, 1000);
-                      }
-                    }, 1000); // 1 second delay after selecting option
+                        try {
+                          // Extract the schedule HTML from the iframe for import
+                          const scheduleHTML = cognosDoc.documentElement.outerHTML;
+                          const scheduleText = cognosDoc.body ? cognosDoc.body.textContent || cognosDoc.body.innerText || '' : '';
+                          
+                          console.log('📅 [LOAD-IMPORT] Extracted schedule for week', weekIndex + 1);
+                          console.log('  - HTML length:', scheduleHTML.length);
+                          console.log('  - Text length:', scheduleText.length);
+                          console.log('  - Contains schedule data:', scheduleText.includes('Weekly Schedule') || scheduleText.includes('Total Hours'));
+                          
+                          // Send the schedule HTML for parsing and import
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'enhanced_schedule_html',
+                            html: scheduleHTML,
+                            url: window.location.href,
+                            title: document.title,
+                            weekNumber: weekIndex + 1,
+                            weekText: weekText,
+                            weekValue: weekValue,
+                            foundInIframe: true,
+                            iframeCount: allIframes.length,
+                            hasScheduleContent: scheduleText.includes('Weekly Schedule') || scheduleText.includes('Total Hours') || scheduleText.includes('Employee #'),
+                            mainHtmlLength: document.documentElement.outerHTML.length,
+                            scheduleHtmlLength: scheduleHTML.length,
+                            source: 'load_3_schedules_with_import'
+                          }));
+                          
+                          // Continue to next week
+                          if (callback) callback();
+                          
+                        } catch (extractError) {
+                          console.log('❌ [LOAD-IMPORT] Error extracting schedule for week', weekIndex + 1, ':', extractError);
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'load_3_schedules_error',
+                            error: 'Schedule extraction failed for week ' + (weekIndex + 1) + ': ' + extractError.message,
+                            weekNumber: weekIndex + 1,
+                            weekText: weekText
+                          }));
+                          
+                          // Continue anyway
+                          if (callback) callback();
+                        }
+                      }, 4000); // Wait 4 seconds for page to load completely
+                    }, 1000); // Wait 1 second after selection
                   }
                   
-                  // Start the navigation process
-                  console.log('🚀 [NAV] Starting verified Cognos iframe navigation through', totalWeeks, 'weeks...');
-                  loadNextWeek();
+                  // Load weeks 1, 2, and 3 (indices 0, 1, 2) with import
+                  console.log('📅 [LOAD-IMPORT] Starting to load and import all 3 weeks (1, 2, and 3)...');
+                  
+                  selectAndRunWeekWithImport(0, () => {
+                    // After week 1 is loaded and imported, load week 2
+                    selectAndRunWeekWithImport(1, () => {
+                      // After week 2 is loaded and imported, load week 3
+                      selectAndRunWeekWithImport(2, () => {
+                        console.log('✅ [LOAD-IMPORT] All 3 weeks have been loaded and imported!');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'load_3_schedules_complete',
+                          message: 'Successfully loaded and imported all 3 schedules (weeks 1, 2, and 3) into the app!'
+                        }));
+                      });
+                    });
+                  });
+                  
                 } catch (error) {
-                  console.log('❌ [NAV] Script error:', error);
+                  console.log('❌ [LOAD-IMPORT] Script error:', error);
                   window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'schedule_navigation_error',
+                    type: 'load_3_schedules_error',
                     error: error.message,
                     stack: error.stack
                   }));
@@ -3004,154 +3112,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               webViewRef.current.injectJavaScript(getHtmlScript);
               
             } catch (error) {
-              console.log('❌ [UI] Error injecting navigation script:', error);
-              Alert.alert('Script Error', 'Failed to inject navigation script: ' + (error as Error).message);
+              console.log('❌ [UI] Error injecting Load 3 Schedules with Import script:', error);
+              Alert.alert('Script Error', 'Failed to inject Load 3 Schedules with Import script: ' + (error as Error).message);
             }
           }}
         >
-          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
-            🔄 Load Schedules (with verification)
+          <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
+            🧪 Load 3 Schedules (with Import)
           </Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.demoButton, { borderColor: COLORS.info, marginBottom: SPACING.md }]}
-          onPress={async () => {
-            console.log('📄 [UI] Dumping complete HTML document...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
-              return;
-            }
-            try {
-              const dumpHtmlScript = `
-              (function() { 
-                try { 
-                  console.log('📄 [HTML-DUMP] Starting complete HTML document dump...');
-                  
-                  // Get complete document information
-                  const mainDocumentHTML = document.documentElement.outerHTML;
-                  const mainDocumentText = document.body?.innerText || '';
-                  const currentURL = window.location.href;
-                  const pageTitle = document.title;
-                  
-                  console.log('📄 [HTML-DUMP] Main document info:');
-                  console.log('  - URL: ' + currentURL);
-                  console.log('  - Title: "' + pageTitle + '"');
-                  console.log('  - HTML length: ' + mainDocumentHTML.length);
-                  console.log('  - Text content length: ' + mainDocumentText.length);
-                  console.log('  - Ready state: ' + document.readyState);
-                  
-                  // Check for iframes and dump their content too
-                  const allIframes = document.querySelectorAll('iframe');
-                  let iframeContents = [];
-                  
-                  console.log('📄 [HTML-DUMP] Found ' + allIframes.length + ' iframes');
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    console.log('📄 [HTML-DUMP] Processing iframe ' + i + ':');
-                    console.log('  - Src: "' + iframe.src + '"');
-                    console.log('  - ID: "' + iframe.id + '"');
-                    console.log('  - Name: "' + iframe.name + '"');
-                    console.log('  - Width: ' + iframe.width);
-                    console.log('  - Height: ' + iframe.height);
-                    console.log('  - Visible: ' + (iframe.offsetParent !== null));
-                    
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        const iframeDoc = iframe.contentDocument;
-                        const iframeHTML = iframeDoc.documentElement.outerHTML;
-                        const iframeText = iframeDoc.body?.innerText || '';
-                        const iframeURL = iframe.contentWindow.location.href;
-                        const iframeTitle = iframeDoc.title;
-                        
-                        console.log('  - Accessible: YES');
-                        console.log('  - Iframe URL: ' + iframeURL);
-                        console.log('  - Iframe title: "' + iframeTitle + '"');
-                        console.log('  - Iframe HTML length: ' + iframeHTML.length);
-                        console.log('  - Iframe text length: ' + iframeText.length);
-                        
-                        iframeContents.push({
-                          index: i,
-                          src: iframe.src,
-                          id: iframe.id,
-                          name: iframe.name,
-                          url: iframeURL,
-                          title: iframeTitle,
-                          html: iframeHTML,
-                          textContent: iframeText,
-                          accessible: true,
-                          visible: iframe.offsetParent !== null
-                        });
-                      } else {
-                        console.log('  - Accessible: NO (cross-origin or not loaded)');
-                        iframeContents.push({
-                          index: i,
-                          src: iframe.src,
-                          id: iframe.id,
-                          name: iframe.name,
-                          accessible: false,
-                          visible: iframe.offsetParent !== null,
-                          error: 'Cross-origin or not loaded'
-                        });
-                      }
-                    } catch (e) {
-                      console.log('  - Accessible: NO (' + e.message + ')');
-                      iframeContents.push({
-                        index: i,
-                        src: iframe.src,
-                        id: iframe.id,
-                        name: iframe.name,
-                        accessible: false,
-                        visible: iframe.offsetParent !== null,
-                        error: e.message
-                      });
-                    }
-                  }
-                  
-                  console.log('📄 [HTML-DUMP] Dump complete, sending data...');
-                  
-                  // Send the complete dump
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'html_document_dump',
-                    url: currentURL,
-                    title: pageTitle,
-                    mainDocument: {
-                      html: mainDocumentHTML,
-                      textContent: mainDocumentText,
-                      htmlLength: mainDocumentHTML.length,
-                      textLength: mainDocumentText.length,
-                      readyState: document.readyState
-                    },
-                    iframes: iframeContents,
-                    iframeCount: allIframes.length,
-                    timestamp: new Date().toISOString()
-                  }));
-                  
-                  return true;
-                } catch (e) { 
-                  console.log('❌ [HTML-DUMP] Error: ' + e.message);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                    type: 'html_dump_error', 
-                    error: e.message 
-                  })); 
-                  return false; 
-                } 
-              })();`;
-              
-              webViewRef.current.injectJavaScript(dumpHtmlScript);
-              Alert.alert('HTML Dump', 'Dumping complete HTML document structure. Check console for detailed output...');
-            } catch (error) {
-              console.error('❌ [UI] HTML dump error:', error);
-              Alert.alert('Dump Error', 'Error dumping HTML: ' + (error as Error).message);
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
-            📄 Dump HTML
-          </Text>
-        </TouchableOpacity>
-
 
         <TouchableOpacity 
           style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
