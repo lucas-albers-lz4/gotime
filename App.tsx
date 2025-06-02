@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 // Import our services
 import StorageService from './src/services/StorageService';
 import NotificationService from './src/services/NotificationService';
+import { ScheduleService } from './src/services/ScheduleService';
 
 // Import screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -40,6 +41,11 @@ export default function App() {
         setIsLoggedIn(true);
         console.log('User credentials found');
       }
+
+      // Re-normalize existing stored schedules
+      const scheduleService = ScheduleService.getInstance();
+      await scheduleService.reNormalizeAllStoredSchedules();
+      console.log('Schedules re-normalized');
 
       setIsInitialized(true);
     } catch (error) {

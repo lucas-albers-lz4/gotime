@@ -797,6 +797,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         style={[styles.demoButton, { 
           borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
           marginTop: SPACING.sm, 
+          marginBottom: SPACING.md,
         }]} 
         onPress={toggleOfflineStorage}
       >
@@ -1878,6 +1879,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     `Error dumping HTML document: ${parsedMessage.error}`,
                     [{ text: 'OK' }],
                   );
+                } else if (parsedMessage.type === 'html_document_dump_error') {
+                  console.log('❌ [WEBVIEW] HTML document dump error:', parsedMessage);
+                  Alert.alert(
+                    'HTML Document Dump Error ❌',
+                    `Error dumping HTML document: ${parsedMessage.error}`,
+                    [{ text: 'OK' }],
+                  );
                 } else if (parsedMessage.type === 'schedule_navigation_error') {
                   console.log('❌ [WEBVIEW] Schedule navigation error:', parsedMessage);
                   Alert.alert(
@@ -2180,6 +2188,116 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         >
           <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
             🔑 Fill Login Credentials
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
+          onPress={async () => {
+            console.log('📄 [UI] Dump HTML - Getting complete page content...');
+            if (!webViewRef.current) {
+              Alert.alert('Error', 'WebView not ready'); 
+              return;
+            }
+            try {
+              const dumpHtmlScript = `
+              (function() { 
+                try { 
+                  console.log('📄 [DUMP-HTML] Starting complete HTML document dump...');
+                  
+                  const timestamp = new Date().toISOString();
+                  const url = window.location.href;
+                  const title = document.title;
+                  
+                  // Get main document
+                  const mainDocument = {
+                    html: document.documentElement.outerHTML,
+                    htmlLength: document.documentElement.outerHTML.length,
+                    textContent: document.body ? document.body.textContent : '',
+                    textLength: document.body ? (document.body.textContent || '').length : 0
+                  };
+                  
+                  console.log('📄 [DUMP-HTML] Main document HTML length:', mainDocument.htmlLength);
+                  console.log('📄 [DUMP-HTML] Main document text length:', mainDocument.textLength);
+                  
+                  // Get all iframes
+                  const allIframes = document.querySelectorAll('iframe');
+                  const iframes = [];
+                  
+                  console.log('📄 [DUMP-HTML] Found', allIframes.length, 'iframes to analyze');
+                  
+                  for (let i = 0; i < allIframes.length; i++) {
+                    const iframe = allIframes[i];
+                    const iframeInfo = {
+                      index: i,
+                      src: iframe.src || '',
+                      id: iframe.id || '',
+                      name: iframe.name || '',
+                      accessible: false,
+                      visible: iframe.offsetWidth > 0 && iframe.offsetHeight > 0,
+                      error: null,
+                      url: null,
+                      title: null,
+                      html: null,
+                      textContent: null
+                    };
+                    
+                    try {
+                      if (iframe.contentDocument && iframe.contentWindow) {
+                        iframeInfo.accessible = true;
+                        iframeInfo.url = iframe.contentWindow.location.href;
+                        iframeInfo.title = iframe.contentDocument.title;
+                        iframeInfo.html = iframe.contentDocument.documentElement.outerHTML;
+                        iframeInfo.textContent = iframe.contentDocument.body ? iframe.contentDocument.body.textContent : '';
+                        
+                        console.log('✅ [DUMP-HTML] Iframe', i, 'accessible:', {
+                          url: iframeInfo.url,
+                          title: iframeInfo.title,
+                          htmlLength: iframeInfo.html.length
+                        });
+                      } else {
+                        iframeInfo.error = 'Cross-origin access blocked';
+                        console.log('❌ [DUMP-HTML] Iframe', i, 'blocked:', iframeInfo.error);
+                      }
+                    } catch (e) {
+                      iframeInfo.error = e.message;
+                      console.log('❌ [DUMP-HTML] Iframe', i, 'error:', e.message);
+                    }
+                    
+                    iframes.push(iframeInfo);
+                  }
+                  
+                  console.log('📄 [DUMP-HTML] Sending complete HTML dump...');
+                  
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'html_document_dump',
+                    timestamp: timestamp,
+                    url: url,
+                    title: title,
+                    mainDocument: mainDocument,
+                    iframes: iframes,
+                    iframeCount: allIframes.length
+                  }));
+                  
+                } catch (error) {
+                  console.error('📄 [DUMP-HTML] Error:', error);
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'html_document_dump_error',
+                    error: error.message
+                  }));
+                }
+              })();
+              `;
+              
+              webViewRef.current.injectJavaScript(dumpHtmlScript);
+            } catch (error) {
+              console.error('❌ [UI] Error injecting dump HTML script:', error);
+              Alert.alert('Error', 'Failed to inject dump HTML script');
+            }
+          }}
+        >
+          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
+            📄 Dump HTML
           </Text>
         </TouchableOpacity>
 
@@ -2833,7 +2951,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <TouchableOpacity 
           style={[styles.demoButton, { 
             borderColor: hasStoredSchedules ? COLORS.error : COLORS.warning, 
-            marginBottom: SPACING.md, 
+            marginTop: SPACING.sm, 
+            marginBottom: SPACING.md,
           }]} 
           onPress={toggleOfflineStorage}
         >
@@ -2843,6 +2962,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
           </Text>
         </TouchableOpacity>
+
+        {/* Fix Week Dates button removed - users shouldn't manually trigger this operation */}
 
         <TouchableOpacity 
           style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 

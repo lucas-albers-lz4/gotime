@@ -154,21 +154,22 @@ describe('DashboardScreen', () => {
       render(<DashboardScreen onLogout={mockOnLogout} />);
       
       await waitFor(() => {
-        expect(screen.getByText('01/01/2024 - 01/07/2024')).toBeTruthy();
-      });
-      
-      // Navigate to next week
-      fireEvent.press(screen.getByText('Next →'));
-      
-      await waitFor(() => {
+        // Should start with latest schedule (second one) due to fallback behavior
         expect(screen.getByText('01/08/2024 - 01/14/2024')).toBeTruthy();
       });
       
-      // Navigate back to previous week
-      fireEvent.press(screen.getByText('← Prev'));
+      // Navigate to next week (wraps to first week)
+      fireEvent.press(screen.getByText('Next →'));
       
       await waitFor(() => {
         expect(screen.getByText('01/01/2024 - 01/07/2024')).toBeTruthy();
+      });
+      
+      // Navigate back to previous week (wraps to latest week)
+      fireEvent.press(screen.getByText('← Prev'));
+      
+      await waitFor(() => {
+        expect(screen.getByText('01/08/2024 - 01/14/2024')).toBeTruthy();
       });
     });
 
@@ -267,7 +268,12 @@ describe('DashboardScreen', () => {
       render(<DashboardScreen onLogout={mockOnLogout} />);
       
       await waitFor(() => {
-        expect(screen.getByText('*')).toBeTruthy();
+        // Should find multiple asterisks - one in schedule entry, one in explanation
+        const asterisks = screen.getAllByText('*');
+        expect(asterisks.length).toBeGreaterThanOrEqual(2);
+        
+        // Should also have the explanation text
+        expect(screen.getByText('* = Schedule changed after original posting')).toBeTruthy();
       });
     });
   });
@@ -283,6 +289,84 @@ describe('DashboardScreen', () => {
       
       await waitFor(() => {
         expect(screen.getByText('—')).toBeTruthy(); // Em dash for no shifts
+      });
+    });
+  });
+
+  describe('Current Week Loading', () => {
+    it('should load the week containing today\'s date when available', async () => {
+      const today = new Date();
+      
+      // Create schedules where the middle one contains today's date
+      const pastWeek = {
+        ...mockWeeklySchedule,
+        weekStart: '01/01/2024',
+        weekEnd: '01/07/2024',
+      };
+      
+      // Create a week that contains today
+      const todayMonth = today.getMonth() + 1;
+      const todayDay = today.getDate();
+      const todayYear = today.getFullYear();
+      
+      // Calculate Monday of current week
+      const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days to subtract to get to Monday
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - daysToMonday);
+      
+      // Calculate Sunday of current week  
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      
+      const currentWeek = {
+        ...mockWeeklySchedule,
+        weekStart: `${monday.getMonth() + 1}/${monday.getDate()}/${monday.getFullYear()}`,
+        weekEnd: `${sunday.getMonth() + 1}/${sunday.getDate()}/${sunday.getFullYear()}`,
+      };
+      
+      const futureWeek = {
+        ...mockWeeklySchedule,
+        weekStart: '12/25/2024',
+        weekEnd: '12/31/2024',
+      };
+      
+      const multipleSchedules = [pastWeek, currentWeek, futureWeek];
+      
+      mockScheduleServiceInstance.getAllDemoSchedules.mockResolvedValue(multipleSchedules);
+      mockScheduleServiceInstance.loadDemoSchedule.mockResolvedValue(currentWeek);
+      
+      render(<DashboardScreen onLogout={mockOnLogout} />);
+      
+      await waitFor(() => {
+        // Should display the current week's date range
+        expect(screen.getByText(`${currentWeek.weekStart} - ${currentWeek.weekEnd}`)).toBeTruthy();
+      });
+    });
+
+    it('should fall back to latest schedule when no week contains today', async () => {
+      const pastWeek1 = {
+        ...mockWeeklySchedule,
+        weekStart: '01/01/2024',
+        weekEnd: '01/07/2024',
+      };
+      
+      const pastWeek2 = {
+        ...mockWeeklySchedule,
+        weekStart: '01/08/2024',
+        weekEnd: '01/14/2024',
+      };
+      
+      const pastSchedules = [pastWeek1, pastWeek2];
+      
+      mockScheduleServiceInstance.getAllDemoSchedules.mockResolvedValue(pastSchedules);
+      mockScheduleServiceInstance.loadDemoSchedule.mockResolvedValue(pastWeek2);
+      
+      render(<DashboardScreen onLogout={mockOnLogout} />);
+      
+      await waitFor(() => {
+        // Should display the latest (most recent) week since none contain today
+        expect(screen.getByText('01/08/2024 - 01/14/2024')).toBeTruthy();
       });
     });
   });

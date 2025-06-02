@@ -25,9 +25,42 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [availableWeeks, setAvailableWeeks] = useState<WeeklySchedule[]>([]);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
+  const [isUsingDemoSchedules, setIsUsingDemoSchedules] = useState(false);
 
   const scheduleService = ScheduleService.getInstance();
   const authService = AuthService.getInstance();
+
+  /**
+   * Find the week index that contains today's date
+   */
+  const findWeekContainingToday = (schedules: WeeklySchedule[]): number => {
+    const today = new Date();
+    
+    for (let i = 0; i < schedules.length; i++) {
+      const schedule = schedules[i];
+      
+      try {
+        // Parse week start and end dates
+        const [startMonth, startDay, startYear] = schedule.weekStart.split('/').map(Number);
+        const [endMonth, endDay, endYear] = schedule.weekEnd.split('/').map(Number);
+        
+        const weekStart = new Date(startYear, startMonth - 1, startDay);
+        const weekEnd = new Date(endYear, endMonth - 1, endDay);
+        
+        // Check if today falls within this week (inclusive)
+        if (today >= weekStart && today <= weekEnd) {
+          console.log('📅 [DASHBOARD] Found week containing today:', schedule.weekStart, '-', schedule.weekEnd, 'at index', i);
+          return i;
+        }
+      } catch (error) {
+        console.error('Error parsing dates for week comparison:', error);
+        continue;
+      }
+    }
+    
+    console.log('📅 [DASHBOARD] No week found containing today, using fallback');
+    return -1; // Not found
+  };
 
   useEffect(() => {
     loadScheduleData();
@@ -57,17 +90,77 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       if (allStoredSchedules.length > 0) {
         console.log('DashboardScreen: ✅ Found', allStoredSchedules.length, 'stored schedules');
         
-        // Sort schedules by week end date (most recent first)
-        const sortedSchedules = allStoredSchedules.sort((a: WeeklySchedule, b: WeeklySchedule) => b.weekEnd.localeCompare(a.weekEnd));
+        // Remove duplicates by creating a Map with normalized weekEnd as key (latest entry wins)
+        const scheduleMap = new Map<string, WeeklySchedule>();
+        allStoredSchedules.forEach(schedule => {
+          // Normalize weekEnd date to handle leading zeros (e.g., "06/01/2025" -> "6/1/2025")
+          const normalizeDate = (date: string): string => {
+            const parts = date.split('/');
+            return `${parseInt(parts[0])}/${parseInt(parts[1])}/${parts[2]}`;
+          };
+          
+          const normalizedWeekEnd = normalizeDate(schedule.weekEnd);
+          const key = `${schedule.employee.employeeId}_${normalizedWeekEnd}`;
+          
+          // Only add if not already present, or if this one is "newer" (we'll keep the first encountered)
+          if (!scheduleMap.has(key)) {
+            scheduleMap.set(key, schedule);
+            console.log('✅ [DASHBOARD] Added schedule for week:', schedule.weekEnd, '(normalized:', normalizedWeekEnd, ')');
+          } else {
+            console.log('🔄 [DASHBOARD] Duplicate detected for week:', schedule.weekEnd, '(normalized:', normalizedWeekEnd, ') - keeping existing');
+          }
+        });
+        
+        const uniqueSchedules = Array.from(scheduleMap.values());
+        console.log('🧹 [DASHBOARD] After deduplication:', uniqueSchedules.length, 'unique schedules');
+        
+        // Sort schedules by week start date (chronologically, earliest first)
+        const sortedSchedules = uniqueSchedules.sort((a: WeeklySchedule, b: WeeklySchedule) => {
+          try {
+            // Parse dates properly for comparison - handle MM/dd/yyyy format
+            const parseDate = (dateStr: string): Date => {
+              const [month, day, year] = dateStr.split('/').map(Number);
+              return new Date(year, month - 1, day); // month is 0-indexed
+            };
+            
+            const dateA = parseDate(a.weekStart);
+            const dateB = parseDate(b.weekStart);
+            
+            console.log('🔍 [DASHBOARD] Comparing dates:', a.weekStart, '(', dateA.toISOString(), ') vs', b.weekStart, '(', dateB.toISOString(), ')');
+            
+            return dateA.getTime() - dateB.getTime(); // Ascending order (earliest first)
+          } catch (error) {
+            console.error('❌ [DASHBOARD] Error parsing dates for sorting:', error);
+            // Fallback to string comparison
+            return a.weekStart.localeCompare(b.weekStart);
+          }
+        });
         
         setAvailableWeeks(sortedSchedules);
         
-        // Set the most recent schedule as current
-        setSchedule(sortedSchedules[0]);
-        setCurrentWeekIndex(0);
+        // Try to find the week containing today's date first
+        const todayWeekIndex = findWeekContainingToday(sortedSchedules);
+        let initialWeekIndex: number;
+        let currentSchedule: WeeklySchedule;
         
-        console.log('DashboardScreen: Set current schedule for week:', sortedSchedules[0].weekStart, '-', sortedSchedules[0].weekEnd);
-        console.log('DashboardScreen: Available weeks:', sortedSchedules.map((s: WeeklySchedule) => `${s.weekStart} - ${s.weekEnd}`));
+        if (todayWeekIndex !== -1) {
+          // Found week containing today - use it
+          initialWeekIndex = todayWeekIndex;
+          currentSchedule = sortedSchedules[todayWeekIndex];
+          console.log('📅 [DASHBOARD] Loading week containing today:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        } else {
+          // Fall back to most recent schedule (last in chronologically sorted array)
+          initialWeekIndex = sortedSchedules.length - 1;
+          currentSchedule = sortedSchedules[initialWeekIndex];
+          console.log('📅 [DASHBOARD] No current week found, loading most recent:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        }
+        
+        setSchedule(currentSchedule);
+        setCurrentWeekIndex(initialWeekIndex);
+        setIsUsingDemoSchedules(false); // Using stored schedules, not demo
+        
+        console.log('DashboardScreen: Set current schedule for week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        console.log('DashboardScreen: Available weeks (chronological order):', sortedSchedules.map((s: WeeklySchedule) => `${s.weekStart} - ${s.weekEnd}`));
         
         return;
       }
@@ -95,8 +188,27 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       
       if (allSchedules.length > 0) {
         setAvailableWeeks(allSchedules);
-        const currentSchedule = allSchedules[currentWeekIndex % allSchedules.length];
+        
+        // Try to find the week containing today's date first
+        const todayWeekIndex = findWeekContainingToday(allSchedules);
+        let initialWeekIndex: number;
+        let currentSchedule: WeeklySchedule;
+        
+        if (todayWeekIndex !== -1) {
+          // Found week containing today - use it
+          initialWeekIndex = todayWeekIndex;
+          currentSchedule = allSchedules[todayWeekIndex];
+          console.log('📅 [DASHBOARD] Loading demo week containing today:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        } else {
+          // Fall back to latest demo schedule (most recent chronologically)
+          initialWeekIndex = allSchedules.length - 1;
+          currentSchedule = allSchedules[allSchedules.length - 1];
+          console.log('📅 [DASHBOARD] No current week in demo data, loading latest week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        }
+        
         setSchedule(currentSchedule);
+        setCurrentWeekIndex(initialWeekIndex);
+        setIsUsingDemoSchedules(true); // Using demo schedules
         console.log('DashboardScreen: Set current schedule for week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
       } else {
         console.log('DashboardScreen: No demo schedules available');
@@ -410,6 +522,11 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
                 <Text style={styles.weekTitle}>
                   {schedule.weekStart} - {schedule.weekEnd}
                 </Text>
+                {availableWeeks.length > 1 && (
+                  <Text style={styles.weekNumber}>
+                    Week {currentWeekIndex + 1} of {availableWeeks.length}
+                  </Text>
+                )}
               </View>
               
               <TouchableOpacity onPress={nextWeek} style={styles.navButton}>
@@ -422,16 +539,19 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
               {schedule.entries.map((entry, index) => renderScheduleEntry(entry, index))}
             </View>
 
-            {/* Demo Notice */}
-            <View style={styles.demoNotice}>
-              <Text style={styles.demoTitle}>Demo Mode</Text>
-              <Text style={styles.demoText}>
-                Real corporate schedule data parsed from enterprise BI system. Full authentication with SAML SSO + 2FA coming soon.
-              </Text>
-              <Text style={styles.demoText}>
-                {'\n'}* = Schedule changed after original posting
+            {/* Schedule Change Indicator */}
+            <View style={styles.scheduleChangeNotice}>
+              <Text style={styles.scheduleChangeText}>
+                <Text style={styles.redAsterisk}>*</Text> = Schedule changed after original posting
               </Text>
             </View>
+
+            {/* Demo Mode Notice - only show when using demo schedules */}
+            {isUsingDemoSchedules && (
+              <View style={styles.demoNotice}>
+                <Text style={styles.demoTitle}>Demo Mode</Text>
+              </View>
+            )}
 
             {/* Offline Storage Status */}
             <View style={styles.offlineStatus}>
@@ -444,7 +564,10 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
               </Text>
               {availableWeeks.length > 0 && (
                 <Text style={styles.offlineSubtext}>
-                  Browse between weeks using ← Prev / Next → buttons above
+                  {availableWeeks.length > 1 
+                    ? 'Browse between weeks using ← Prev / Next → buttons above (chronological order)'
+                    : 'Single schedule stored'
+                  }
                 </Text>
               )}
             </View>
@@ -587,6 +710,11 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: 'bold',
   },
+  weekNumber: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
+  },
   scheduleCard: {
     backgroundColor: COLORS.white,
     borderRadius: 8,
@@ -676,6 +804,22 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginLeft: 35 + SPACING.xs,
   },
+  scheduleChangeNotice: {
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  scheduleChangeText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.text,
+    lineHeight: 16,
+  },
+  redAsterisk: {
+    ...TYPOGRAPHY.caption,
+    color: '#FF4444',
+    fontWeight: 'bold',
+  },
   demoNotice: {
     backgroundColor: COLORS.warningLight,
     borderRadius: 8,
@@ -687,11 +831,6 @@ const styles = StyleSheet.create({
     color: COLORS.warning,
     fontWeight: 'bold',
     marginBottom: SPACING.xs,
-  },
-  demoText: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.text,
-    lineHeight: 16,
   },
   noDataContainer: {
     flex: 1,
