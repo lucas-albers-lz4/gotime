@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { CognosAutomationService, CognosAnalysis, ScheduleOption } from './CognosAutomationService';
+import { ScheduleService } from './ScheduleService';
 
 export interface AutomationState {
   isAnalyzing: boolean;
@@ -10,6 +11,7 @@ export interface AutomationState {
   analysis: CognosAnalysis | null;
   availableSchedules: ScheduleOption[];
   error: string | null;
+  currentHtml?: string;
 }
 
 // Define a base type for WebView messages handled by this hook
@@ -26,8 +28,15 @@ interface AutomationWebViewMessage {
     [key: string]: unknown 
   };
   summary?: { 
+    weeksProcessed?: number;
+    totalWeeksAvailable?: number;
+    successRate?: string;
+    testDuration?: string;
+    errorsEncountered?: number;
+    conclusiveResult?: string;
     [key: string]: unknown 
-  }; // Summary objects have diverse structures
+  }; // Summary objects with explicit properties
+  currentHtml?: string;
   isLoginForm2?: boolean;
   success?: boolean;
   error?: string;
@@ -45,6 +54,7 @@ export interface CognosAutomationHook {
   extractData: () => Promise<void>;
   automateSchedule: (scheduleValue: string) => Promise<void>;
   testMultiWeekAutomation: () => Promise<void>;
+  importSchedule: () => Promise<void>;
   resetState: () => void;
   handleWebViewMessage: (messageData: AutomationWebViewMessage) => void;
 }
@@ -290,6 +300,72 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     }
   }, [webViewRef]);
 
+  // New function to import the current schedule data
+  const importSchedule = useCallback(async () => {
+    try {
+      if (!state.currentHtml) {
+        Alert.alert(
+          'Import Failed ❌',
+          'No schedule HTML available. Please extract data first.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      setState(prev => ({
+        ...prev,
+        isAutomating: true,
+        currentStep: 'Importing schedule data...',
+        error: null,
+      }));
+
+      // Use the ScheduleService to parse and save the schedule
+      const scheduleService = ScheduleService.getInstance();
+      const schedule = await scheduleService.parseAndSaveRealSchedule(state.currentHtml);
+
+      if (schedule) {
+        setState(prev => ({
+          ...prev,
+          isAutomating: false,
+          currentStep: null,
+        }));
+
+        Alert.alert(
+          'Schedule Imported! ✅',
+          `Successfully imported schedule for ${schedule.employee.name} (${schedule.weekStart} - ${schedule.weekEnd})`,
+          [{ text: 'Great!' }]
+        );
+      } else {
+        setState(prev => ({
+          ...prev,
+          isAutomating: false,
+          error: 'Failed to parse or save schedule',
+          currentStep: null,
+        }));
+
+        Alert.alert(
+          'Import Failed ❌',
+          'Could not parse or save the schedule data. Please try again.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('❌ [AUTOMATION] Import schedule error:', error);
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: (error as Error).message,
+        currentStep: null,
+      }));
+
+      Alert.alert(
+        'Import Error ❌',
+        `An error occurred: ${(error as Error).message}`,
+        [{ text: 'OK' }]
+      );
+    }
+  }, [state.currentHtml]);
+
   // Handler for WebView messages - this should be called from the parent component
   const handleWebViewMessage = useCallback((messageData: AutomationWebViewMessage) => {
     console.log('🤖 [AUTOMATION] Received message:', messageData.type);
@@ -432,15 +508,17 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         isAutomating: false,
         currentStep: null,
         error: null,
+        // Store the HTML from the current page for later import
+        currentHtml: messageData.currentHtml as string || prev.currentHtml,
       }));
         
       Alert.alert(
-        'Automation Complete! 🎉',
+        'Data Extraction Complete! 🎉',
         'Successfully extracted schedule data:\n\n' +
           `• ${messageData.scheduleData?.totalRows || 0} rows of data\n` +
           `• ${messageData.scheduleData?.tableCount || 0} tables found\n\n` +
-          'Schedule data is ready for processing.',
-        [{ text: 'Excellent!' }],
+          'You can now import this schedule data.',
+        [{ text: 'Great!' }],
       );
       break;
     }
@@ -656,28 +734,35 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'multi_week_test_complete': {
-      console.log('🎉 [AUTOMATION] Multi-week test completed:', messageData.summary);
+      console.log('✅ [AUTOMATION] Multi-week test complete:', messageData.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
         currentStep: null,
         error: null,
       }));
+      
+      const summary = messageData.summary;
+      if (summary && typeof summary === 'object') {
+        const conclusiveResult = 'conclusiveResult' in summary ? summary.conclusiveResult : 'Test completed.';
         
-      const testSummary = messageData.summary;
-      Alert.alert(
-        messageData.success ? 'Multi-Week Test SUCCESS! 🎉' : 'Multi-Week Test Results 📊',
-        `Test Duration: ${testSummary?.testDuration || 'N/A'}\n\n` +
-          `📋 Weeks Available: ${testSummary?.totalWeeksAvailable || 0}\n` +
-          `✅ Weeks Processed: ${testSummary?.weeksProcessed || 0}\n` +
-          `❌ Errors: ${testSummary?.errorsEncountered || 0}\n` +
-          `📈 Success Rate: ${testSummary?.successRate || 'N/A'}\n\n` +
-          `🏆 Result: ${testSummary?.conclusiveResult || 'N/A'}\n\n` +
-          `${messageData.success ? 
-            'The automation successfully handled Cognos ID changes and can load multiple schedule weeks automatically!' : 
-            'Review the console logs for detailed error information.'}`,
-        [{ text: 'Excellent!' }],
-      );
+        Alert.alert(
+          'Multi-Week Test Complete! 🎉',
+          'Automation test results:\n\n' +
+            `• Weeks Processed: ${summary.weeksProcessed || 0} / ${summary.totalWeeksAvailable || 0}\n` +
+            `• Success Rate: ${summary.successRate || '0%'}\n` +
+            `• Test Duration: ${summary.testDuration || 'unknown'}\n` +
+            `• Errors: ${summary.errorsEncountered || 0}\n\n` +
+            conclusiveResult,
+          [{ text: 'Great!' }],
+        );
+      } else {
+        Alert.alert(
+          'Multi-Week Test Complete',
+          'Test completed but no detailed results available.',
+          [{ text: 'OK' }]
+        );
+      }
       break;
     }
     case 'multi_week_test_error': {
@@ -698,8 +783,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     default:
-      // Handle other message types or ignore
-      break;
+      console.log('ℹ️ [AUTOMATION] Unhandled message type:', messageData.type);
     }
   }, [runReport, extractData]);
 
@@ -713,6 +797,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     extractData,
     automateSchedule,
     testMultiWeekAutomation,
+    importSchedule,
     resetState,
     handleWebViewMessage,
   };

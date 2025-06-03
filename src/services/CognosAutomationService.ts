@@ -465,12 +465,16 @@ export class CognosAutomationService {
           
           console.log('✅ [COGNOS-EXTRACT] Extracted ' + scheduleData.length + ' rows of schedule data');
           
+          // Capture the full HTML for proper parsing
+          const currentHtml = cognosDoc.documentElement.outerHTML;
+          
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'schedule_data_extracted',
             success: true,
             scheduleData: scheduleData,
             totalRows: scheduleData.length,
             tableCount: tables.length,
+            currentHtml: currentHtml, // Include the full HTML for proper parsing
             message: 'Schedule data extracted successfully'
           }));
           

@@ -1956,6 +1956,18 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              
+              <View style={styles.manualButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.manualButton, { borderColor: COLORS.success }]}
+                  onPress={automation.importSchedule}
+                  disabled={automation.state.isAutomating}
+                >
+                  <Text style={[styles.manualButtonText, { color: COLORS.success }]}>
+                    💾 Import Schedule
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
             
             <TouchableOpacity
