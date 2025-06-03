@@ -849,7 +849,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       <TouchableOpacity
         style={[styles.loginButton, isLoading && styles.disabledButton]}
-        onPress={handleLogin}
+        onPress={handleWebViewAuth}
         disabled={isLoading}
       >
         {isLoading ? (
@@ -869,15 +869,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       >
         <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
           📅 My Schedule
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={[styles.demoButton, { borderColor: COLORS.info }]} 
-        onPress={handleWebViewAuth}
-      >
-        <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
-          Authenticate in App (WebView)
         </Text>
       </TouchableOpacity>
 
