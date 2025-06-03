@@ -3,6 +3,8 @@ import { WeeklySchedule } from '../../types';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+/* eslint-env jest */
+
 describe('ScheduleService', () => {
   let scheduleService: ScheduleService;
 
@@ -491,8 +493,8 @@ describe('ScheduleService', () => {
       const testCases = [
         {
           input: mockHtml.replace('Week: 6/2/2025 - 6/8/2025', 'Week: 6/2/2025 - 6/8/2025\n<span>Data as of:</span><span>6/1/2025</span>\n<span>valid as of&nbsp;</span><span>2:54:13 AM</span>'),
-          expected: '6/1/2025 2:54:13 AM'
-        }
+          expected: '6/1/2025 2:54:13 AM',
+        },
       ];
 
       testCases.forEach(testCase => {

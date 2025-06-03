@@ -304,11 +304,6 @@ describe('DashboardScreen', () => {
         weekEnd: '01/07/2024',
       };
       
-      // Create a week that contains today
-      const todayMonth = today.getMonth() + 1;
-      const todayDay = today.getDate();
-      const todayYear = today.getFullYear();
-      
       // Calculate Monday of current week
       const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
       const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days to subtract to get to Monday

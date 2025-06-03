@@ -19,6 +19,7 @@ import { COLORS, TYPOGRAPHY, SPACING, APP_CONFIG } from '../constants';
 import { UserCredentials } from '../types';
 import { AuthService } from '../services/AuthService';
 import { ScheduleService } from '../services/ScheduleService';
+import { useCognosAutomation } from '../services/useCognosAutomation';
 
 // eslint-disable-next-line no-undef
 const packageJson = require('../../package.json');
@@ -56,11 +57,10 @@ interface IframeAnalysisItem {
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
-  const [mfaCode, setMfaCode] = useState('');
+  const [mfaCode, setMFACode] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState<AuthStep>('CREDENTIALS');
-  const [authSessionData, setAuthSessionData] = useState<Record<string, unknown> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [hasStoredSchedules, setHasStoredSchedules] = useState(false);
@@ -68,6 +68,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const authService = AuthService.getInstance();
   const scheduleService = ScheduleService.getInstance();
   const webViewRef = useRef<WebView>(null);
+
+  // Initialize Cognos automation
+  const automation = useCognosAutomation(webViewRef);
 
   useEffect(() => {
     loadSavedCredentials();
@@ -212,7 +215,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       console.log('🔐 [UI] Starting MFA verification...');
       console.log('📱 [UI] Code length:', mfaCode.length);
       
-      const result = await authService.verifyMFACode(mfaCode.trim(), authSessionData || undefined);
+      const result = await authService.verifyMFACode(mfaCode.trim(), undefined);
 
       if (result.success) {
         console.log('✅ [UI] MFA verification successful - navigating to main app');
@@ -240,9 +243,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const handleBackToCredentials = () => {
     setCurrentStep('CREDENTIALS');
-    setMfaCode('');
+    setMFACode('');
     setErrorMessage(null);
     setShowPassword(false);
+    
+    // Reload saved credentials when returning to credentials step
+    loadSavedCredentials();
   };
 
   const handleDemoMode = () => {
@@ -285,7 +291,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     const fillCredentialsScript = `
     (function() {
       try {
-        console.log('🔑 [CREDENTIALS] Starting smart credential fill...');
+        console.log('🔑 [CREDENTIALS] Starting hybrid credential fill (jQuery + Fallback)...');
         
         const employeeId = '${employeeId}';
         const password = '${password}';
@@ -299,399 +305,481 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           return;
         }
         
-        // Detect which login form we're dealing with
-        const pageContent = document.body.textContent || document.body.innerText || '';
-        const pageTitle = document.title || '';
-        const currentURL = window.location.href || '';
+        // FORM TYPE DETECTION
+        const currentUrl = window.location.href;
+        const pageTitle = document.title;
+        const pageContent = document.documentElement.outerHTML;
         
-        // More specific detection for the SECOND login form that needs enhanced validation
-        const isCostcoExtSecondForm = pageContent.includes('Log in with your COSTCOEXT ID') || 
-                                     (pageContent.includes('User ID') && pageContent.includes('Password') && 
-                                      (pageContent.includes('COSTCOEXT') || currentURL.includes('costco'))) ||
-                                     document.querySelector('input[placeholder*="User ID"]') ||
-                                     document.querySelector('label[for*="userid"]');
+        // Check if this is Login Form 2 (Cognos BI authentication)
+        const isLoginForm2 = currentUrl.includes('bireport.costco.com/cognos_ext/bi') && 
+                            (pageContent.includes('Log in with your COSTCOEXT ID') || 
+                             pageContent.includes('COSTCOEXT') ||
+                             pageContent.includes('User ID'));
         
-        // This is NOT the enhanced form if it's just basic employee/password without COSTCOEXT context
-        const isFirstStandardForm = pageContent.includes('Employee') && 
-                                   !pageContent.includes('COSTCOEXT') && 
-                                   !pageContent.includes('User ID');
+        console.log('🔑 [FORM-DETECTION] URL:', currentUrl);
+        console.log('🔑 [FORM-DETECTION] Title:', pageTitle);
+        console.log('🔑 [FORM-DETECTION] Login Form 2 (Cognos BI):', isLoginForm2);
         
-        console.log('🔑 [CREDENTIALS] Form detection:');
-        console.log('  - Page title:', pageTitle);
-        console.log('  - Is COSTCOEXT second form (needs enhanced):', isCostcoExtSecondForm);
-        console.log('  - Is first standard form (simple):', isFirstStandardForm);
-        console.log('  - Content includes "Log in with your COSTCOEXT ID":', pageContent.includes('Log in with your COSTCOEXT ID'));
-        console.log('  - Content includes "User ID":', pageContent.includes('User ID'));
-        console.log('  - URL contains costco:', currentURL.includes('costco'));
-        
-        console.log('🔑 [CREDENTIALS] Looking for login fields...');
-        
-        // Enhanced selectors for login forms
-        const usernameSelectors = [
-          'input[name="username"]',
-          'input[name="employeeId"]',
-          'input[name="employee_id"]', 
-          'input[name="userid"]',
-          'input[name="user"]',
-          'input[name="uid"]',
-          'input[name="login"]',
-          'input[name="userID"]',
-          'input[name="User_ID"]',
-          'input[type="text"]',
-          'input[id*="username"]',
-          'input[id*="employee"]',
-          'input[id*="user"]',
-          'input[id*="login"]',
-          'input[placeholder*="User"]',
-          'input[placeholder*="Employee"]',
-          'input[placeholder*="ID"]'
-        ];
-        
-        const passwordSelectors = [
-          'input[name="password"]',
-          'input[name="passwd"]',
-          'input[name="pwd"]',
-          'input[name="pass"]',
-          'input[name="Password"]',
-          'input[type="password"]',
-          'input[id*="password"]',
-          'input[id*="passwd"]',
-          'input[id*="pwd"]',
-          'input[placeholder*="Password"]',
-          'input[placeholder*="password"]'
-        ];
-        
-        let usernameField = null;
-        let passwordField = null;
-        
-        // Find username field
-        for (const selector of usernameSelectors) {
-          const field = document.querySelector(selector);
-          if (field && field.offsetParent !== null) {
-            console.log('🔑 [CREDENTIALS] Found username field:', selector);
-            usernameField = field;
-            break;
-          }
-        }
-        
-        // Find password field
-        for (const selector of passwordSelectors) {
-          const field = document.querySelector(selector);
-          if (field && field.offsetParent !== null) {
-            console.log('🔑 [CREDENTIALS] Found password field:', selector);
-            passwordField = field;
-            break;
-          }
-        }
-        
-        console.log('🔑 [CREDENTIALS] Field search results:');
-        console.log('  - Username field found:', !!usernameField);
-        console.log('  - Password field found:', !!passwordField);
-        
-        // Simplified filling function for basic forms
-        function fillFieldSimplified(field, value, fieldType) {
-          if (!field) return false;
+        if (isLoginForm2) {
+          console.log('🎯 [LOGIN-FORM-2] Detected Cognos BI authentication page');
+          console.log('🎯 [LOGIN-FORM-2] Using block paste + last character retype pattern');
           
-          console.log('🔑 [CREDENTIALS] Filling', fieldType, 'with simplified approach...');
+          // LOGIN FORM 2 - Special handling for Cognos BI page
+          let userIdField = null;
+          let passwordField = null;
           
-          field.value = '';
-          field.focus();
-          field.value = value;
+          // Look for User ID field (Login Form 2 specific)
+          const userIdSelectors = [
+            'input[placeholder*="User ID"]',
+            'input[aria-label*="User ID"]', 
+            'input[id*="userid"]',
+            'input[name*="userid"]',
+            'input[id*="UserID"]',
+            'input[name*="UserID"]',
+            'input[id*="user_id"]',
+            'input[name*="user_id"]',
+            'input[type="text"]' // Fallback for any text input
+          ];
           
-          field.dispatchEvent(new Event('input', { bubbles: true }));
-          field.dispatchEvent(new Event('change', { bubbles: true }));
+          // Look for password field
+          const passwordSelectors = [
+            'input[type="password"]',
+            'input[placeholder*="Password"]',
+            'input[aria-label*="Password"]',
+            'input[id*="password"]',
+            'input[name*="password"]'
+          ];
           
-          if (field._valueTracker) {
-            field._valueTracker.setValue('');
-          }
-          
-          setTimeout(() => {
-            field.blur();
-            console.log('✅ [CREDENTIALS] Simplified fill complete for', fieldType);
-          }, 100);
-          
-          return true;
-        }
-        
-        // Enhanced filling function for CostCOEXT forms that need complex validation
-        function fillFieldEnhanced(field, value, fieldType) {
-          if (!field) return false;
-          
-          console.log('🔑 [CREDENTIALS] Filling', fieldType, 'with enhanced validation triggering...');
-          
-          // Debugging: Check initial field state
-          function logFieldState(stage) {
-            console.log('🔍 [DEBUG]', stage, 'field state for', fieldType, ':');
-            console.log('  - Value:', field.value);
-            console.log('  - Validity valid:', field.validity ? field.validity.valid : 'no validity');
-            console.log('  - Validity valueMissing:', field.validity ? field.validity.valueMissing : 'no validity');
-            console.log('  - Required:', field.required);
-            console.log('  - Disabled:', field.disabled);
-            console.log('  - ReadOnly:', field.readOnly);
-            console.log('  - aria-invalid:', field.getAttribute('aria-invalid'));
-            console.log('  - aria-required:', field.getAttribute('aria-required'));
-            console.log('  - Class list:', field.className);
-            console.log('  - Has error class:', field.classList.contains('error') || field.classList.contains('invalid') || field.classList.contains('ng-invalid'));
-            
-            // Check for validation error elements nearby
-            const parent = field.parentElement;
-            if (parent) {
-              const errorElements = parent.querySelectorAll('.error, .invalid, .validation-error, [role="alert"]');
-              console.log('  - Error elements in parent:', errorElements.length);
-              if (errorElements.length > 0) {
-                Array.from(errorElements).forEach((el, idx) => {
-                  console.log('    * Error element', idx, ':', el.textContent.trim());
-                });
-              }
+          // Find User ID field
+          for (const selector of userIdSelectors) {
+            const field = document.querySelector(selector);
+            if (field && field.offsetParent !== null) {
+              console.log('🎯 [LOGIN-FORM-2] Found User ID field:', selector);
+              userIdField = field;
+              break;
             }
           }
           
-          // Log initial state
-          logFieldState('INITIAL');
+          // Find Password field
+          for (const selector of passwordSelectors) {
+            const field = document.querySelector(selector);
+            if (field && field.offsetParent !== null) {
+              console.log('🎯 [LOGIN-FORM-2] Found Password field:', selector);
+              passwordField = field;
+              break;
+            }
+          }
           
-          // Clear and focus
-          field.value = '';
-          field.focus();
-          
-          // Initial events
-          field.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-          field.dispatchEvent(new Event('click', { bubbles: true }));
-          
-          // Log after focus
-          logFieldState('AFTER_FOCUS');
-          
-          // Drop in the full value
-          console.log('🔑 [CREDENTIALS] Setting full value for', fieldType);
-          field.value = value;
-          field.dispatchEvent(new Event('input', { bubbles: true }));
-          
-          // Log after value set
-          logFieldState('AFTER_VALUE_SET');
-          
-          // Now do the simple delete-and-retype of last character for validation
-          setTimeout(() => {
-            console.log('🔑 [CREDENTIALS] Performing delete-retype of last character for', fieldType);
-            
-            const originalValue = field.value;
-            const lastChar = originalValue.slice(-1);
-            const withoutLastChar = originalValue.slice(0, -1);
-            
-            console.log('🔑 [CREDENTIALS] Original value:', originalValue);
-            console.log('🔑 [CREDENTIALS] Last character to delete/retype:', lastChar);
-            
-            // Position cursor at the end
-            field.setSelectionRange(originalValue.length, originalValue.length);
-            
-            // Delete the last character
-            field.dispatchEvent(new KeyboardEvent('keydown', { 
-              key: 'Backspace',
-              code: 'Backspace',
-              keyCode: 8,
-              which: 8,
-              bubbles: true,
-              cancelable: true
+          if (!userIdField || !passwordField) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'credentials_filled',
+              success: false,
+              error: 'Could not find User ID or Password fields on Login Form 2',
+              formType: 'cognos-bi',
+              userIdFound: !!userIdField,
+              passwordFound: !!passwordField
             }));
+            return;
+          }
+          
+          console.log('🎯 [LOGIN-FORM-2] Found both fields - starting block paste + last character retype');
+          
+          // BLOCK PASTE + LAST CHARACTER RETYPE PATTERN for Login Form 2
+          function fillFieldWithLastCharacterRetype(field, value, fieldName) {
+            console.log('🎯 [LOGIN-FORM-2] Filling', fieldName, 'with block paste + last character retype');
             
-            // Actually remove the character
-            field.value = withoutLastChar;
-            field.setSelectionRange(withoutLastChar.length, withoutLastChar.length);
-            
-            // Input event for deletion
-            field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-            
-            field.dispatchEvent(new KeyboardEvent('keyup', { 
-              key: 'Backspace',
-              code: 'Backspace',
-              keyCode: 8,
-              which: 8,
-              bubbles: true,
-              cancelable: true
-            }));
-            
-            // Log after deletion
-            logFieldState('AFTER_DELETION');
-            
-            // Wait a moment, then retype the last character
-            setTimeout(() => {
-              console.log('🔑 [CREDENTIALS] Retyping last character:', lastChar);
+            return new Promise((resolve) => {
+              // Step 1: Click and focus the field
+              field.focus();
+              field.click();
               
-              // Simulate keydown for the character
-              field.dispatchEvent(new KeyboardEvent('keydown', { 
-                key: lastChar,
-                code: lastChar === ' ' ? 'Space' : 'Key' + lastChar.toUpperCase(),
-                keyCode: lastChar.charCodeAt(0),
-                which: lastChar.charCodeAt(0),
-                bubbles: true,
-                cancelable: true
-              }));
+              // Step 2: Block paste the entire value
+              field.value = value;
+              field.dispatchEvent(new Event('input', { bubbles: true }));
+              field.dispatchEvent(new Event('change', { bubbles: true }));
               
-              // Add the character back
-              field.value = originalValue;
-              field.setSelectionRange(originalValue.length, originalValue.length);
+              console.log('🎯 [LOGIN-FORM-2] Block pasted', fieldName, '- value:', field.value);
               
-              // Input event for addition
-              field.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-              
-              field.dispatchEvent(new KeyboardEvent('keyup', { 
-                key: lastChar,
-                code: lastChar === ' ' ? 'Space' : 'Key' + lastChar.toUpperCase(),
-                keyCode: lastChar.charCodeAt(0),
-                which: lastChar.charCodeAt(0),
-                bubbles: true,
-                cancelable: true
-              }));
-              
-              // Log after retyping
-              logFieldState('AFTER_RETYPING');
-              
-              // Final validation events
               setTimeout(() => {
-                // Change event
-                field.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                // Step 3: Delete the last character
+                const lastChar = value.slice(-1);
+                const valueWithoutLast = value.slice(0, -1);
                 
-                // React compatibility
-                if (field._valueTracker) {
-                  field._valueTracker.setValue('');
-                }
+                field.value = valueWithoutLast;
+                field.dispatchEvent(new Event('input', { bubbles: true }));
+                field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+                field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', bubbles: true }));
                 
-                // Log after change event
-                logFieldState('AFTER_CHANGE_EVENT');
+                console.log('🎯 [LOGIN-FORM-2] Deleted last character from', fieldName, '- value now:', field.value);
                 
-                // Tab away simulation
-                field.dispatchEvent(new KeyboardEvent('keydown', { 
-                  key: 'Tab',
-                  code: 'Tab',
-                  keyCode: 9,
-                  which: 9,
-                  bubbles: true,
-                  cancelable: true
-                }));
-                
-                // Blur events
-                field.dispatchEvent(new Event('blur', { bubbles: true }));
-                field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-                
-                // Final state check
                 setTimeout(() => {
-                  logFieldState('FINAL');
+                  // Step 4: Type the last character back
+                  field.dispatchEvent(new KeyboardEvent('keydown', { 
+                    key: lastChar, 
+                    keyCode: lastChar.charCodeAt(0), 
+                    bubbles: true 
+                  }));
                   
-                  // If field still appears invalid, try alternative validation triggers
-                  const isStillInvalid = field.classList.contains('error') || 
-                                        field.classList.contains('invalid') || 
-                                        field.classList.contains('ng-invalid') ||
-                                        field.getAttribute('aria-invalid') === 'true';
+                  field.value = value; // Set back to full value
+                  field.dispatchEvent(new Event('input', { bubbles: true }));
                   
-                  if (isStillInvalid) {
-                    console.log('⚠️ [CREDENTIALS] Field still appears invalid, trying alternative triggers...');
+                  field.dispatchEvent(new KeyboardEvent('keyup', { 
+                    key: lastChar, 
+                    keyCode: lastChar.charCodeAt(0), 
+                    bubbles: true 
+                  }));
+                  
+                  console.log('🎯 [LOGIN-FORM-2] Retyped last character for', fieldName, '- final value:', field.value);
+                  
+                  // Step 5: Final validation events
+                  setTimeout(() => {
+                    field.dispatchEvent(new Event('change', { bubbles: true }));
+                    field.dispatchEvent(new Event('blur', { bubbles: true }));
                     
-                    // Alternative 1: Try triggering validation methods directly
-                    try {
-                      if (field.checkValidity && typeof field.checkValidity === 'function') {
-                        console.log('🔄 [ALT-1] Calling field.checkValidity()...');
-                        field.checkValidity();
-                      }
-                      
-                      if (field.reportValidity && typeof field.reportValidity === 'function') {
-                        console.log('🔄 [ALT-1] Calling field.reportValidity()...');
-                        field.reportValidity();
-                      }
-                    } catch (e) {
-                      console.log('⚠️ [ALT-1] Validation method call failed:', e.message);
-                    }
-                    
-                    // Alternative 2: Try form-level validation
-                    try {
-                      const form = field.closest('form');
-                      if (form && form.checkValidity && typeof form.checkValidity === 'function') {
-                        console.log('🔄 [ALT-2] Calling form.checkValidity()...');
-                        form.checkValidity();
-                      }
-                    } catch (e) {
-                      console.log('⚠️ [ALT-2] Form validation call failed:', e.message);
-                    }
-                    
-                    // Alternative 3: Try custom validation events
-                    console.log('🔄 [ALT-3] Trying custom validation events...');
-                    field.dispatchEvent(new Event('validate', { bubbles: true }));
-                    field.dispatchEvent(new Event('validation', { bubbles: true }));
-                    field.dispatchEvent(new Event('check', { bubbles: true }));
-                    
-                    // Alternative 4: Try different focus/blur patterns
+                    // Refocus for final validation
                     setTimeout(() => {
-                      console.log('🔄 [ALT-4] Trying alternative focus/blur pattern...');
                       field.focus();
-                      setTimeout(() => {
-                        field.blur();
-                        setTimeout(() => {
-                          field.focus();
-                          setTimeout(() => {
-                            field.blur();
-                            
-                            // Final final check
-                            setTimeout(() => {
-                              logFieldState('AFTER_ALTERNATIVES');
-                            }, 300);
-                          }, 100);
-                        }, 100);
-                      }, 100);
-                    }, 200);
-                  }
-                  
-                  console.log('✅ [CREDENTIALS] Enhanced fill complete for', fieldType);
-                  console.log('🔑 [CREDENTIALS] Final field value:', field.value);
-                  console.log('🔑 [CREDENTIALS] Field appears valid:', !field.classList.contains('error') && field.getAttribute('aria-invalid') !== 'true');
-                }, 200);
+                      field.dispatchEvent(new Event('focus', { bubbles: true }));
+                      
+                      console.log('🎯 [LOGIN-FORM-2] Completed last-character retype for', fieldName);
+                      resolve(true);
+                    }, 50);
+                  }, 100);
+                }, 150);
               }, 150);
-            }, 150);
-          }, 300);
+            });
+          }
           
+          // Fill User ID field with last character retype
+          console.log('🎯 [LOGIN-FORM-2] Starting User ID field with last-character retype...');
+          fillFieldWithLastCharacterRetype(userIdField, employeeId, 'User ID').then((userIdSuccess) => {
+            console.log('🎯 [LOGIN-FORM-2] User ID completed, starting Password field...');
+            
+            // Fill password field with last character retype
+            return fillFieldWithLastCharacterRetype(passwordField, password, 'Password');
+          }).then((passwordSuccess) => {
+            console.log('🎯 [LOGIN-FORM-2] Password completed, finalizing...');
+            
+            // Final verification and activation
+            setTimeout(() => {
+              console.log('🎯 [LOGIN-FORM-2] Final verification:');
+              console.log('  - User ID value:', userIdField.value);
+              console.log('  - Password value set:', passwordField.value === password);
+              
+              // Look for and potentially activate the login button
+              const loginButton = document.querySelector('button[type="submit"]') ||
+                                document.querySelector('input[type="submit"]') ||
+                                Array.from(document.querySelectorAll('button')).find(btn => 
+                                  btn.textContent && btn.textContent.toLowerCase().includes('log in'));
+              
+              if (loginButton) {
+                console.log('🎯 [LOGIN-FORM-2] Found login button:', loginButton.textContent);
+                // Focus the button to ensure it's activated
+                loginButton.focus();
+                setTimeout(() => loginButton.blur(), 50);
+              }
+              
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'credentials_filled',
+                success: true,
+                formType: 'cognos-bi-login-form-2',
+                strategy: 'Block Paste + Last Character Retype',
+                userIdFound: true,
+                passwordFound: true,
+                loginButtonFound: !!loginButton,
+                finalValidation: {
+                  userIdValue: userIdField.value === employeeId,
+                  passwordValue: passwordField.value === password
+                },
+                message: 'Login Form 2 (Cognos BI) credentials filled with last-character retype technique',
+                error: null
+              }));
+              
+            }, 300);
+          }).catch((error) => {
+            console.error('🎯 [LOGIN-FORM-2] Error during last-character retype:', error);
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'credentials_filled',
+              success: false,
+              formType: 'cognos-bi-login-form-2',
+              error: 'Last-character retype failed: ' + error.message
+            }));
+          });
+          
+          return; // Exit early for Login Form 2
+        }
+        
+        // LOGIN FORM 1 - Original logic for standard authentication
+        console.log('🔑 [LOGIN-FORM-1] Using standard authentication form handling');
+        
+        // STEP 1: Try specific fields first (CAMUsername/CAMPassword from diagnostics)
+        console.log('🔑 [STEP-1] Trying specific field detection...');
+        let usernameField = document.getElementById('CAMUsername');
+        let passwordField = document.getElementById('CAMPassword');
+        let detectionMethod = 'specific-ids';
+        
+        // STEP 2: If specific fields not found, try broader detection
+        if (!usernameField || !passwordField) {
+          console.log('🔑 [STEP-2] Specific fields not found, trying broader detection...');
+          
+          // Enhanced field selectors (from original approach)
+        const usernameSelectors = [
+            'input[name="CAMUsername"]', 'input[id="CAMUsername"]', // Try CAM fields first
+            'input[name="username"]', 'input[name="employeeId"]', 'input[name="employee_id"]', 
+            'input[name="userid"]', 'input[name="user"]', 'input[name="uid"]', 'input[name="login"]',
+            'input[name="userID"]', 'input[name="User_ID"]', 'input[type="text"]',
+            'input[id*="username"]', 'input[id*="employee"]', 'input[id*="user"]', 'input[id*="login"]',
+            'input[placeholder*="User"]', 'input[placeholder*="Employee"]', 'input[placeholder*="ID"]'
+        ];
+        
+        const passwordSelectors = [
+            'input[name="CAMPassword"]', 'input[id="CAMPassword"]', // Try CAM fields first
+            'input[name="password"]', 'input[name="passwd"]', 'input[name="pwd"]', 'input[name="pass"]',
+            'input[name="Password"]', 'input[type="password"]', 'input[id*="password"]',
+            'input[id*="passwd"]', 'input[id*="pwd"]', 'input[placeholder*="Password"]'
+          ];
+          
+          // Find fields with broader search
+        for (const selector of usernameSelectors) {
+          const field = document.querySelector(selector);
+          if (field && field.offsetParent !== null) {
+              console.log('🔑 [BROAD-SEARCH] Found username field:', selector);
+            usernameField = field;
+              detectionMethod = 'broad-search';
+            break;
+          }
+        }
+        
+        for (const selector of passwordSelectors) {
+          const field = document.querySelector(selector);
+          if (field && field.offsetParent !== null) {
+              console.log('🔑 [BROAD-SEARCH] Found password field:', selector);
+            passwordField = field;
+              detectionMethod = 'broad-search';
+            break;
+            }
+          }
+        }
+        
+        console.log('🔑 [DETECTION] Results:');
+        console.log('  - Username field found:', !!usernameField);
+        console.log('  - Password field found:', !!passwordField);
+        console.log('  - Detection method:', detectionMethod);
+        
+        if (usernameField) {
+          console.log('  - Username field ID:', usernameField.id);
+          console.log('  - Username field name:', usernameField.name);
+          console.log('  - Username field type:', usernameField.type);
+        }
+        if (passwordField) {
+          console.log('  - Password field ID:', passwordField.id);
+          console.log('  - Password field name:', passwordField.name);
+          console.log('  - Password field type:', passwordField.type);
+        }
+        
+        if (!usernameField || !passwordField) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'credentials_filled',
+            success: false,
+            error: 'Could not find username or password fields',
+            usernameFound: !!usernameField,
+            passwordFound: !!passwordField,
+            detectionMethod: detectionMethod
+          }));
+          return;
+        }
+        
+        // Determine if this is the Carbon Design System login form
+        const isCarbonForm = usernameField.classList.contains('bx--text-input') || 
+                           passwordField.classList.contains('bx--text-input') ||
+                           usernameField.id === 'CAMUsername';
+        
+        console.log('🔑 [FORM-TYPE] Carbon Design System detected:', isCarbonForm);
+        
+        // Smart filling function that adapts to the form type
+        function fillFieldSmart(field, value, fieldType) {
+          console.log('🔑 [SMART-FILL] Filling', fieldType, '- Carbon form:', isCarbonForm);
+          
+          // Clear any existing validation states (Carbon-specific)
+          if (isCarbonForm) {
+            field.classList.remove('bx--text-input--invalid');
+            field.setAttribute('aria-invalid', 'false');
+            
+            // Remove validation messages
+            const parent = field.closest('.bx--text-input-wrapper') || field.parentElement;
+            if (parent) {
+              const errorElements = parent.querySelectorAll('.bx--form-requirement');
+              errorElements.forEach(el => el.remove());
+            }
+          }
+          
+          // Focus and clear the field
+          field.focus();
+          field.value = '';
+          
+          // Method 1: jQuery approach (if available and Carbon form)
+          if (isCarbonForm && window.jQuery && window.jQuery.fn) {
+            console.log('🔑 [JQUERY] Using jQuery events for', fieldType);
+            const jqField = window.jQuery(field);
+            
+            jqField.trigger('focus');
+            jqField.val(value);
+            jqField.trigger('input');
+            jqField.trigger('change');
+            jqField.trigger('keyup');
+            jqField.trigger('blur');
+            
+            // Also trigger native events
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+            
+          } else {
+            // Method 2: Enhanced native events (all forms)
+            console.log('🔑 [NATIVE] Using enhanced native events for', fieldType);
+            
+            field.value = value;
+            
+            // Full event sequence
+            field.dispatchEvent(new Event('focus', { bubbles: true }));
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+            field.dispatchEvent(new Event('keydown', { bubbles: true }));
+            field.dispatchEvent(new Event('keyup', { bubbles: true }));
+            field.dispatchEvent(new Event('blur', { bubbles: true }));
+            
+            // Additional keyboard events that some forms expect
+            field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, bubbles: true }));
+            field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', keyCode: 9, bubbles: true }));
+          }
+          
+          // Method 3: Carbon-specific validation triggers
+          if (isCarbonForm) {
+            const carbonInstance = field._carbonInstance || field.carbonInstance;
+            if (carbonInstance && typeof carbonInstance.validate === 'function') {
+              console.log('🔑 [CARBON] Triggering Carbon validation for', fieldType);
+              carbonInstance.validate();
+            }
+            
+            // Mark as touched/dirty
+            field.setAttribute('data-touched', 'true');
+            field.setAttribute('data-dirty', 'true');
+          }
+          
+          // Method 4: Re-trigger validation after delay
+                setTimeout(() => {
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            if (window.jQuery && window.jQuery.fn) {
+              const jqField = window.jQuery(field);
+              jqField.trigger('input');
+              jqField.trigger('change');
+            }
+          }, 100);
+          
+          console.log('🔑 [SMART-FILL] Completed filling', fieldType, '- final value:', field.value);
           return true;
         }
         
-        // Choose the appropriate filling strategy
-        const fillStrategy = isCostcoExtSecondForm ? fillFieldEnhanced : fillFieldSimplified;
-        const strategyName = isCostcoExtSecondForm ? 'enhanced (CostCOEXT)' : 'simplified';
+        // Fill both fields with proper sequencing
+        console.log('🔑 [CREDENTIALS] Starting sequential field filling...');
         
-        console.log('🔑 [CREDENTIALS] Using', strategyName, 'filling strategy');
-        
-        let usernameFound = false;
-        let passwordFound = false;
-        
-        // Fill username
-        if (usernameField) {
-          usernameFound = fillStrategy(usernameField, employeeId, 'username');
-        }
-        
-        // Fill password after a delay
-        const delayTime = isCostcoExtSecondForm ? 1000 : 300; // Reasonable delay for simple enhanced strategy
-        setTimeout(() => {
-          if (passwordField) {
-            passwordFound = fillStrategy(passwordField, password, 'password');
-          }
+        try {
+          // Fill username first
+          const usernameSuccess = fillFieldSmart(usernameField, employeeId, 'username');
           
-          // Final validation after both fields are filled
-          const finalDelayTime = isCostcoExtSecondForm ? 1200 : 500; // Allow time for validation to complete
-          setTimeout(() => {
+          // Wait a bit, then fill password
+                    setTimeout(() => {
+            try {
+              const passwordSuccess = fillFieldSmart(passwordField, password, 'password');
+              
+              // Final validation trigger after both fields are filled
+                            setTimeout(() => {
+                console.log('🔑 [CREDENTIALS] Triggering final form validation...');
+                
+                // Global validation triggers
+                if (window.jQuery && window.jQuery.fn) {
+                  window.jQuery('form').trigger('validate');
+                  window.jQuery('.authInput').trigger('change');
+                }
+                
+                if (window.validateForm && typeof window.validateForm === 'function') {
+                  window.validateForm();
+                }
+                if (window.validate && typeof window.validate === 'function') {
+                  window.validate();
+                }
+                
+                // Check final state
+                const finalUsernameValid = isCarbonForm ? 
+                  (!usernameField.classList.contains('bx--text-input--invalid') && 
+                   usernameField.getAttribute('aria-invalid') !== 'true') :
+                  (!usernameField.classList.contains('error') && 
+                   !usernameField.classList.contains('invalid'));
+                   
+                const finalPasswordValid = isCarbonForm ?
+                  (!passwordField.classList.contains('bx--text-input--invalid') && 
+                   passwordField.getAttribute('aria-invalid') !== 'true') :
+                  (!passwordField.classList.contains('error') && 
+                   !passwordField.classList.contains('invalid'));
+                
+                console.log('🔑 [CREDENTIALS] Final validation state:');
+                console.log('  - Username valid:', finalUsernameValid);
+                console.log('  - Password valid:', finalPasswordValid);
+                console.log('  - Username value set:', usernameField.value === employeeId);
+                console.log('  - Password value set:', passwordField.value === password);
+                console.log('  - Form type:', isCarbonForm ? 'Carbon Design System' : 'Standard');
+                
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'credentials_filled',
+                  success: usernameSuccess && passwordSuccess,
+                  usernameFound: true,
+                  passwordFound: true,
+                  strategy: isCarbonForm ? 'jQuery + Carbon Design System' : 'Enhanced Native Events',
+                  detectionMethod: detectionMethod,
+                  formType: isCarbonForm ? 'carbon' : 'standard',
+                  finalValidation: {
+                    usernameValid: finalUsernameValid,
+                    passwordValid: finalPasswordValid,
+                    usernameValue: usernameField.value === employeeId,
+                    passwordValue: passwordField.value === password
+                  },
+                  message: 'Hybrid credential fill completed',
+                  error: null
+                }));
+                
+              }, 500); // Wait for validation to complete
+            } catch (passwordError) {
+              console.error('🔑 [CREDENTIALS] Password filling error:', passwordError);
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'credentials_filled',
+                success: false,
+                error: 'Password filling failed: ' + passwordError.message,
+                usernameFound: true,
+                passwordFound: true,
+                detectionMethod: detectionMethod
+              }));
+            }
+          }, 300); // Delay between username and password
+          
+        } catch (usernameError) {
+          console.error('🔑 [CREDENTIALS] Username filling error:', usernameError);
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'credentials_filled',
-              success: usernameFound && passwordFound,
-              usernameFound: usernameFound,
-              passwordFound: passwordFound,
-              strategy: strategyName,
-              isCostcoExtSecondForm: isCostcoExtSecondForm,
-              message: \`\${strategyName} credential fill completed\`,
-              error: (!usernameFound || !passwordFound) ? 'Some fields could not be found or filled' : null
-            }));
-          }, finalDelayTime);
-        }, delayTime);
+            success: false,
+            error: 'Username filling failed: ' + usernameError.message,
+            usernameFound: true,
+            passwordFound: true,
+            detectionMethod: detectionMethod
+          }));
+        }
         
       } catch (error) {
-        console.log('❌ [CREDENTIALS] Error:', error);
+        console.error('🔑 [CREDENTIALS] General error:', error);
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'credentials_filled',
           success: false,
-          error: error.message,
-          smart: true
+          error: error.message
         }));
       }
     })();
@@ -836,7 +924,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <TextInput
           style={styles.input}
           value={mfaCode}
-          onChangeText={setMfaCode}
+          onChangeText={setMFACode}
           placeholder="Enter 6-digit code"
           keyboardType="number-pad"
           maxLength={8}
@@ -986,154 +1074,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           }}
           onLoadEnd={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            console.log('✅ [WEBVIEW] === LOAD END ===');
+            console.log('✅ [WEBVIEW] Load finished');
             console.log('✅ [WEBVIEW] URL:', nativeEvent.url);
             console.log('✅ [WEBVIEW] Title:', nativeEvent.title);
-            
-            // Inject page analysis script after page loads
-            if (webViewRef.current) {
-              const pageAnalysisScript = `
-                (function() {
-                  try {
-                    console.log('🔍 [PAGE-ANALYSIS] === AUTO PAGE ANALYSIS ===');
-                    console.log('🔍 [PAGE-ANALYSIS] URL:', window.location.href);
-                    console.log('🔍 [PAGE-ANALYSIS] Title:', document.title);
-                    console.log('🔍 [PAGE-ANALYSIS] Document ready state:', document.readyState);
-                    
-                    // Check for Employee Number prompts
-                    const bodyText = document.body.textContent || document.body.innerText || '';
-                    const hasEmployeePrompt = bodyText.includes('Employee Number') || 
-                                            bodyText.includes('Provide a value') ||
-                                            bodyText.includes('employee number') ||
-                                            bodyText.includes('Employee ID required');
-                    
-                    if (hasEmployeePrompt) {
-                      console.log('🚨 [PAGE-ANALYSIS] EMPLOYEE NUMBER PROMPT DETECTED!');
-                      console.log('🚨 [PAGE-ANALYSIS] Page content (first 1000 chars):');
-                      console.log(bodyText.substring(0, 1000));
-                      
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'employee_prompt_detected',
-                        url: window.location.href,
-                        title: document.title,
-                        contentPreview: bodyText.substring(0, 2000),
-                        timestamp: new Date().toISOString()
-                      }));
-                      return;
-                    }
-                    
-                    // Check for Cognos elements
-                    const isCognosPage = document.title.includes('Cognos') || 
-                                       document.title.includes('Schedule') ||
-                                       bodyText.includes('IBM Cognos Viewer') ||
-                                       document.querySelector('script[src*="cognos"]');
-                    
-                    if (isCognosPage) {
-                      console.log('📊 [PAGE-ANALYSIS] COGNOS PAGE DETECTED');
-                      
-                      // Check for parameter page vs results page
-                      const hasWeekEndDate = bodyText.includes('Week End Date');
-                      const hasRunButton = document.querySelector('button[onclick*="promptAction"]') || 
-                                         document.querySelector('button[id*="next"]');
-                      const hasScheduleData = bodyText.includes('Total Hours') || 
-                                            bodyText.includes('Employee #') ||
-                                            bodyText.includes('Schedule Detail');
-                      
-                      console.log('📊 [PAGE-ANALYSIS] Cognos page type analysis:');
-                      console.log('  - Has Week End Date:', hasWeekEndDate);
-                      console.log('  - Has Run Button:', !!hasRunButton);
-                      console.log('  - Has Schedule Data:', hasScheduleData);
-                      
-                      if (hasWeekEndDate && hasRunButton) {
-                        console.log('📊 [PAGE-ANALYSIS] 🎯 PARAMETER PAGE detected');
-                      } else if (hasScheduleData) {
-                        console.log('📊 [PAGE-ANALYSIS] 🎯 RESULTS PAGE detected');
-                      }
-                    }
-                    
-                    // Iframe analysis
-                    const iframes = document.querySelectorAll('iframe');
-                    console.log('🖼️ [PAGE-ANALYSIS] Found', iframes.length, 'iframes');
-                    
-                    for (let i = 0; i < iframes.length; i++) {
-                      const iframe = iframes[i];
-                      console.log('🖼️ [PAGE-ANALYSIS] Iframe', i, ':');
-                      console.log('  - Src:', iframe.src);
-                      console.log('  - ID:', iframe.id);
-                      console.log('  - Name:', iframe.name);
-                      
-                      try {
-                        if (iframe.contentDocument) {
-                          const iframeContent = iframe.contentDocument.body.textContent || '';
-                          const iframeTitle = iframe.contentDocument.title;
-                          
-                          console.log('  - Accessible: YES');
-                          console.log('  - Title:', iframeTitle);
-                          console.log('  - Content length:', iframeContent.length);
-                          
-                          // Check for employee prompts in iframe
-                          const hasIframeEmployeePrompt = iframeContent.includes('Employee Number') || 
-                                                         iframeContent.includes('Provide a value') ||
-                                                         iframeContent.includes('employee number');
-                          
-                          if (hasIframeEmployeePrompt) {
-                            console.log('🚨 [PAGE-ANALYSIS] EMPLOYEE PROMPT IN IFRAME', i);
-                            window.ReactNativeWebView.postMessage(JSON.stringify({
-                              type: 'employee_prompt_in_iframe',
-                              iframeIndex: i,
-                              iframeSrc: iframe.src,
-                              iframeTitle: iframeTitle,
-                              url: window.location.href,
-                              contentPreview: iframeContent.substring(0, 2000),
-                              timestamp: new Date().toISOString()
-                            }));
-                          }
-                          
-                          // Check for Cognos parameter interface in iframe
-                          const hasCognosInterface = iframeContent.includes('Week End Date') && 
-                                                   iframeTitle.includes('Cognos') &&
-                                                   iframe.contentDocument.querySelector('[id*="PRMT_SV_"]');
-                          
-                          if (hasCognosInterface) {
-                            console.log('✅ [PAGE-ANALYSIS] COGNOS PARAMETER INTERFACE found in iframe', i);
-                            
-                            // Detailed analysis of parameter elements
-                            const weekDropdown = iframe.contentDocument.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]');
-                            const runButton = iframe.contentDocument.querySelector('button[id*="next"][id*="_NS_"]');
-                            
-                            console.log('  - Week dropdown found:', !!weekDropdown);
-                            console.log('  - Run button found:', !!runButton);
-                            
-                            if (weekDropdown) {
-                              console.log('  - Week dropdown ID:', weekDropdown.id);
-                              console.log('  - Week dropdown options:', weekDropdown.options.length);
-                            }
-                            if (runButton) {
-                              console.log('  - Run button ID:', runButton.id);
-                              console.log('  - Run button disabled:', runButton.disabled);
-                            }
-                          }
-                        } else {
-                          console.log('  - Accessible: NO (cross-origin or not loaded)');
-                        }
-                      } catch (e) {
-                        console.log('  - Accessible: NO (error:', e.message, ')');
-                      }
-                    }
-                    
-                    console.log('🔍 [PAGE-ANALYSIS] === END AUTO PAGE ANALYSIS ===');
-                    
-                  } catch (error) {
-                    console.error('❌ [PAGE-ANALYSIS] Analysis error:', error);
-                  }
-                })();
-              `;
-              
-              // Delay injection to ensure page is fully loaded
-              global.setTimeout(() => {
-                webViewRef.current?.injectJavaScript(pageAnalysisScript);
-              }, 1000);
-            }
           }}
           onMessage={async (event) => {
             try {
@@ -1145,6 +1088,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 const parsedMessage = JSON.parse(messageData);
                 console.log('📨 [WEBVIEW] Parsed message:', parsedMessage);
                 
+                // First check if this is a Cognos automation message
+                if (parsedMessage.type && parsedMessage.type.startsWith('cognos_') || 
+                    ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
+                     'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error'].includes(parsedMessage.type)) {
+                  automation.handleWebViewMessage(parsedMessage);
+                  return;
+                }
+
+                // Handle existing message types
                 if (parsedMessage.type === 'manual_extraction') {
                   console.log('🍪 [WEBVIEW] Manual cookie extraction successful!');
                   console.log('📍 [WEBVIEW] URL:', parsedMessage.url);
@@ -1159,726 +1111,69 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     });
                     
                     Alert.alert(
-                      'Cookies Extracted! 🍪',
-                      `Successfully captured session cookies from: ${parsedMessage.url}\n\nCookie data: ${parsedMessage.cookies.length} characters`,
+                      'Session Captured! 🍪',
+                      `Successfully captured ${parsedMessage.cookies.length} session cookies.\n\nYou can now close this view and the app will automatically sync your schedules in the background.`,
                       [
                         {
-                          text: 'Test Session',
-                          onPress: async () => {
-                            const hasAccess = await authService.testAuthenticatedAccess();
-                            if (hasAccess) {
-                              Alert.alert(
-                                'Session Working! ✅',
-                                'Ready to extract schedule data!',
-                                [{ text: 'Continue', onPress: () => onLoginSuccess() }],
-                              );
-                            } else {
-                              Alert.alert('Session Test Failed', 'Could not verify access with extracted cookies.');
-                            }
+                          text: 'Continue in Browser',
+                          style: 'cancel',
+                        },
+                        {
+                          text: 'Close & Auto-Sync',
+                            onPress: () => {
+                            console.log('🔄 [AUTH] Starting auto-sync after WebView capture...');
+                            onLoginSuccess();
                           },
                         },
-                        { text: 'OK' },
                       ],
                     );
                   } else {
-                    Alert.alert('No Cookies', 'No cookies found on this page. Make sure you are logged in.');
-                  }
-                } else if (parsedMessage.type === 'schedule_html') {
-                  console.log('📄 [WEBVIEW] Received schedule HTML for parsing');
-                  console.log('📍 [WEBVIEW] URL of HTML:', parsedMessage.url);
-                  console.log('📋 [WEBVIEW] Title of HTML:', parsedMessage.title);
-                  
-                  if (parsedMessage.html && parsedMessage.html.length > 0) {
-                    const scheduleService = ScheduleService.getInstance();
-                    const realSchedule = await scheduleService.parseAndSaveRealSchedule(parsedMessage.html);
-                    
-                    if (realSchedule) {
-                      Alert.alert(
-                        'Real Schedule Found! 🎉',
-                        `Successfully parsed and saved your real schedule data!\n\nWeek: ${realSchedule.weekStart} - ${realSchedule.weekEnd}\nTotal Hours: ${realSchedule.totalHours}\nEmployee: ${realSchedule.employee.name}`,
-                        [
-                          { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                        ],
-                      );
-                    } else {
-                      // Parsing failed - offer to copy HTML for debugging
-                      Alert.alert(
-                        'Parsing Failed - Debug Options',
-                        'Could not parse schedule data. Would you like to log the HTML content for debugging?',
-                        [
-                          { 
-                            text: 'Log HTML Details', 
-                            onPress: () => {
-                              console.log('🔍 [DEBUG] Full HTML content for debugging:');
-                              console.log('URL:', parsedMessage.url);
-                              console.log('Title:', parsedMessage.title);
-                              console.log('HTML Length:', parsedMessage.html.length);
-                              console.log('HTML Content (first 3000 chars):', parsedMessage.html.substring(0, 3000));
-                              console.log('HTML Content (middle section):', parsedMessage.html.substring(Math.floor(parsedMessage.html.length / 2) - 1500, Math.floor(parsedMessage.html.length / 2) + 1500));
-                              console.log('HTML Content (last 3000 chars):', parsedMessage.html.substring(Math.max(0, parsedMessage.html.length - 3000)));
-                              
-                              // Also try to find specific patterns we're looking for
-                              console.log('🔍 [DEBUG] Pattern analysis:');
-                              console.log('Contains "Name":', parsedMessage.html.includes('Name'));
-                              console.log('Contains "Employee #":', parsedMessage.html.includes('Employee #'));
-                              console.log('Contains "Location":', parsedMessage.html.includes('Location'));
-                              console.log('Contains "Department":', parsedMessage.html.includes('Department'));
-                              console.log('Contains "Weekly Schedule":', parsedMessage.html.includes('Weekly Schedule'));
-                              
-                              Alert.alert('HTML Logged', 'Check the console/logs for detailed HTML content and pattern analysis.');
-                            },
-                          },
-                          { 
-                            text: 'Copy to Clipboard', 
-                            onPress: async () => {
-                              try {
-                                await Clipboard.setStringAsync(parsedMessage.html);
-                                Alert.alert('HTML Copied', 'The HTML content has been copied to your clipboard for debugging.');
-                              } catch (error) {
-                                console.error('Failed to copy HTML:', error);
-                                // Fallback: just log it
-                                console.log('🔍 [DEBUG] Full HTML content (clipboard failed):');
-                                console.log(parsedMessage.html);
-                                Alert.alert('Copy Failed', 'Could not copy to clipboard, but HTML has been logged to console.');
-                              }
-                            },
-                          },
-                          { text: 'Cancel' },
-                        ],
-                      );
-                    }
-                  } else {
-                    Alert.alert('No HTML Content', 'The WebView returned empty HTML. Please ensure the page is loaded correctly.');
-                  }
-                } else if (parsedMessage.type === 'schedule_html_error') {
-                  console.error('❌ [WEBVIEW] HTML extraction error from script:', parsedMessage.error);
-                  Alert.alert('HTML Extraction Error', `Error getting page content: ${parsedMessage.error}`);
-                } else if (parsedMessage.type === 'enhanced_schedule_html') {
-                  console.log('🔍 [WEBVIEW] Enhanced schedule extraction results:');
-                  console.log('📍 [WEBVIEW] URL:', parsedMessage.url);
-                  console.log('📋 [WEBVIEW] Title:', parsedMessage.title);
-                  console.log('🖼️ [WEBVIEW] Found in iframe:', parsedMessage.foundInIframe);
-                  console.log('📊 [WEBVIEW] Iframe count:', parsedMessage.iframeCount);
-                  console.log('✅ [WEBVIEW] Has schedule content:', parsedMessage.hasScheduleContent);
-                  console.log('📏 [WEBVIEW] Main HTML length:', parsedMessage.mainHtmlLength);
-                  console.log('📏 [WEBVIEW] Schedule HTML length:', parsedMessage.scheduleHtmlLength);
-                  
-                  if (parsedMessage.html && parsedMessage.html.length > 0) {
-                    if (parsedMessage.hasScheduleContent) {
-                      console.log('🎯 [WEBVIEW] Found specific schedule content, attempting to parse...');
-                      const scheduleService = ScheduleService.getInstance();
-                      const realSchedule = await scheduleService.parseAndSaveRealSchedule(parsedMessage.html);
-                      
-                      if (realSchedule) {
                         Alert.alert(
-                          'Real Schedule Found! 🎉',
-                          `Successfully parsed and saved your real schedule data!\n\nWeek: ${realSchedule.weekStart} - ${realSchedule.weekEnd}\nTotal Hours: ${realSchedule.totalHours}\nEmployee: ${realSchedule.employee.name}\n\nSource: ${parsedMessage.foundInIframe ? 'iframe' : 'main document'}`,
-                          [
-                            { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                          ],
-                        );
-                      } else {
-                        Alert.alert(
-                          'Parsing Failed - Enhanced Debug',
-                          `Found potential schedule content but parsing failed.\n\nSource: ${parsedMessage.foundInIframe ? 'iframe' : 'main document'}\nContent length: ${parsedMessage.scheduleHtmlLength}\n\nWould you like to debug the content?`,
-                          [
-                            { 
-                              text: 'Debug Content', 
-                              onPress: () => {
-                                console.log('🔍 [DEBUG] Enhanced extraction debug info:');
-                                console.log('Found in iframe:', parsedMessage.foundInIframe);
-                                console.log('Iframe count:', parsedMessage.iframeCount);
-                                console.log('Schedule content length:', parsedMessage.scheduleHtmlLength);
-                                console.log('Schedule HTML (first 3000 chars):', parsedMessage.html.substring(0, 3000));
-                                console.log('Schedule HTML (middle section 1):', parsedMessage.html.substring(Math.floor(parsedMessage.html.length * 0.25), Math.floor(parsedMessage.html.length * 0.25) + 3000));
-                                console.log('Schedule HTML (middle section 2):', parsedMessage.html.substring(Math.floor(parsedMessage.html.length * 0.5), Math.floor(parsedMessage.html.length * 0.5) + 3000));
-                                console.log('Schedule HTML (middle section 3):', parsedMessage.html.substring(Math.floor(parsedMessage.html.length * 0.75), Math.floor(parsedMessage.html.length * 0.75) + 3000));
-                                console.log('Schedule HTML (last 3000 chars):', parsedMessage.html.substring(Math.max(0, parsedMessage.html.length - 3000)));
-                                
-                                // Enhanced pattern analysis
-                                console.log('🔍 [DEBUG] Enhanced pattern analysis:');
-                                console.log('Contains "Weekly Schedule":', parsedMessage.html.includes('Weekly Schedule'));
-                                console.log('Contains "Employee #":', parsedMessage.html.includes('Employee #'));
-                                console.log('Contains "Total Hours":', parsedMessage.html.includes('Total Hours'));
-                                console.log('Contains "Schedule Detail":', parsedMessage.html.includes('Schedule Detail'));
-                                console.log('Contains "LUCAS":', parsedMessage.html.includes('LUCAS'));
-                                console.log('Contains "ALBERS":', parsedMessage.html.includes('ALBERS'));
-                                console.log('Contains "6570527":', parsedMessage.html.includes('6570527'));
-                                
-                                // Find specific positions of key data
-                                const lucasPos = parsedMessage.html.indexOf('LUCAS');
-                                const employeePos = parsedMessage.html.indexOf('Employee #');
-                                const schedulePos = parsedMessage.html.indexOf('Weekly Schedule');
-                                
-                                console.log('🔍 [DEBUG] Key data positions:');
-                                console.log('LUCAS position:', lucasPos);
-                                console.log('Employee # position:', employeePos);
-                                console.log('Weekly Schedule position:', schedulePos);
-                                
-                                if (lucasPos > 0) {
-                                  console.log('Context around LUCAS:', parsedMessage.html.substring(Math.max(0, lucasPos - 500), lucasPos + 500));
-                                }
-                                if (employeePos > 0) {
-                                  console.log('Context around Employee #:', parsedMessage.html.substring(Math.max(0, employeePos - 500), employeePos + 500));
-                                }
-                                
-                                Alert.alert('Debug Complete', 'Check console for detailed analysis of the extracted content.');
-                              },
-                            },
-                            { text: 'Cancel' },
-                          ],
-                        );
-                      }
-                    } else {
-                      Alert.alert(
-                        'No Schedule Content Found',
-                        `Searched ${parsedMessage.iframeCount} iframes and main document but no schedule-specific content was found.\n\nThis might mean:\n1. The schedule hasn't loaded yet\n2. It's in a cross-origin iframe we can't access\n3. It's loaded dynamically via AJAX\n\nTry waiting for the page to fully load or navigate to the actual schedule report.`,
+                      'No Session Found',
+                      'Could not find valid session cookies. Please ensure you are logged in to the system.',
                         [{ text: 'OK' }],
                       );
                     }
-                  } else {
-                    Alert.alert('No Content', 'No HTML content was extracted.');
-                  }
-                } else if (parsedMessage.type === 'delayed_schedule_html') {
-                  console.log('⏳ [WEBVIEW] Delayed schedule search results:');
-                  console.log('📍 [WEBVIEW] URL:', parsedMessage.url);
-                  console.log('🔍 [WEBVIEW] Searched elements:', parsedMessage.searchedElements);
-                  console.log('✅ [WEBVIEW] Has schedule content:', parsedMessage.hasScheduleContent);
-                  
-                  if (parsedMessage.hasScheduleContent && parsedMessage.html) {
-                    console.log('🎯 [WEBVIEW] Found schedule content after waiting, attempting to parse...');
-                    const scheduleService = ScheduleService.getInstance();
-                    const realSchedule = await scheduleService.parseAndSaveRealSchedule(parsedMessage.html);
-                    
-                    if (realSchedule) {
+                } else if (parsedMessage.type === 'manual_extraction_error') {
+                  console.log('❌ [WEBVIEW] Manual extraction error:', parsedMessage.error);
                       Alert.alert(
-                        'Schedule Found After Waiting! 🎉',
-                        `Successfully found and parsed schedule data after waiting for dynamic content!\n\nWeek: ${realSchedule.weekStart} - ${realSchedule.weekEnd}\nTotal Hours: ${realSchedule.totalHours}\nEmployee: ${realSchedule.employee.name}`,
-                        [
-                          { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                        ],
-                      );
-                    } else {
-                      Alert.alert(
-                        'Still No Luck',
-                        'Found potential schedule content after waiting, but parsing still failed. The content structure might be different than expected.',
-                        [
-                          { 
-                            text: 'Debug This Content', 
-                            onPress: () => {
-                              console.log('🔍 [DEBUG] Delayed search content debug:');
-                              console.log('Content length:', parsedMessage.html.length);
-                              console.log('Content preview:', parsedMessage.html.substring(0, 2000));
-                              Alert.alert('Debug Complete', 'Check console for content details.');
-                            },
-                          },
-                          { text: 'OK' },
-                        ],
-                      );
-                    }
-                  } else {
-                    Alert.alert(
-                      'No Schedule Content Found',
-                      `Even after waiting for dynamic content, no schedule data was found.\n\nSearched ${parsedMessage.searchedElements} elements and ${parsedMessage.iframeCount} iframes.\n\nThe schedule might be:\n1. In a cross-origin iframe\n2. Loaded via a different mechanism\n3. Not yet available on this page`,
+                    'Session Capture Failed',
+                    `Could not capture session: ${parsedMessage.error}\n\nThis may happen if you haven't logged in yet or if there are browser security restrictions.`,
                       [{ text: 'OK' }],
                     );
-                  }
-                } else if (parsedMessage.type === 'extraction_error') {
-                  console.error('❌ [WEBVIEW] Extraction error:', parsedMessage.error);
-                  Alert.alert('Extraction Error', parsedMessage.error);
-                } else if (parsedMessage.type === 'credentials_filled') {
-                  console.log('🔑 [WEBVIEW] Credentials fill result:', parsedMessage);
-                  if (parsedMessage.success) {
-                    Alert.alert(
-                      'Credentials Filled! 🔑',
-                      `Successfully filled login fields:\n\n${parsedMessage.usernameFound ? '✅ Username/Employee ID' : '❌ Username field not found'}\n${parsedMessage.passwordFound ? '✅ Password' : '❌ Password field not found'}\n\nYou can now proceed with login on the webpage.`,
-                      [{ text: 'OK' }],
-                    );
-                  } else {
-                    Alert.alert(
-                      'Could Not Fill Credentials',
-                      `Unable to automatically fill login fields: ${parsedMessage.error}\n\nThis might happen if:\n• The page hasn't fully loaded\n• The login form uses non-standard field names\n• The fields are in an iframe\n\nYou can manually enter your credentials in the webpage.`,
-                      [{ text: 'OK' }],
-                    );
-                  }
-                } else if (parsedMessage.type === 'multiple_schedules_extracted') {
-                  console.log('📅 [WEBVIEW] Multiple schedules extracted:', parsedMessage);
-                  const { schedules, totalWeeks } = parsedMessage;
+                
+                } else if (parsedMessage.type === 'cognos_js_analysis') {
+                  console.log('🧪 [WEBVIEW] Cognos JS analysis received:', parsedMessage.analysis);
                   
-                  if (schedules && schedules.length > 0) {
-                    console.log(`📅 [WEBVIEW] Processing ${schedules.length} schedules...`);
-                    
-                    let successCount = 0;
-                    let failCount = 0;
-                    const scheduleService = ScheduleService.getInstance();
-                    
-                    // Process each schedule
-                    for (let i = 0; i < schedules.length; i++) {
-                      const schedule = schedules[i];
-                      console.log(`📅 [WEBVIEW] Processing schedule ${schedule.weekNumber}: ${schedule.weekText}`);
-                      
-                      try {
-                        const parsedSchedule = await scheduleService.parseAndSaveRealSchedule(
-                          schedule.html,
-                        );
-                        
-                        if (parsedSchedule) {
-                          successCount++;
-                          console.log(`✅ [WEBVIEW] Successfully parsed schedule ${schedule.weekNumber}`);
-                        } else {
-                          failCount++;
-                          console.log(`❌ [WEBVIEW] Failed to parse schedule ${schedule.weekNumber}`);
-                        }
-                      } catch (error) {
-                        failCount++;
-                        console.error(`❌ [WEBVIEW] Error parsing schedule ${schedule.weekNumber}:`, error);
-                      }
-                    }
-                    
-                    // Show results
-                    Alert.alert(
-                      'Multi-Week Extraction Complete! 📅',
-                      `Successfully processed ${totalWeeks} weeks:\n\n✅ Successfully parsed: ${successCount} schedules\n${failCount > 0 ? `❌ Failed to parse: ${failCount} schedules\n` : ''}\nAll available schedule data has been saved to the app.`,
-                      [
-                        { 
-                          text: 'View My Schedule', 
-                          onPress: () => onLoginSuccess(), 
-                        },
-                        { text: 'Stay Here', style: 'cancel' },
-                      ],
-                    );
-                  } else {
-                    Alert.alert(
-                      'No Schedules Found',
-                      `Attempted to extract ${totalWeeks} weeks but no schedule data was found. The page might not have loaded properly or the schedule format may have changed.`,
-                      [{ text: 'OK' }],
-                    );
-                  }
-                } else if (parsedMessage.type === 'week1_success') {
-                  console.log('✅ [WEBVIEW] Week 1 test successful:', parsedMessage);
-                  const scheduleService = ScheduleService.getInstance();
+                  const { analysis } = parsedMessage;
+                  const dropdown = analysis.dropdownInfo;
+                  const button = analysis.buttonInfo;
                   
-                  try {
-                    const parsedSchedule = await scheduleService.parseAndSaveRealSchedule(parsedMessage.html);
-                    
-                    if (parsedSchedule) {
+                  Alert.alert(
+                    'Cognos Analysis Complete! 🧪',
+                    `Interface Analysis:\n\n` +
+                    `📍 URL: ${analysis.url.includes('cognos') ? '✅ Cognos detected' : '❓ Unknown page'}\n` +
+                    `🔍 Iframes: ${analysis.totalIframes} found\n` +
+                    `📊 Cognos Interface: ${analysis.cognosIframeFound ? '✅ Found' : '❌ Not found'}\n\n` +
+                    `Dropdown Info:\n` +
+                    `• ${dropdown ? '✅ Found' : '❌ Not found'}${dropdown ? ` (${dropdown.optionsCount} options)` : ''}\n` +
+                    `• Current: ${dropdown?.selectedText || 'None'}\n\n` +
+                    `Run Button:\n` +
+                    `• ${button ? '✅ Found' : '❌ Not found'}${button ? ` ("${button.textContent}")` : ''}\n\n` +
+                    `Environment:\n` +
+                    `• jQuery: ${analysis.jsEnvironment.hasJQuery ? '✅' : '❌'}\n` +
+                    `• Ready State: ${analysis.jsEnvironment.documentReadyState}\n\n` +
+                    `This interface ${analysis.cognosIframeFound && dropdown && button ? 'is ready for automation! 🚀' : 'may need manual interaction.'}`,
+                    [{ text: 'Great!' }]
+                  );
+                  
+                } else if (parsedMessage.type === 'js_analysis_error') {
+                  console.log('❌ [WEBVIEW] JS analysis error:', parsedMessage);
                       Alert.alert(
-                        'Week 1 Success! 🎉',
-                        `Successfully loaded and parsed Week 1 schedule!\n\nSelected Week: ${parsedMessage.selectedWeek}\nChecks Required: ${parsedMessage.checksRequired}\nEmployee: ${parsedSchedule.employee.name}\nTotal Hours: ${parsedSchedule.totalHours}\n\nThe dropdown selection and run button clicking is working correctly!`,
-                        [
-                          { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                          { text: 'Continue Testing', style: 'cancel' },
-                        ],
-                      );
-                    } else {
-                      Alert.alert(
-                        'Week 1 Loaded But Parse Failed',
-                        `Week 1 schedule loaded successfully (${parsedMessage.checksRequired} checks), but parsing failed.\n\nSelected Week: ${parsedMessage.selectedWeek}\nURL: ${parsedMessage.url}\n\nThe dropdown and button interaction is working, but the schedule format might be different than expected.`,
-                        [
-                          { 
-                            text: 'Debug Content', 
-                            onPress: () => {
-                              console.log('🔍 [DEBUG] Week 1 content for debugging:');
-                              console.log('Selected Week:', parsedMessage.selectedWeek);
-                              console.log('URL:', parsedMessage.url);
-                              console.log('Title:', parsedMessage.title);
-                              console.log('HTML Length:', parsedMessage.html.length);
-                              console.log('HTML Preview:', parsedMessage.html.substring(0, 2000));
-                              Alert.alert('Debug Complete', 'Check console for Week 1 content details.');
-                            },
-                          },
-                          { text: 'OK' },
-                        ],
-                      );
-                    }
-                  } catch (error) {
-                    console.error('❌ [WEBVIEW] Error processing Week 1 schedule:', error);
-                    Alert.alert(
-                      'Week 1 Processing Error',
-                      `Week 1 loaded but processing failed: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSelected Week: ${parsedMessage.selectedWeek}`,
+                    'JS Analysis Error ❌',
+                    `Error analyzing Cognos interface: ${parsedMessage.error}`,
                       [{ text: 'OK' }],
                     );
-                  }
-                } else if (parsedMessage.type === 'week1_timeout') {
-                  console.log('⚠️ [WEBVIEW] Week 1 test timeout:', parsedMessage);
-                  Alert.alert(
-                    'Week 1 Timeout ⏰',
-                    `Week 1 test timed out after ${parsedMessage.checksAttempted} checks.\n\nSelected Week: ${parsedMessage.selectedWeek}\nStuck on Parameter Page: ${parsedMessage.stuckOnParameterPage ? 'Yes' : 'No'}\nURL: ${parsedMessage.url}\n\n${parsedMessage.stuckOnParameterPage ? 'The run button click may not be working properly.' : 'The page may be loading slowly or the schedule format changed.'}`,
-                    [
-                      { 
-                        text: 'Debug Content', 
-                        onPress: () => {
-                          console.log('🔍 [DEBUG] Week 1 timeout debugging:');
-                          console.log('Selected Week:', parsedMessage.selectedWeek);
-                          console.log('Checks Attempted:', parsedMessage.checksAttempted);
-                          console.log('Stuck on Parameter Page:', parsedMessage.stuckOnParameterPage);
-                          console.log('URL:', parsedMessage.url);
-                          console.log('Title:', parsedMessage.title);
-                          console.log('Final Content Length:', parsedMessage.html.length);
-                          console.log('Final Content Preview:', parsedMessage.html.substring(0, 2000));
-                          Alert.alert('Debug Complete', 'Check console for Week 1 timeout details.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'week1_error') {
-                  console.log('❌ [WEBVIEW] Week 1 test error:', parsedMessage);
-                  Alert.alert(
-                    'Week 1 Test Error ❌',
-                    `Week 1 test failed: ${parsedMessage.error}\n\nThis helps us identify what's not working in the dropdown selection process.`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'week1_iframe_success') {
-                  console.log('✅ [WEBVIEW] Week 1 iframe success:', parsedMessage);
-                  const scheduleService = ScheduleService.getInstance();
-                  
-                  try {
-                    const parsedSchedule = await scheduleService.parseAndSaveRealSchedule(parsedMessage.html);
-                    
-                    if (parsedSchedule) {
-                      Alert.alert(
-                        'Week 1 Iframe Success! 🎉',
-                        `Successfully loaded and parsed Week 1 schedule from iframe!\n\nSelected Week: ${parsedMessage.selectedWeek}\nChecks Required: ${parsedMessage.checksRequired}\nEmployee: ${parsedSchedule.employee.name}\nTotal Hours: ${parsedSchedule.totalHours}\n\nThe iframe dropdown selection and run button clicking is working correctly!`,
-                        [
-                          { text: 'View Schedule', onPress: () => onLoginSuccess() },
-                          { text: 'Continue Testing', style: 'cancel' },
-                        ],
-                      );
-                    } else {
-                      Alert.alert(
-                        'Week 1 Iframe Loaded But Parse Failed',
-                        `Week 1 schedule loaded successfully from iframe (${parsedMessage.checksRequired} checks), but parsing failed.\n\nSelected Week: ${parsedMessage.selectedWeek}\nMain URL: ${parsedMessage.url}\nIframe URL: ${parsedMessage.iframeUrl}\n\nThe iframe dropdown and button interaction is working!`,
-                        [
-                          { 
-                            text: 'Debug Content', 
-                            onPress: () => {
-                              console.log('🔍 [DEBUG] Week 1 iframe content for debugging:');
-                              console.log('Selected Week:', parsedMessage.selectedWeek);
-                              console.log('Main URL:', parsedMessage.url);
-                              console.log('Iframe URL:', parsedMessage.iframeUrl);
-                              console.log('Main Title:', parsedMessage.title);
-                              console.log('Iframe Title:', parsedMessage.iframeTitle);
-                              console.log('HTML Length:', parsedMessage.html.length);
-                              console.log('HTML Preview:', parsedMessage.html.substring(0, 2000));
-                              Alert.alert('Debug Complete', 'Check console for Week 1 iframe content details.');
-                            },
-                          },
-                          { text: 'OK' },
-                        ],
-                      );
-                    }
-                  } catch (error) {
-                    console.error('❌ [WEBVIEW] Error processing Week 1 iframe schedule:', error);
-                    Alert.alert(
-                      'Week 1 Iframe Processing Error',
-                      `Week 1 loaded from iframe but processing failed: ${error instanceof Error ? error.message : 'Unknown error'}\n\nSelected Week: ${parsedMessage.selectedWeek}`,
-                      [{ text: 'OK' }],
-                    );
-                  }
-                } else if (parsedMessage.type === 'week1_iframe_timeout') {
-                  console.log('⚠️ [WEBVIEW] Week 1 iframe timeout:', parsedMessage);
-                  Alert.alert(
-                    'Week 1 Iframe Timeout ⏰',
-                    `Week 1 test timed out in iframe after ${parsedMessage.checksAttempted} checks.\n\nSelected Week: ${parsedMessage.selectedWeek}\nStuck on Parameter Page: ${parsedMessage.stuckOnParameterPage ? 'Yes' : 'No'}\nMain URL: ${parsedMessage.url}\nIframe URL: ${parsedMessage.iframeUrl}\n\n${parsedMessage.stuckOnParameterPage ? 'The run button click in iframe may not be working properly.' : 'The iframe page may be loading slowly or the schedule format changed.'}`,
-                    [
-                      { 
-                        text: 'Debug Content', 
-                        onPress: () => {
-                          console.log('🔍 [DEBUG] Week 1 iframe timeout debugging:');
-                          console.log('Selected Week:', parsedMessage.selectedWeek);
-                          console.log('Checks Attempted:', parsedMessage.checksAttempted);
-                          console.log('Stuck on Parameter Page:', parsedMessage.stuckOnParameterPage);
-                          console.log('Main URL:', parsedMessage.url);
-                          console.log('Iframe URL:', parsedMessage.iframeUrl);
-                          console.log('Main Title:', parsedMessage.title);
-                          console.log('Iframe Title:', parsedMessage.iframeTitle);
-                          console.log('Final Content Length:', parsedMessage.html.length);
-                          console.log('Final Content Preview:', parsedMessage.html.substring(0, 2000));
-                          Alert.alert('Debug Complete', 'Check console for Week 1 iframe timeout details.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'week1_iframe_error') {
-                  console.log('❌ [WEBVIEW] Week 1 iframe error:', parsedMessage);
-                  Alert.alert(
-                    'Week 1 Iframe Error ❌',
-                    `Week 1 iframe test failed: ${parsedMessage.error}\n\nThis helps us identify what's not working in the iframe dropdown selection process.`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'page_diagnostic') {
-                  console.log('🔍 [WEBVIEW] Page diagnostic results:', parsedMessage);
-                  Alert.alert(
-                    'Page Diagnostics Results 🔍',
-                    'Current Page Analysis:\n\n' +
-                    `URL: ${parsedMessage.url.substring(0, 50)}...\n` +
-                    `Title: ${parsedMessage.title}\n` +
-                    `Content Length: ${parsedMessage.contentLength}\n` +
-                    `Select Elements: ${parsedMessage.selectCount}\n` +
-                    `Button Elements: ${parsedMessage.buttonCount}\n` +
-                    `Iframe Elements: ${parsedMessage.iframeCount}\n\n` +
-                    'Key Content:\n' +
-                    `• Weekly Schedule: ${parsedMessage.hasWeeklySchedule ? '✅' : '❌'}\n` +
-                    `• Week End Date: ${parsedMessage.hasWeekEndDate ? '✅' : '❌'}\n` +
-                    `• Cognos: ${parsedMessage.hasCognos ? '✅' : '❌'}\n\n` +
-                    `Page State: ${parsedMessage.readyState}\n\n` +
-                    `${parsedMessage.selectCount === 0 ? 'No dropdowns found - you may need to navigate to the schedule selection page.' : 'Dropdowns found - check console for details.'}`,
-                    [
-                      { 
-                        text: 'View Content Preview', 
-                        onPress: () => {
-                          console.log('🔍 [DEBUG] Page content preview:');
-                          console.log('URL:', parsedMessage.url);
-                          console.log('Title:', parsedMessage.title);
-                          console.log('Content Preview (1000 chars):');
-                          console.log(parsedMessage.contentPreview);
-                          Alert.alert('Content Preview', 'Check console for full content preview.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'enhanced_diagnostic_started') {
-                  console.log('🔍 [WEBVIEW] Enhanced diagnostic started:', parsedMessage);
-                  Alert.alert(
-                    'Enhanced Diagnostics Started 🔍',
-                    `Enhanced analysis initiated for: ${parsedMessage.title}\n\n` +
-                    `Initial dropdown detection: ${parsedMessage.initialDropdowns} elements\n\n` +
-                    `${parsedMessage.message}\n\n` +
-                    'Complete results will be available in 3-4 seconds. Check console for detailed progress.',
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'enhanced_diagnostic_complete') {
-                  console.log('🔍 [WEBVIEW] Enhanced diagnostic complete:', parsedMessage);
-                  const delayed = parsedMessage.detectionResults?.delayed || {};
-                  
-                  Alert.alert(
-                    'Enhanced Diagnostics Complete 🔍',
-                    'Comprehensive Dropdown Analysis Results:\n\n' +
-                    '📊 DETECTION SUMMARY:\n' +
-                    `• Total Dropdowns Found: ${parsedMessage.totalDropdowns}\n` +
-                    `• Standard HTML <select>: ${delayed.standardSelects || 0}\n` +
-                    `• ARIA Comboboxes: ${delayed.roleComboboxes || 0}\n` +
-                    `• Custom Dropdowns: ${delayed.customDropdowns || 0}\n` +
-                    `• Iframe Dropdowns: ${parsedMessage.iframeDropdowns || 0}\n\n` +
-                    '🔍 CONTEXT ANALYSIS:\n' +
-                    `• "Week End Date" elements: ${parsedMessage.weekEndDateElements}\n` +
-                    `• "Weekly Schedule" elements: ${parsedMessage.weeklyScheduleElements}\n` +
-                    `• Iframe count: ${parsedMessage.iframeCount}\n\n` +
-                    '🔧 TECHNICAL INFO:\n' +
-                    `• WebView Environment: ${parsedMessage.isWebView ? '✅' : '❌'}\n` +
-                    `• Framework Detection: ${Object.keys(parsedMessage.frameworks || {}).filter(fw => parsedMessage.frameworks[fw]).join(', ') || 'None'}\n\n` +
-                    `💡 RECOMMENDATION:\n${parsedMessage.recommendations}`,
-                    [
-                      { 
-                        text: 'View Frameworks', 
-                        onPress: () => {
-                          const frameworks = parsedMessage.frameworks || {};
-                          const frameworkInfo = Object.keys(frameworks).map(fw => `${fw.toUpperCase()}: ${frameworks[fw] ? '✅' : '❌'}`).join('\n');
-                          Alert.alert('Framework Detection', frameworkInfo);
-                        },
-                      },
-                      { 
-                        text: 'View Detection Details', 
-                        onPress: () => {
-                          console.log('🔍 [DEBUG] Enhanced diagnostic details:');
-                          console.log('Full results:', parsedMessage);
-                          Alert.alert('Detection Details', 'Check console for complete detection breakdown including timing analysis, iframe inspection, and framework-specific findings.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'enhanced_diagnostic_error') {
-                  console.log('❌ [WEBVIEW] Enhanced diagnostic error:', parsedMessage);
-                  Alert.alert(
-                    'Enhanced Diagnostic Error ❌',
-                    `Error during comprehensive dropdown analysis:\n\n${parsedMessage.error}\n\nThis may indicate JavaScript restrictions or page loading issues.`,
-                    [
-                      { 
-                        text: 'View Error Details', 
-                        onPress: () => {
-                          console.log('❌ [DEBUG] Enhanced diagnostic error details:');
-                          console.log('Error:', parsedMessage.error);
-                          console.log('Stack:', parsedMessage.stack);
-                          Alert.alert('Error Details', 'Check console for full error stack trace.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'diagnostic_error') {
-                  console.log('❌ [WEBVIEW] Diagnostic error:', parsedMessage);
-                  Alert.alert(
-                    'Diagnostic Error ❌',
-                    `Error running page diagnostics: ${parsedMessage.error}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'navigation_attempted') {
-                  console.log('🔄 [WEBVIEW] Navigation attempted:', parsedMessage);
-                  Alert.alert(
-                    'Navigation Attempted 🔄',
-                    `Attempting to navigate from current page.\n\nMethod: ${parsedMessage.method}\n${parsedMessage.toUrl ? `Target: ${parsedMessage.toUrl.substring(0, 50)}...` : ''}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'navigation_failed') {
-                  console.log('❌ [WEBVIEW] Navigation failed:', parsedMessage);
-                  Alert.alert(
-                    'Navigation Failed ❌',
-                    `Could not find a way to navigate to the parameter page.\n\nReason: ${parsedMessage.error}\n\nTry manually navigating to the schedule parameter page in the WebView.`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'navigation_error') {
-                  console.log('❌ [WEBVIEW] Navigation error:', parsedMessage);
-                  Alert.alert(
-                    'Navigation Error ❌',
-                    `Error during navigation attempt: ${parsedMessage.error}\n\nThe application may have blocked the navigation for security reasons.`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'parameter_url_generated') {
-                  console.log('📋 [WEBVIEW] Parameter URL generated:', parsedMessage);
-                  Alert.alert(
-                    'Parameter Page URL 📋',
-                    'Current page: Viewer (showing results)\\nParameter page: Available for manual navigation\\n\\nYou can manually navigate to the parameter page by copying this URL to your browser or using the WebView address bar.',
-                    [
-                      { 
-                        text: 'Copy URL', 
-                        onPress: async () => {
-                          try {
-                            await Clipboard.setStringAsync(parsedMessage.parameterUrl);
-                            Alert.alert('URL Copied', 'Parameter page URL copied to clipboard!');
-                          } catch (error) {
-                            console.error('Failed to copy URL:', error);
-                            Alert.alert('Copy Failed', `Could not copy URL. Manual URL:\n\n${parsedMessage.parameterUrl}`);
-                          }
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'parameter_url_error') {
-                  console.log('❌ [WEBVIEW] Parameter URL error:', parsedMessage);
-                  Alert.alert(
-                    'Cannot Generate Parameter URL ❌',
-                    `${parsedMessage.error}\n\nCurrent page perspective: ${parsedMessage.perspective || 'unknown'}\n\nYou need to be on a Cognos viewer page to generate the parameter page URL.`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'html_document_dump') {
-                  console.log('📄 [WEBVIEW] HTML document dump received:', parsedMessage);
-                  const { mainDocument, iframes, iframeCount } = parsedMessage;
-                  
-                  console.log('📄 [WEBVIEW] === COMPLETE HTML DOCUMENT DUMP ===');
-                  console.log('📍 [WEBVIEW] URL:', parsedMessage.url);
-                  console.log('📋 [WEBVIEW] Title:', parsedMessage.title);
-                  console.log('📏 [WEBVIEW] Main document HTML length:', mainDocument.htmlLength);
-                  console.log('📏 [WEBVIEW] Main document text length:', mainDocument.textLength);
-                  console.log('🖼️ [WEBVIEW] Total iframes:', iframeCount);
-                  console.log('⏰ [WEBVIEW] Timestamp:', parsedMessage.timestamp);
-                  
-                  console.log('');
-                  console.log('📄 [WEBVIEW] === MAIN DOCUMENT HTML ===');
-                  console.log('Full HTML length:', mainDocument.html.length, 'characters');
-                  console.log('HTML content (first 5000 chars):');
-                  console.log(mainDocument.html.substring(0, 5000));
-                  console.log('');
-                  console.log('HTML content (chars 5001-10000):');
-                  console.log(mainDocument.html.substring(5000, 10000));
-                  console.log('');
-                  console.log('HTML content (chars 10001-15000):');
-                  console.log(mainDocument.html.substring(10000, 15000));
-                  console.log('');
-                  console.log('HTML content (last 5000 chars):');
-                  console.log(mainDocument.html.substring(Math.max(0, mainDocument.html.length - 5000)));
-                  
-                  // Log iframe details
-                  if (iframes && iframes.length > 0) {
-                    console.log('');
-                    console.log('🖼️ [WEBVIEW] === IFRAME DETAILS ===');
-                    iframes.forEach((iframe: IframeInfo, index: number) => {
-                      console.log(`📄 [WEBVIEW] Iframe ${index}:`);
-                      console.log('  - Index:', iframe.index);
-                      console.log('  - Src:', iframe.src);
-                      console.log('  - ID:', iframe.id);
-                      console.log('  - Name:', iframe.name);
-                      console.log('  - Accessible:', iframe.accessible);
-                      console.log('  - Visible:', iframe.visible);
-                      
-                      if (iframe.accessible && iframe.html) {
-                        console.log('  - URL:', iframe.url);
-                        console.log('  - Title:', iframe.title);
-                        console.log('  - HTML length:', iframe.html.length);
-                        console.log('  - Text length:', iframe.textContent?.length);
-                        console.log('');
-                        console.log(`📄 [WEBVIEW] Iframe ${index} HTML (first 3000 chars):`);
-                        console.log(iframe.html.substring(0, 3000));
-                        console.log('');
-                        console.log(`📄 [WEBVIEW] Iframe ${index} HTML (chars 3001-6000):`);
-                        console.log(iframe.html.substring(3000, 6000));
-                        console.log('');
-                        console.log(`📄 [WEBVIEW] Iframe ${index} HTML (last 3000 chars):`);
-                        console.log(iframe.html.substring(Math.max(0, iframe.html.length - 3000)));
-                      } else {
-                        console.log('  - Error:', iframe.error || 'Not accessible');
-                      }
-                      console.log('');
-                    });
-                  }
-                  
-                  Alert.alert(
-                    'HTML Dump Complete 📄',
-                    'Successfully dumped complete HTML document!\n\n' +
-                    'Main Document:\n' +
-                    `• HTML: ${mainDocument.htmlLength.toLocaleString()} characters\n` +
-                    `• Text: ${mainDocument.textLength.toLocaleString()} characters\n\n` +
-                    `Iframes: ${iframeCount} found\n` +
-                    `• Accessible: ${iframes.filter((f: IframeInfo) => f.accessible).length}\n` +
-                    `• Cross-origin/blocked: ${iframes.filter((f: IframeInfo) => !f.accessible).length}\n\n` +
-                    'Check console for complete HTML content and iframe details.',
-                    [
-                      { 
-                        text: 'Copy Main HTML', 
-                        onPress: async () => {
-                          try {
-                            await Clipboard.setStringAsync(mainDocument.html);
-                            Alert.alert('Copied!', 'Main document HTML copied to clipboard.');
-                          } catch (_error) {
-                            console.error('Failed to copy main HTML:', _error);
-                            Alert.alert('Copy Failed', 'Could not copy to clipboard.');
-                          }
-                        },
-                      },
-                      { 
-                        text: 'Copy Iframe HTML', 
-                        onPress: async () => {
-                          const accessibleIframes = iframes.filter((f: IframeInfo) => f.accessible && f.html);
-                          if (accessibleIframes.length > 0) {
-                            const iframeHtml = accessibleIframes.map((f: IframeInfo) => 
-                              `=== IFRAME ${f.index} (${f.url}) ===\n${f.html}\n\n`,
-                            ).join('');
-                            try {
-                              await Clipboard.setStringAsync(iframeHtml);
-                              Alert.alert('Copied!', `${accessibleIframes.length} iframe HTML(s) copied to clipboard.`);
-                            } catch (_error) {
-                              console.error('Failed to copy iframe HTML:', _error);
-                              Alert.alert('Copy Failed', 'Could not copy iframe HTML to clipboard.');
-                            }
-                          } else {
-                            Alert.alert('No Iframe HTML', 'No accessible iframe HTML to copy.');
-                          }
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'html_dump_error') {
-                  console.log('❌ [WEBVIEW] HTML dump error:', parsedMessage);
-                  Alert.alert(
-                    'HTML Dump Error ❌',
-                    `Error dumping HTML document: ${parsedMessage.error}`,
-                    [{ text: 'OK' }],
-                  );
                 } else if (parsedMessage.type === 'html_document_dump_error') {
                   console.log('❌ [WEBVIEW] HTML document dump error:', parsedMessage);
                   Alert.alert(
@@ -1886,260 +1181,59 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     `Error dumping HTML document: ${parsedMessage.error}`,
                     [{ text: 'OK' }],
                   );
-                } else if (parsedMessage.type === 'schedule_navigation_error') {
-                  console.log('❌ [WEBVIEW] Schedule navigation error:', parsedMessage);
-                  Alert.alert(
-                    'Navigation Error ❌',
-                    `${parsedMessage.error}\n\n${parsedMessage.weekNumber ? `Week: ${parsedMessage.weekNumber} (${parsedMessage.weekText})` : ''}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'schedule_week_loaded') {
-                  console.log('📅 [WEBVIEW] Week loaded:', parsedMessage);
-                  const { weekNumber, weekText, totalWeeks, contentLength } = parsedMessage;
-                  console.log(`📅 [WEBVIEW] Loaded week ${weekNumber}/${totalWeeks}: ${weekText} (${contentLength} chars)`);
-                } else if (parsedMessage.type === 'schedule_navigation_complete') {
-                  console.log('🎉 [WEBVIEW] Navigation complete:', parsedMessage);
-                  Alert.alert(
-                    'Navigation Complete! 🎉',
-                    `Successfully navigated through all ${parsedMessage.weeksProcessed} weeks.\n\n${parsedMessage.message}`,
-                    [{ text: 'Great!' }],
-                  );
-                } else if (parsedMessage.type === 'employee_prompt_detected') {
-                  console.log('🚨 [WEBVIEW] Employee Number prompt detected:', parsedMessage);
-                  Alert.alert(
-                    'Employee Number Prompt Detected! 🚨',
-                    `The page is asking for employee number input.\n\nURL: ${parsedMessage.url}\nTitle: ${parsedMessage.title}\n\nThis suggests you may have been redirected to a different authentication flow or parameter page than expected.\n\nContent preview:\n${parsedMessage.contentPreview.substring(0, 200)}...`,
-                    [
-                      { 
-                        text: 'View Full Content', 
-                        onPress: () => {
-                          console.log('🚨 [DEBUG] Full employee prompt page content:');
-                          console.log('URL:', parsedMessage.url);
-                          console.log('Title:', parsedMessage.title);
-                          console.log('Full content preview:');
-                          console.log(parsedMessage.contentPreview);
-                          Alert.alert('Content Logged', 'Check console for full page content.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'employee_prompt_in_iframe') {
-                  console.log('🚨 [WEBVIEW] Employee prompt in iframe detected:', parsedMessage);
-                  Alert.alert(
-                    'Employee Prompt in Iframe! 🚨',
-                    `An iframe contains an employee number prompt.\n\nIframe ${parsedMessage.iframeIndex}: ${parsedMessage.iframeSrc}\nIframe Title: ${parsedMessage.iframeTitle}\n\nThis may indicate the Cognos interface is prompting for additional employee information.`,
-                    [
-                      { 
-                        text: 'Debug Iframe', 
-                        onPress: () => {
-                          console.log('🚨 [DEBUG] Iframe employee prompt details:');
-                          console.log('Iframe Index:', parsedMessage.iframeIndex);
-                          console.log('Iframe Src:', parsedMessage.iframeSrc);
-                          console.log('Iframe Title:', parsedMessage.iframeTitle);
-                          console.log('Main URL:', parsedMessage.url);
-                          console.log('Iframe content preview:');
-                          console.log(parsedMessage.contentPreview);
-                          Alert.alert('Iframe Debug Complete', 'Check console for iframe details.');
-                        },
-                      },
-                      { text: 'OK' },
-                    ],
-                  );
-                } else if (parsedMessage.type === 'enhanced_load_debug') {
-                  console.log('🔄 [WEBVIEW] Enhanced load debug:', parsedMessage.step, parsedMessage);
+                } else if (parsedMessage.type === 'dropdown_discovery_complete') {
+                  console.log('🔍 [WEBVIEW] Dropdown discovery completed:', parsedMessage);
                   
-                  if (parsedMessage.step === 'initialization') {
-                    Alert.alert(
-                      'Enhanced Debug Started 🔄',
-                      `Debug script initialization successful!\n\nEnvironment:\n• URL: ${parsedMessage.environment.url.substring(0, 50)}...\n• Title: ${parsedMessage.environment.title}\n• Ready State: ${parsedMessage.environment.readyState}\n• WebView Context: ${parsedMessage.environment.hasReactNativeWebView ? '✅' : '❌'}\n\nCheck console for detailed progress...`,
-                      [{ text: 'OK' }],
-                    );
-                  } else if (parsedMessage.step === 'iframe_analysis_complete') {
-                    const { iframeAnalysis, summary } = parsedMessage;
-                    Alert.alert(
-                      'Iframe Analysis Complete 🖼️',
-                      'Iframe Analysis Results:\n\n' +
-                      '📊 SUMMARY:\n' +
-                      `• Total iframes found: ${summary.totalIframes}\n` +
-                      `• Accessible iframes: ${summary.accessibleIframes}\n` +
-                      `• Cognos targets found: ${summary.cognosTargets}\n\n` +
-                      '🔍 DETAILED ANALYSIS:\n' +
-                      iframeAnalysis.map((iframe: IframeAnalysisItem, idx: number) => 
-                        `Iframe ${idx}: ${iframe.accessible ? '✅' : '❌'} ${iframe.isCognosTarget ? '🎯' : ''}\n` +
-                        `  • Src: ${iframe.src.substring(0, 30)}...\n` +
-                        `  • Title: ${iframe.iframeTitle || '(no title)'}\n` +
-                        `  • Cognos Score: ${iframe.cognosScore || 0}/8`,
-                      ).join('\n\n'),
-                      [
-                        { 
-                          text: 'View Details', 
-                          onPress: () => {
-                            console.log('🔍 [DEBUG] Complete iframe analysis:');
-                            iframeAnalysis.forEach((iframe: IframeAnalysisItem) => {
-                              console.log(`Iframe ${iframe.index}:`, iframe);
-                            });
-                            Alert.alert('Details Logged', 'Check console for complete iframe analysis.');
-                          },
-                        },
-                        { text: 'OK' },
-                      ],
-                    );
-                  } else if (parsedMessage.step === 'element_search_complete') {
-                    const { foundElements } = parsedMessage;
-                    Alert.alert(
-                      'Element Search Complete 🔍',
-                      'Element Search Results:\n\n' +
-                      '📝 FOUND ELEMENTS:\n' +
-                      `• Week Dropdowns: ${foundElements.weekDropdown ? foundElements.weekDropdown.length : 0}\n` +
-                      `• Run Buttons: ${foundElements.runButton ? foundElements.runButton.length : 0}\n\n` +
-                      '🔧 ELEMENT DETAILS:\n' +
-                      Object.keys(foundElements).map(elementType => {
-                        const elements = foundElements[elementType];
-                        if (!elements || elements.length === 0) return `${elementType}: None found`;
-                        const primary = elements[0];
-                        return `${elementType}: ${elements.length} found\n` +
-                               `  • Primary ID: ${primary.id}\n` +
-                               `  • Visible: ${primary.visible ? '✅' : '❌'}\n` +
-                               `  • Options: ${primary.optionsCount || 'N/A'}`;
-                      }).join('\n\n'),
-                      [
-                        { 
-                          text: 'View All Elements', 
-                          onPress: () => {
-                            console.log('🔍 [DEBUG] Complete element search results:');
-                            console.log('Found elements:', foundElements);
-                            console.log('Search strategies used:', parsedMessage.elementSearchStrategies);
-                            Alert.alert('Elements Logged', 'Check console for complete element search details.');
-                          },
-                        },
-                        { text: 'OK' },
-                      ],
-                    );
-                  } else if (parsedMessage.step === 'verification_complete') {
-                    const { verificationResults, allElementsFound, readyForNavigation } = parsedMessage;
-                    Alert.alert(
-                      `Verification ${readyForNavigation ? 'SUCCESS ✅' : 'INCOMPLETE ⚠️'}`,
-                      'Element Verification Results:\n\n' +
-                      '📋 WEEK DROPDOWN:\n' +
-                      `• Found: ${verificationResults.weekDropdown.found ? '✅' : '❌'}\n` +
-                      `• ID: ${verificationResults.weekDropdown.id || 'N/A'}\n` +
-                      `• Options: ${verificationResults.weekDropdown.optionsCount}\n` +
-                      `• Visible: ${verificationResults.weekDropdown.visible ? '✅' : '❌'}\n\n` +
-                      '🔘 RUN BUTTON:\n' +
-                      `• Found: ${verificationResults.runButton.found ? '✅' : '❌'}\n` +
-                      `• ID: ${verificationResults.runButton.id || 'N/A'}\n` +
-                      `• Text: ${verificationResults.runButton.text || 'N/A'}\n` +
-                      `• Visible: ${verificationResults.runButton.visible ? '✅' : '❌'}\n` +
-                      `• Disabled: ${verificationResults.runButton.disabled ? '❌' : '✅'}\n\n` +
-                      '🎯 FINAL STATUS:\n' +
-                      `• All Elements: ${allElementsFound ? '✅' : '❌'}\n` +
-                      `• Ready for Navigation: ${readyForNavigation ? '✅' : '❌'}\n\n` +
-                      `${parsedMessage.message}`,
-                      (() => {
-                        const buttons = [];
-                        if (readyForNavigation) {
-                          buttons.push({
-                            text: 'Start Navigation!',
-                            onPress: () => {
-                              Alert.alert('Navigation Ready', 'All required elements found and verified! The interface is ready for automatic schedule navigation.');
-                            },
-                          });
-                        }
-                        buttons.push({ text: 'OK' });
-                        return buttons;
-                      })(),
-                    );
-                  } else if (parsedMessage.type === 'cognos_iframe_not_found') {
-                    Alert.alert(
-                      'Cognos Iframe Not Found ❌',
-                      'Could not locate a suitable Cognos iframe for schedule interaction.\n\n' +
-                      'This might happen if:\n' +
-                      '• You\'re not on the schedule parameter page\n' +
-                      '• The iframe content is cross-origin blocked\n' +
-                      '• The Cognos interface has changed\n\n' +
-                      'Current page appears to be showing schedule results rather than the parameter selection interface.',
-                      [
-                        { 
-                          text: 'View Analysis', 
-                          onPress: () => {
-                            console.log('🔍 [DEBUG] Iframe analysis when no Cognos iframe found:');
-                            console.log('Analysis:', parsedMessage.analysis);
-                            Alert.alert('Analysis Logged', 'Check console for detailed iframe analysis.');
-                          },
-                        },
-                        { text: 'OK' },
-                      ],
-                    );
-                  } else if (parsedMessage.type === 'fatal_error') {
-                    Alert.alert(
-                      'Debug Script Error ❌',
-                      `Fatal error in enhanced debug script:\n\n${parsedMessage.error}\n\nThis indicates a JavaScript execution problem in the WebView.`,
-                      [
-                        { 
-                          text: 'View Stack', 
-                          onPress: () => {
-                            console.log('❌ [DEBUG] Fatal error details:');
-                            console.log('Error:', parsedMessage.error);
-                            console.log('Stack:', parsedMessage.stack);
-                            Alert.alert('Error Details', 'Check console for full error stack trace.');
-                          },
-                        },
-                        { text: 'OK' },
-                      ],
-                    );
-                  }
-                } else if (parsedMessage.type === 'test_run_success') {
-                  console.log('✅ [WEBVIEW] Test run successful:', parsedMessage);
-                  Alert.alert(
-                    'Test Run Success! ✅',
-                    `Successfully selected and ran the first week!\n\nSelected Week: ${parsedMessage.selectedWeek}\nWeek Value: ${parsedMessage.weekValue}\n\nRun Button Found:\n• ID: ${parsedMessage.runButtonId || 'Unknown'}\n• Text: "${parsedMessage.runButtonText || 'Unknown'}"\n\n${parsedMessage.message}`,
-                    [{ text: 'Great!' }],
+                  const analysis = parsedMessage.dropdownAnalysis || [];
+                  const weekCandidates = parsedMessage.weekEndDateCandidates || [];
+                  const employeeDropdowns = parsedMessage.employeeDropdowns || [];
+                  const bestCandidate = parsedMessage.bestCandidate;
+                  
+                      Alert.alert(
+                    'Dropdown Discovery Complete! 🔍',
+                    `Found ${parsedMessage.totalDropdowns} total dropdowns:\n\n` +
+                    `🎯 Week End Date Candidates: ${weekCandidates.length}\n` +
+                    `👤 Employee Dropdowns: ${employeeDropdowns.length}\n\n` +
+                    `${bestCandidate ? 
+                      `🏆 Best Week End Date Candidate:\n` +
+                      `• ID: ${bestCandidate.id}\n` +
+                      `• Score: ${bestCandidate.weekEndDateScore}/10\n` +
+                      `• Options: ${bestCandidate.optionsCount}\n` +
+                      `• Current: ${bestCandidate.selectedValue}` :
+                      '❌ No clear Week End Date dropdown found'
+                    }\n\n` +
+                    `Check console logs for detailed analysis of all dropdowns.`,
+                    [{ text: 'Great!' }]
                   );
-                } else if (parsedMessage.type === 'test_run_error') {
-                  console.log('❌ [WEBVIEW] Test run error:', parsedMessage);
-                  Alert.alert(
-                    'Test Run Error ❌',
-                    `Test run failed: ${parsedMessage.error}\n\n${parsedMessage.selectedWeek ? `Selected Week: ${parsedMessage.selectedWeek}\n\n` : 'No week was selected\n\n'}${parsedMessage.runButtonId ? `Run Button Found:\n• ID: ${parsedMessage.runButtonId}\n• Text: "${parsedMessage.runButtonText || 'Unknown'}"` : 'No run button details available'}`,
+                
+                } else if (parsedMessage.type === 'dropdown_discovery_error') {
+                  console.log('❌ [WEBVIEW] Dropdown discovery error:', parsedMessage.error);
+                      Alert.alert(
+                    'Dropdown Discovery Failed ❌',
+                    `Could not discover dropdowns:\n\n${parsedMessage.error}`,
                     [{ text: 'OK' }],
                   );
-                } else if (parsedMessage.type === 'next_2_weeks_error') {
-                  console.log('❌ [WEBVIEW] Load next 2 weeks error:', parsedMessage);
+                } else if (parsedMessage.type === 'html_document_dump') {
+                  console.log('📄 [WEBVIEW] HTML document dump received:', parsedMessage);
+                  
+                  const { mainDocument, iframes, iframeCount } = parsedMessage;
+                  const accessibleIframes = iframes?.filter((iframe: any) => iframe.accessible) || [];
+                  const totalHtmlSize = mainDocument?.htmlLength + (accessibleIframes.reduce((sum: number, iframe: any) => sum + (iframe.html?.length || 0), 0) || 0);
+                  
                   Alert.alert(
-                    'Load Next 2 Weeks Error ❌',
-                    `Failed to load next 2 weeks: ${parsedMessage.error}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'next_2_weeks_week_loaded') {
-                  console.log('📅 [WEBVIEW] Week loaded in next 2 weeks sequence:', parsedMessage);
-                  Alert.alert(
-                    'Week Loaded! 📅',
-                    `Successfully loaded week ${parsedMessage.weekNumber}!\n\nWeek: ${parsedMessage.weekText}\nValue: ${parsedMessage.weekValue}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'next_2_weeks_complete') {
-                  console.log('✅ [WEBVIEW] Load next 2 weeks complete:', parsedMessage);
-                  Alert.alert(
-                    'All Weeks Loaded! ✅',
-                    `${parsedMessage.message}\n\nAll 3 weeks have been successfully loaded and are now available in your schedule view.`,
-                    [{ text: 'Excellent!' }],
-                  );
-                } else if (parsedMessage.type === 'next_2_weeks_complete') {
-                  console.log('✅ [WEBVIEW] Load next 2 weeks completed:', parsedMessage);
-                  Alert.alert(
-                    'Load Next 2 Weeks Complete ✅',
-                    `Successfully loaded all 3 weeks: ${parsedMessage.message}`,
-                    [{ text: 'OK' }],
-                  );
-                } else if (parsedMessage.type === 'next_2_weeks_week_loaded') {
-                  console.log('📅 [WEBVIEW] Week loaded:', parsedMessage);
-                  // Just log, don't show alert for individual weeks
-                } else if (parsedMessage.type === 'cookie_data') {
-                  console.log('🍪 [WEBVIEW] Cookie data received:', parsedMessage);
-                  Alert.alert(
-                    'Cookie Data Received 🍪',
-                    `Successfully received cookie data from: ${parsedMessage.url}\n\nCookie data: ${parsedMessage.cookies?.length || 0} characters`,
-                    [{ text: 'OK' }],
+                    'HTML Document Dump Complete! 📄',
+                    `Successfully captured page content:\n\n` +
+                    `🌐 URL: ${parsedMessage.url}\n` +
+                    `📄 Title: ${parsedMessage.title || 'No title'}\n\n` +
+                    `📊 Main Document:\n` +
+                    `• HTML: ${mainDocument?.htmlLength?.toLocaleString() || 0} chars\n` +
+                    `• Text: ${mainDocument?.textLength?.toLocaleString() || 0} chars\n\n` +
+                    `🖼️ Iframes: ${iframeCount || 0} total\n` +
+                    `• Accessible: ${accessibleIframes.length}\n` +
+                    `• Blocked: ${(iframeCount || 0) - accessibleIframes.length}\n\n` +
+                    `📏 Total HTML Size: ${totalHtmlSize?.toLocaleString() || 0} chars\n\n` +
+                    `All HTML content has been logged to the console for analysis.`,
+                    [{ text: 'Great!' }]
                   );
                 }
               } catch (parseError) {
@@ -2188,6 +1282,234 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         >
           <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
             🔑 Fill Login Credentials
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
+          onPress={async () => {
+            console.log('🔍 [UI] Dropdown Discovery - Finding all select elements...');
+            if (!webViewRef.current) {
+              Alert.alert('Error', 'WebView not ready'); 
+              return;
+            }
+            try {
+              const { CognosAutomationService } = await import('../services/CognosAutomationService');
+              const dropdownDiscoveryScript = CognosAutomationService.generateDropdownDiscoveryScript();
+              webViewRef.current.injectJavaScript(dropdownDiscoveryScript);
+            } catch (error) {
+              console.error('❌ [UI] Error injecting dropdown discovery script:', error);
+              Alert.alert('Error', 'Failed to inject dropdown discovery script');
+            }
+          }}
+        >
+          <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
+            🔍 Discover All Dropdowns
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
+          onPress={async () => {
+            console.log('🔍 [UI] Diagnose Elements - Analyzing current page...');
+            if (!webViewRef.current) {
+              Alert.alert('Error', 'WebView not ready'); 
+              return;
+            }
+            try {
+              const diagnoseElementsScript = `
+              (function() { 
+                try { 
+                  console.log('🔍 [DIAGNOSE] Starting element analysis...');
+                  
+                  // Main document analysis
+                  console.log('🔍 [DIAGNOSE] === MAIN DOCUMENT ===');
+                  console.log('URL:', window.location.href);
+                  console.log('Title:', document.title);
+                  console.log('Ready state:', document.readyState);
+                  
+                  const mainSelects = document.querySelectorAll('select');
+                  const mainButtons = document.querySelectorAll('button, input[type="submit"], input[type="button"]');
+                  
+                  console.log('Main document selects:', mainSelects.length);
+                  console.log('Main document buttons:', mainButtons.length);
+                  
+                  // Iframe analysis
+                  const allIframes = document.querySelectorAll('iframe');
+                  console.log('🔍 [DIAGNOSE] === IFRAMES ===');
+                  console.log('Total iframes found:', allIframes.length);
+                  
+                  const iframeResults = [];
+                  
+                  for (let i = 0; i < allIframes.length; i++) {
+                    const iframe = allIframes[i];
+                    const iframeInfo = {
+                      index: i,
+                      src: iframe.src || '',
+                      id: iframe.id || '',
+                      name: iframe.name || '',
+                      accessible: false,
+                      cognosScore: 0,
+                      selectCount: 0,
+                      buttonCount: 0,
+                      selects: [],
+                      buttons: [],
+                      error: null
+                    };
+                    
+                    try {
+                      if (iframe.contentDocument && iframe.contentWindow) {
+                        iframeInfo.accessible = true;
+                        const iframeDoc = iframe.contentDocument;
+                        const iframeUrl = iframe.contentWindow.location.href;
+                        const iframeTitle = iframeDoc.title;
+                        
+                        console.log(\`🔍 [IFRAME-\${i}] Accessible - URL: \${iframeUrl}\`);
+                        console.log(\`🔍 [IFRAME-\${i}] Title: \${iframeTitle}\`);
+                        
+                        // Calculate Cognos score
+                        const content = iframeDoc.documentElement.outerHTML;
+                        if (content.includes('Week End Date')) iframeInfo.cognosScore += 2;
+                        if (content.includes('IBM Cognos')) iframeInfo.cognosScore += 2;
+                        if (content.includes('Schedule')) iframeInfo.cognosScore += 1;
+                        if (content.includes('PRMT_SV_')) iframeInfo.cognosScore += 1;
+                        if (content.includes('_oLstChoices')) iframeInfo.cognosScore += 2;
+                        
+                        console.log(\`🔍 [IFRAME-\${i}] Cognos score: \${iframeInfo.cognosScore}/8\`);
+                        
+                        // Find all selects in iframe
+                        const iframeSelects = iframeDoc.querySelectorAll('select');
+                        iframeInfo.selectCount = iframeSelects.length;
+                        
+                        console.log(\`🔍 [IFRAME-\${i}] Found \${iframeSelects.length} select elements\`);
+                        
+                        for (let j = 0; j < iframeSelects.length; j++) {
+                          const select = iframeSelects[j];
+                          const selectInfo = {
+                            index: j,
+                            id: select.id || '',
+                            name: select.name || '',
+                            className: select.className || '',
+                            optionsCount: select.options.length,
+                            selectedIndex: select.selectedIndex,
+                            value: select.value,
+                            visible: select.offsetParent !== null,
+                            options: []
+                          };
+                          
+                          // Get first few options
+                          for (let k = 0; k < Math.min(select.options.length, 5); k++) {
+                            const option = select.options[k];
+                            selectInfo.options.push({
+                              value: option.value,
+                              text: option.text,
+                              selected: option.selected
+                            });
+                          }
+                          
+                          iframeInfo.selects.push(selectInfo);
+                          
+                          console.log(\`🔍 [SELECT-\${j}] ID: "\${selectInfo.id}", Name: "\${selectInfo.name}", Options: \${selectInfo.optionsCount}, Visible: \${selectInfo.visible}\`);
+                          if (selectInfo.options.length > 0) {
+                            console.log(\`🔍 [SELECT-\${j}] First option: "\${selectInfo.options[0].text}" (value: "\${selectInfo.options[0].value}")\`);
+                          }
+                        }
+                        
+                        // Find all buttons/inputs in iframe
+                        const iframeButtons = iframeDoc.querySelectorAll('button, input[type="submit"], input[type="button"]');
+                        iframeInfo.buttonCount = iframeButtons.length;
+                        
+                        console.log(\`🔍 [IFRAME-\${i}] Found \${iframeButtons.length} button elements\`);
+                        
+                        for (let j = 0; j < iframeButtons.length; j++) {
+                          const button = iframeButtons[j];
+                          const buttonInfo = {
+                            index: j,
+                            id: button.id || '',
+                            name: button.name || '',
+                            className: button.className || '',
+                            type: button.type || button.tagName,
+                            value: button.value || '',
+                            textContent: (button.textContent || '').trim(),
+                            visible: button.offsetParent !== null,
+                            disabled: button.disabled
+                          };
+                          
+                          iframeInfo.buttons.push(buttonInfo);
+                          
+                          console.log(\`🔍 [BUTTON-\${j}] ID: "\${buttonInfo.id}", Type: "\${buttonInfo.type}", Value: "\${buttonInfo.value}", Text: "\${buttonInfo.textContent}", Visible: \${buttonInfo.visible}\`);
+                        }
+                        
+                      } else {
+                        iframeInfo.error = 'Cross-origin access blocked';
+                        console.log(\`❌ [IFRAME-\${i}] Cross-origin blocked\`);
+                      }
+                    } catch (e) {
+                      iframeInfo.error = e.message;
+                      console.log(\`❌ [IFRAME-\${i}] Error: \${e.message}\`);
+                    }
+                    
+                    iframeResults.push(iframeInfo);
+                  }
+                  
+                  // Find the best Cognos candidate
+                  const cognosCandidates = iframeResults.filter(iframe => iframe.accessible && iframe.cognosScore > 0);
+                  cognosCandidates.sort((a, b) => b.cognosScore - a.cognosScore);
+                  
+                  console.log('🔍 [DIAGNOSE] === SUMMARY ===');
+                  console.log('Total accessible iframes:', iframeResults.filter(i => i.accessible).length);
+                  console.log('Cognos candidates:', cognosCandidates.length);
+                  
+                  if (cognosCandidates.length > 0) {
+                    const best = cognosCandidates[0];
+                    console.log('Best Cognos candidate:');
+                    console.log('  - Iframe index:', best.index);
+                    console.log('  - Cognos score:', best.cognosScore);
+                    console.log('  - Select elements:', best.selectCount);
+                    console.log('  - Button elements:', best.buttonCount);
+                    
+                    if (best.selects.length > 0) {
+                      console.log('  - Primary select:', best.selects[0].id || best.selects[0].name);
+                    }
+                    if (best.buttons.length > 0) {
+                      console.log('  - Primary button:', best.buttons[0].id || best.buttons[0].value || best.buttons[0].textContent);
+                    }
+                  }
+                  
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'element_diagnosis_complete',
+                    url: window.location.href,
+                    title: document.title,
+                    mainDocument: {
+                      selectCount: mainSelects.length,
+                      buttonCount: mainButtons.length
+                    },
+                    iframes: iframeResults,
+                    cognosCandidates: cognosCandidates,
+                    bestCandidate: cognosCandidates.length > 0 ? cognosCandidates[0] : null,
+                    recommendations: cognosCandidates.length > 0 ? 
+                      'Found Cognos iframe - check console for element details' : 
+                      'No Cognos iframe found - check if you are on the correct page'
+                  }));
+                  
+                } catch (error) {
+                  console.error('🔍 [DIAGNOSE] Error:', error);
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'element_diagnosis_error',
+                    error: error.message
+                  }));
+                }
+              })();`;
+              
+              webViewRef.current.injectJavaScript(diagnoseElementsScript);
+            } catch (error) {
+              console.error('❌ [UI] Error injecting diagnose script:', error);
+              Alert.alert('Error', 'Failed to inject diagnose script');
+            }
+          }}
+        >
+          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
+            🔍 Diagnose Elements
           </Text>
         </TouchableOpacity>
 
@@ -2257,11 +1579,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         });
                       } else {
                         iframeInfo.error = 'Cross-origin access blocked';
-                        console.log('❌ [DUMP-HTML] Iframe', i, 'blocked:', iframeInfo.error);
+                        console.log(\`❌ [DUMP-HTML] Iframe \${i} Cross-origin blocked\`);
                       }
                     } catch (e) {
                       iframeInfo.error = e.message;
-                      console.log('❌ [DUMP-HTML] Iframe', i, 'error:', e.message);
+                      console.log(\`❌ [DUMP-HTML] Iframe \${i} Error: \${e.message}\`);
                     }
                     
                     iframes.push(iframeInfo);
@@ -2651,302 +1973,118 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('📅 [UI] Load Next 2 Weeks - Selecting weeks 2 and 3...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not ready'); 
-              return;
-            }
-            try {
-              const loadNext2WeeksScript = `
-              (function() { 
-                try { 
-                  console.log('📅 [NEXT-2-WEEKS] Starting load next 2 weeks...');
-                  
-                  // Find the Cognos iframe with more robust detection
-                  let cognosIframe = null;
-                  let cognosDoc = null;
-                  
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('📅 [NEXT-2-WEEKS] Found', allIframes.length, 'iframes to check');
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    console.log('📅 [NEXT-2-WEEKS] Checking iframe', i, ':', {
-                      src: iframe.src ? iframe.src.substring(0, 100) + '...' : 'no src',
-                      id: iframe.id,
-                      name: iframe.name
-                    });
-                    
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        const iframeContent = iframe.contentDocument.documentElement.outerHTML;
-                        console.log('📅 [NEXT-2-WEEKS] Iframe', i, 'content length:', iframeContent.length);
-                        
-                        // More flexible Cognos detection - check for any of these indicators
-                        const hasCognosTitle = iframeContent.includes('IBM Cognos Viewer') || 
-                                             iframeContent.includes('Schedule - IBM Cognos');
-                        const hasWeekElements = iframeContent.includes('Week End Date') || 
-                                              iframeContent.includes('Please choose an End of Week') ||
-                                              iframeContent.includes('PRMT_SV_');
-                        const hasScheduleElements = iframeContent.includes('Weekly Schedule') ||
-                                                   iframeContent.includes('finishN') ||
-                                                   iframeContent.includes('2025-06-');
-                        
-                        console.log('📅 [NEXT-2-WEEKS] Iframe', i, 'detection results:', {
-                          hasCognosTitle: hasCognosTitle,
-                          hasWeekElements: hasWeekElements,
-                          hasScheduleElements: hasScheduleElements,
-                          contentPreview: iframeContent.substring(0, 200)
-                        });
-                        
-                        // More lenient detection - any 2 of 3 indicators
-                        const cognosScore = (hasCognosTitle ? 1 : 0) + (hasWeekElements ? 1 : 0) + (hasScheduleElements ? 1 : 0);
-                        if (cognosScore >= 2) {
-                          console.log('✅ [NEXT-2-WEEKS] Found Cognos schedule interface in iframe', i, 'with score', cognosScore);
-                          cognosIframe = iframe;
-                          cognosDoc = iframe.contentDocument;
-                          break;
-                        } else {
-                          console.log('📅 [NEXT-2-WEEKS] Iframe', i, 'score too low:', cognosScore);
-                        }
-                      } else {
-                        console.log('📅 [NEXT-2-WEEKS] Iframe', i, 'content not accessible');
-                      }
-                    } catch (e) {
-                      console.log('❌ [NEXT-2-WEEKS] Cannot access iframe', i, ':', e.message);
-                    }
-                  }
-                  
-                  if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [NEXT-2-WEEKS] Cognos iframe not found after enhanced search!');
-                    console.log('📅 [NEXT-2-WEEKS] Available iframes summary:');
-                    for (let i = 0; i < allIframes.length; i++) {
-                      const iframe = allIframes[i];
-                      try {
-                        const accessible = iframe.contentDocument ? 'accessible' : 'blocked';
-                        const src = iframe.src ? iframe.src.substring(0, 50) + '...' : 'no src';
-                        console.log('  - Iframe', i, ':', accessible, '-', src);
-                      } catch (e) {
-                        console.log('  - Iframe', i, ': error -', e.message);
-                      }
-                    }
-                    
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'next_2_weeks_error',
-                      error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
-                    }));
-                    return;
-                  }
-                  
-                  // Find the Week End Date dropdown with enhanced search
-                  let weekDropdown = null;
-                  
-                  // Method 1: Look for selects with date options
-                  const allSelects = cognosDoc.querySelectorAll('select');
-                  console.log('📅 [NEXT-2-WEEKS] Found', allSelects.length, 'select elements, checking each one...');
-                  
-                  for (let i = 0; i < allSelects.length; i++) {
-                    const select = allSelects[i];
-                    console.log('📅 [NEXT-2-WEEKS] Checking select', i, ':', {
-                      id: select.id,
-                      name: select.name,
-                      optionsCount: select.options.length,
-                      firstOptionValue: select.options.length > 0 ? select.options[0].value : 'none',
-                      firstOptionText: select.options.length > 0 ? select.options[0].text : 'none'
-                    });
-                    
-                    if (select.options.length > 0) {
-                      const firstOption = select.options[0];
-                      const hasDateOptions = firstOption.value.includes('2025-') || 
-                                           firstOption.text.includes('2025-') ||
-                                           firstOption.value.includes('T00:00:00');
-                      
-                      if (hasDateOptions) {
-                        console.log('✅ [NEXT-2-WEEKS] Found Week End Date dropdown:', select.id);
-                        weekDropdown = select;
-                        break;
-                      }
-                    }
-                  }
-                  
-                  // Method 2: Fallback selectors
-                  if (!weekDropdown) {
-                    console.log('📅 [NEXT-2-WEEKS] Using fallback selectors for Week dropdown...');
-                    weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"]') ||
-                                 cognosDoc.querySelector('select.clsSelectControl') ||
-                                 cognosDoc.querySelector('select[role="listbox"]') ||
-                                 cognosDoc.querySelector('select');
-                                 
-                    if (weekDropdown) {
-                      console.log('📅 [NEXT-2-WEEKS] Found dropdown via fallback:', weekDropdown.id);
-                    }
-                  }
-                  
-                  if (!weekDropdown) {
-                    console.log('❌ [NEXT-2-WEEKS] Week End Date dropdown not found!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'next_2_weeks_error',
-                      error: 'Week End Date dropdown not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  // Find the run button with enhanced search
-                  let runButton = null;
-                  
-                  // Method 1: Look for buttons with "finish" and "_NS_" in ID
-                  const allButtons = cognosDoc.querySelectorAll('button');
-                  console.log('📅 [NEXT-2-WEEKS] Found', allButtons.length, 'button elements, checking each one...');
-                  
-                  for (let i = 0; i < allButtons.length; i++) {
-                    const btn = allButtons[i];
-                    const btnText = (btn.textContent || '').trim().toLowerCase();
-                    const btnId = btn.id || '';
-                    
-                    console.log('📅 [NEXT-2-WEEKS] Checking button', i, ':', {
-                      text: btnText,
-                      id: btnId,
-                      className: btn.className
-                    });
-                    
-                    // Look for the finish/run button
-                    if (btnText === 'run' || 
-                        btnId.includes('finish') && btnId.includes('_NS_') ||
-                        btn.className.includes('bp')) {
-                      console.log('✅ [NEXT-2-WEEKS] Found Run button:', btnId);
-                      runButton = btn;
-                      break;
-                    }
-                  }
-                  
-                  // Method 2: Fallback selectors
-                  if (!runButton) {
-                    console.log('📅 [NEXT-2-WEEKS] Using fallback selectors for Run button...');
-                    runButton = cognosDoc.querySelector('button[id*="finish"]') ||
-                               cognosDoc.querySelector('button.bp') ||
-                               cognosDoc.querySelector('button[onclick*="promptAction"]') ||
-                               cognosDoc.querySelector('button');
-                               
-                    if (runButton) {
-                      console.log('📅 [NEXT-2-WEEKS] Found button via fallback:', runButton.id);
-                    }
-                  }
-                                   
-                  if (!runButton) {
-                    console.log('❌ [NEXT-2-WEEKS] Run button not found!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'next_2_weeks_error',
-                      error: 'Run button not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  console.log('📅 [NEXT-2-WEEKS] Found elements:');
-                  console.log('  - Week dropdown ID:', weekDropdown.id);
-                  console.log('  - Week dropdown options:', weekDropdown.options.length);
-                  console.log('  - Run button ID:', runButton.id);
-                  
-                  if (weekDropdown.options.length < 3) {
-                    console.log('❌ [NEXT-2-WEEKS] Not enough week options available! Found:', weekDropdown.options.length);
-                    console.log('📅 [NEXT-2-WEEKS] Available options:');
-                    for (let i = 0; i < weekDropdown.options.length; i++) {
-                      console.log('  -', i, ':', weekDropdown.options[i].text, '=', weekDropdown.options[i].value);
-                    }
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'next_2_weeks_error',
-                      error: 'Not enough week options available. Need at least 3, found: ' + weekDropdown.options.length
-                    }));
-                    return;
-                  }
-                  
-                  // Function to select a week and run it
-                  function selectAndRunWeek(weekIndex, callback) {
-                    const option = weekDropdown.options[weekIndex];
-                    const weekText = option.text;
-                    const weekValue = option.value;
-                    
-                    console.log('📅 [NEXT-2-WEEKS] Selecting week', weekIndex + 1, ':', weekText);
-                    
-                    // Select the week
-                    weekDropdown.selectedIndex = weekIndex;
-                    weekDropdown.value = weekValue;
-                    option.selected = true;
-                    
-                    // Trigger events
-                    weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
-                    
-                    // Enable run button if needed
-                    if (runButton.disabled) {
-                      runButton.disabled = false;
-                    }
-                    
-                    // Wait a bit, then click run
-                    setTimeout(() => {
-                      console.log('📅 [NEXT-2-WEEKS] Clicking run for week', weekIndex + 1, ':', weekText);
-                      
-                      // Click the run button
-                      runButton.click();
-                      runButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                      
-                      // Wait for the page to load the new schedule
-                      setTimeout(() => {
-                        console.log('✅ [NEXT-2-WEEKS] Week', weekIndex + 1, 'loaded:', weekText);
-                        
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'next_2_weeks_week_loaded',
-                          weekNumber: weekIndex + 1,
-                          weekText: weekText,
-                          weekValue: weekValue
-                        }));
-                        
-                        if (callback) callback();
-                      }, 3000); // Wait 3 seconds for page to load
-                    }, 1000); // Wait 1 second after selection
-                  }
-                  
-                  // Load weeks 1, 2, and 3 (indices 0, 1, 2)
-                  console.log('📅 [LOAD-3] Starting to load all 3 weeks (1, 2, and 3)...');
-                  
-                  selectAndRunWeek(0, () => {
-                    // After week 1 is loaded, load week 2
-                    selectAndRunWeek(1, () => {
-                      // After week 2 is loaded, load week 3
-                      selectAndRunWeek(2, () => {
-                        console.log('✅ [LOAD-3] All 3 weeks have been loaded!');
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'load_3_schedules_complete',
-                          message: 'Successfully loaded all 3 schedules (weeks 1, 2, and 3)!'
-                        }));
-                      });
-                    });
-                  });
-                  
-                } catch (error) {
-                  console.log('❌ [LOAD-3] Script error:', error);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'load_3_schedules_error',
-                    error: error.message,
-                    stack: error.stack
-                  }));
-                }
-              })();`;
-              
-              await webViewRef.current.injectJavaScript(loadNext2WeeksScript);
-            } catch (error) {
-              console.error('❌ [UI] Error running Load Next 2 Weeks script:', error);
-              Alert.alert('Error', 'Failed to run Load Next 2 Weeks script');
-            }
-          }}
+          style={[styles.demoButton, { borderColor: COLORS.primary, marginBottom: SPACING.md }]} 
+          onPress={automation.loadInitialSchedule}
+          disabled={automation.state.isAutomating}
         >
-          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
-            📅 Load 3 schedules
+          <Text style={[styles.demoButtonText, { color: COLORS.primary }]}>
+            {automation.state.isAutomating ? '🔄 Loading...' : '🚀 Load Initial Schedule'}
           </Text>
         </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 
+          onPress={automation.analyzeInterface}
+          disabled={automation.state.isAnalyzing}
+        >
+          <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
+            {automation.state.isAnalyzing ? '🔄 Analyzing...' : '🧪 Analyze Cognos Interface'}
+          </Text>
+        </TouchableOpacity>
+
+        {automation.state.analysis && automation.state.availableSchedules.length > 0 && (
+          <View style={[styles.automationSection, { marginBottom: SPACING.md }]}>
+            <Text style={styles.automationTitle}>📋 Available Schedules:</Text>
+            <View style={styles.scheduleButtonsContainer}>
+              {automation.state.availableSchedules.map((schedule, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.scheduleButton,
+                    schedule.selected && styles.scheduleButtonSelected,
+                    automation.state.isAutomating && styles.scheduleButtonDisabled
+                  ]}
+                  onPress={() => automation.automateSchedule(schedule.value)}
+                  disabled={automation.state.isAutomating}
+                >
+                  <Text style={[
+                    styles.scheduleButtonText,
+                    schedule.selected && styles.scheduleButtonTextSelected
+                  ]}>
+                    {schedule.text}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            {automation.state.currentStep && (
+              <View style={styles.automationStatus}>
+                <Text style={styles.automationStatusText}>
+                  🤖 {automation.state.currentStep}
+                </Text>
+              </View>
+            )}
+            
+            {automation.state.error && (
+              <View style={styles.automationError}>
+                <Text style={styles.automationErrorText}>
+                  ❌ {automation.state.error}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.manualControlsContainer}>
+              <Text style={styles.manualControlsTitle}>Manual Controls:</Text>
+              <View style={styles.manualButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.manualButton, { borderColor: COLORS.warning }]}
+                  onPress={automation.runReport}
+                  disabled={automation.state.isAutomating}
+                >
+                  <Text style={[styles.manualButtonText, { color: COLORS.warning }]}>
+                    ▶️ Run Report
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.manualButton, { borderColor: COLORS.info }]}
+                  onPress={automation.extractData}
+                  disabled={automation.state.isAutomating}
+                >
+                  <Text style={[styles.manualButtonText, { color: COLORS.info }]}>
+                    📊 Extract Data
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            <TouchableOpacity
+              style={[styles.resetButton, { borderColor: COLORS.error }]}
+              onPress={automation.resetState}
+            >
+              <Text style={[styles.resetButtonText, { color: COLORS.error }]}>
+                🔄 Reset Automation
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.demoButton, { 
+                borderColor: COLORS.primary, 
+                backgroundColor: automation.state.isAutomating ? COLORS.textSecondary : 'transparent',
+                marginTop: SPACING.md 
+              }]}
+              onPress={automation.testMultiWeekAutomation}
+              disabled={automation.state.isAutomating}
+            >
+              <Text style={[styles.demoButtonText, { 
+                color: automation.state.isAutomating ? COLORS.white : COLORS.primary,
+                fontWeight: 'bold'
+              }]}>
+                {automation.state.isAutomating ? '🔄 Testing...' : '🧪 Multi-Week Automation Test'}
+          </Text>
+        </TouchableOpacity> 
+          </View>
+        )}
 
         <TouchableOpacity 
           style={[styles.demoButton, { 
@@ -2960,672 +2098,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
           }]}>
             {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Fix Week Dates button removed - users shouldn't manually trigger this operation */}
-
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🧪 [UI] Load 3 Schedules with Import - Navigation + Parsing...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
-              return;
-            }
-            try {
-              const getHtmlScript = `
-              (function() { 
-                try { 
-                  console.log('📅 [LOAD-IMPORT] Starting Load 3 Schedules with Import...');
-                  console.log('📅 [LOAD-IMPORT] This combines navigation from Load 3 schedules + import functionality');
-                  
-                  // Find the Cognos iframe with enhanced search (same as Load 3 schedules)
-                  let cognosIframe = null;
-                  let cognosDoc = null;
-                  
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('📅 [LOAD-IMPORT] Found', allIframes.length, 'iframes to check');
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    console.log('📅 [LOAD-IMPORT] Checking iframe', i, ':', {
-                      src: iframe.src ? iframe.src.substring(0, 100) + '...' : 'no src',
-                      id: iframe.id,
-                      name: iframe.name
-                    });
-                    
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        const iframeContent = iframe.contentDocument.documentElement.outerHTML;
-                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'content length:', iframeContent.length);
-                        
-                        // More flexible Cognos detection (same as Load 3 schedules)
-                        const hasCognosTitle = iframeContent.includes('IBM Cognos Viewer') || 
-                                             iframeContent.includes('Schedule - IBM Cognos');
-                        const hasWeekElements = iframeContent.includes('Week End Date') || 
-                                              iframeContent.includes('Please choose an End of Week') ||
-                                              iframeContent.includes('PRMT_SV_');
-                        const hasScheduleElements = iframeContent.includes('Weekly Schedule') ||
-                                                   iframeContent.includes('finishN') ||
-                                                   iframeContent.includes('2025-06-');
-                        
-                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'detection results:', {
-                          hasCognosTitle: hasCognosTitle,
-                          hasWeekElements: hasWeekElements,
-                          hasScheduleElements: hasScheduleElements,
-                          contentPreview: iframeContent.substring(0, 200)
-                        });
-                        
-                        // More lenient detection - any 2 of 3 indicators
-                        const cognosScore = (hasCognosTitle ? 1 : 0) + (hasWeekElements ? 1 : 0) + (hasScheduleElements ? 1 : 0);
-                        if (cognosScore >= 2) {
-                          console.log('✅ [LOAD-IMPORT] Found Cognos schedule interface in iframe', i, 'with score', cognosScore);
-                          cognosIframe = iframe;
-                          cognosDoc = iframe.contentDocument;
-                          break;
-                        } else {
-                          console.log('📅 [LOAD-IMPORT] Iframe', i, 'score too low:', cognosScore);
-                        }
-                      } else {
-                        console.log('📅 [LOAD-IMPORT] Iframe', i, 'content not accessible');
-                      }
-                    } catch (e) {
-                      console.log('❌ [LOAD-IMPORT] Cannot access iframe', i, ':', e.message);
-                    }
-                  }
-                  
-                  if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [LOAD-IMPORT] Cognos iframe not found after enhanced search!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'load_3_schedules_error',
-                      error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
-                    }));
-                    return;
-                  }
-                  
-                  // Find elements with enhanced search (same as Load 3 schedules)
-                  let weekDropdown = null;
-                  let runButton = null;
-                  
-                  // Enhanced dropdown search
-                  const allSelects = cognosDoc.querySelectorAll('select');
-                  console.log('📅 [LOAD-IMPORT] Found', allSelects.length, 'select elements, checking each one...');
-                  
-                  for (let i = 0; i < allSelects.length; i++) {
-                    const select = allSelects[i];
-                    if (select.options.length > 0) {
-                      const firstOption = select.options[0];
-                      const hasDateOptions = firstOption.value.includes('2025-') || 
-                                           firstOption.text.includes('2025-') ||
-                                           firstOption.value.includes('T00:00:00');
-                      
-                      if (hasDateOptions) {
-                        console.log('✅ [LOAD-IMPORT] Found Week End Date dropdown:', select.id);
-                        weekDropdown = select;
-                        break;
-                      }
-                    }
-                  }
-                  
-                  if (!weekDropdown) {
-                    weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"]') ||
-                                 cognosDoc.querySelector('select.clsSelectControl') ||
-                                 cognosDoc.querySelector('select[role="listbox"]') ||
-                                 cognosDoc.querySelector('select');
-                  }
-                  
-                  // Enhanced button search
-                  const allButtons = cognosDoc.querySelectorAll('button');
-                  for (let i = 0; i < allButtons.length; i++) {
-                    const btn = allButtons[i];
-                    const btnText = (btn.textContent || '').trim().toLowerCase();
-                    const btnId = btn.id || '';
-                    
-                    if (btnText === 'run' || 
-                        btnId.includes('finish') && btnId.includes('_NS_') ||
-                        btn.className.includes('bp')) {
-                      console.log('✅ [LOAD-IMPORT] Found Run button:', btnId);
-                      runButton = btn;
-                      break;
-                    }
-                  }
-                  
-                  if (!runButton) {
-                    runButton = cognosDoc.querySelector('button[id*="finish"]') ||
-                               cognosDoc.querySelector('button.bp') ||
-                               cognosDoc.querySelector('button[onclick*="promptAction"]') ||
-                               cognosDoc.querySelector('button');
-                  }
-                  
-                  if (!weekDropdown || !runButton) {
-                    console.log('❌ [LOAD-IMPORT] Required elements not found!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'load_3_schedules_error',
-                      error: 'Week dropdown: ' + !!weekDropdown + ', Run button: ' + !!runButton
-                    }));
-                    return;
-                  }
-                  
-                  if (weekDropdown.options.length < 3) {
-                    console.log('❌ [LOAD-IMPORT] Not enough week options available! Found:', weekDropdown.options.length);
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'load_3_schedules_error',
-                      error: 'Not enough week options available. Need at least 3, found: ' + weekDropdown.options.length
-                    }));
-                    return;
-                  }
-                  
-                  console.log('📅 [LOAD-IMPORT] Found elements:');
-                  console.log('  - Week dropdown ID:', weekDropdown.id);
-                  console.log('  - Week dropdown options:', weekDropdown.options.length);
-                  console.log('  - Run button ID:', runButton.id);
-                  
-                  // Function to select a week, run it, and import the schedule
-                  function selectAndRunWeekWithImport(weekIndex, callback) {
-                    const option = weekDropdown.options[weekIndex];
-                    const weekText = option.text;
-                    const weekValue = option.value;
-                    
-                    console.log('📅 [LOAD-IMPORT] Selecting and importing week', weekIndex + 1, ':', weekText);
-                    
-                    // Select the week
-                    weekDropdown.selectedIndex = weekIndex;
-                    weekDropdown.value = weekValue;
-                    option.selected = true;
-                    
-                    // Trigger events
-                    weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
-                    weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
-                    
-                    // Enable run button if needed
-                    if (runButton.disabled) {
-                      runButton.disabled = false;
-                    }
-                    
-                    // Wait a bit, then click run
-                    setTimeout(() => {
-                      console.log('📅 [LOAD-IMPORT] Clicking run for week', weekIndex + 1, ':', weekText);
-                      
-                      // Click the run button
-                      runButton.click();
-                      runButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                      
-                      // Wait for the page to load, then extract and import the schedule
-                      setTimeout(() => {
-                        console.log('📅 [LOAD-IMPORT] Week', weekIndex + 1, 'loaded, extracting schedule HTML...');
-                        
-                        try {
-                          // Extract the schedule HTML from the iframe for import
-                          const scheduleHTML = cognosDoc.documentElement.outerHTML;
-                          const scheduleText = cognosDoc.body ? cognosDoc.body.textContent || cognosDoc.body.innerText || '' : '';
-                          
-                          console.log('📅 [LOAD-IMPORT] Extracted schedule for week', weekIndex + 1);
-                          console.log('  - HTML length:', scheduleHTML.length);
-                          console.log('  - Text length:', scheduleText.length);
-                          console.log('  - Contains schedule data:', scheduleText.includes('Weekly Schedule') || scheduleText.includes('Total Hours'));
-                          
-                          // Send the schedule HTML for parsing and import
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'enhanced_schedule_html',
-                            html: scheduleHTML,
-                            url: window.location.href,
-                            title: document.title,
-                            weekNumber: weekIndex + 1,
-                            weekText: weekText,
-                            weekValue: weekValue,
-                            foundInIframe: true,
-                            iframeCount: allIframes.length,
-                            hasScheduleContent: scheduleText.includes('Weekly Schedule') || scheduleText.includes('Total Hours') || scheduleText.includes('Employee #'),
-                            mainHtmlLength: document.documentElement.outerHTML.length,
-                            scheduleHtmlLength: scheduleHTML.length,
-                            source: 'load_3_schedules_with_import'
-                          }));
-                          
-                          // Continue to next week
-                          if (callback) callback();
-                          
-                        } catch (extractError) {
-                          console.log('❌ [LOAD-IMPORT] Error extracting schedule for week', weekIndex + 1, ':', extractError);
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'load_3_schedules_error',
-                            error: 'Schedule extraction failed for week ' + (weekIndex + 1) + ': ' + extractError.message,
-                            weekNumber: weekIndex + 1,
-                            weekText: weekText
-                          }));
-                          
-                          // Continue anyway
-                          if (callback) callback();
-                        }
-                      }, 4000); // Wait 4 seconds for page to load completely
-                    }, 1000); // Wait 1 second after selection
-                  }
-                  
-                  // Load weeks 1, 2, and 3 (indices 0, 1, 2) with import
-                  console.log('📅 [LOAD-IMPORT] Starting to load and import all 3 weeks (1, 2, and 3)...');
-                  
-                  selectAndRunWeekWithImport(0, () => {
-                    // After week 1 is loaded and imported, load week 2
-                    selectAndRunWeekWithImport(1, () => {
-                      // After week 2 is loaded and imported, load week 3
-                      selectAndRunWeekWithImport(2, () => {
-                        console.log('✅ [LOAD-IMPORT] All 3 weeks have been loaded and imported!');
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'load_3_schedules_complete',
-                          message: 'Successfully loaded and imported all 3 schedules (weeks 1, 2, and 3) into the app!'
-                        }));
-                      });
-                    });
-                  });
-                  
-                } catch (error) {
-                  console.log('❌ [LOAD-IMPORT] Script error:', error);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'load_3_schedules_error',
-                    error: error.message,
-                    stack: error.stack
-                  }));
-                }
-              })();`;
-              
-              webViewRef.current.injectJavaScript(getHtmlScript);
-              
-            } catch (error) {
-              console.log('❌ [UI] Error injecting Load 3 Schedules with Import script:', error);
-              Alert.alert('Script Error', 'Failed to inject Load 3 Schedules with Import script: ' + (error as Error).message);
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
-            🧪 Load 3 Schedules (with Import)
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🔄 [UI] Starting enhanced schedule verification with step-by-step debugging...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not available. Please ensure you are on the WebView screen.');
-              return;
-            }
-            try {
-              const enhancedLoadSchedulesScript = `
-              (function() { 
-                try { 
-                  console.log('🔄 [NAV-DEBUG] === ENHANCED LOAD SCHEDULES DEBUG ===');
-                  console.log('🔄 [NAV-DEBUG] Step 1: Script injection started');
-                  
-                  // Immediate safety checks
-                  if (typeof window === 'undefined') {
-                    console.log('❌ [NAV-DEBUG] Window object not available');
-                    return false;
-                  }
-                  console.log('✅ [NAV-DEBUG] Step 1.1: Window object available');
-                  
-                  if (typeof document === 'undefined') {
-                    console.log('❌ [NAV-DEBUG] Document object not available');
-                    return false;
-                  }
-                  console.log('✅ [NAV-DEBUG] Step 1.2: Document object available');
-                  
-                  if (typeof window.ReactNativeWebView === 'undefined') {
-                    console.log('❌ [NAV-DEBUG] ReactNativeWebView not available - not in WebView context');
-                    // Don't return, continue debugging locally
-                  } else {
-                    console.log('✅ [NAV-DEBUG] Step 1.3: ReactNativeWebView available');
-                  }
-                  
-                  // Post initial status
-                  function postMessage(data) {
-                    if (typeof window.ReactNativeWebView !== 'undefined') {
-                      window.ReactNativeWebView.postMessage(JSON.stringify(data));
-                    } else {
-                      console.log('📨 [NAV-DEBUG] Would send message:', JSON.stringify(data));
-                    }
-                  }
-                  
-                  postMessage({
-                    type: 'enhanced_load_debug',
-                    step: 'initialization',
-                    message: 'Enhanced load script started successfully',
-                    environment: {
-                      hasWindow: typeof window !== 'undefined',
-                      hasDocument: typeof document !== 'undefined',
-                      hasReactNativeWebView: typeof window.ReactNativeWebView !== 'undefined',
-                      url: window.location.href,
-                      title: document.title,
-                      readyState: document.readyState
-                    }
-                  });
-                  
-                  console.log('🔄 [NAV-DEBUG] Step 2: Environment check complete');
-                  console.log('  - URL:', window.location.href);
-                  console.log('  - Title:', document.title);
-                  console.log('  - Ready state:', document.readyState);
-                  console.log('  - Body exists:', !!document.body);
-                  
-                  // Step 3: Iframe discovery with detailed logging
-                  console.log('🔄 [NAV-DEBUG] Step 3: Starting comprehensive iframe search...');
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('🔄 [NAV-DEBUG] Found', allIframes.length, 'total iframes');
-                  
-                  if (allIframes.length === 0) {
-                    console.log('❌ [NAV-DEBUG] No iframes found - this might not be the right page');
-                    postMessage({
-                      type: 'enhanced_load_debug',
-                      step: 'iframe_search',
-                      error: 'No iframes found on page',
-                      pageInfo: {
-                        url: window.location.href,
-                        title: document.title,
-                        bodyLength: document.body ? document.body.innerHTML.length : 0
-                      }
-                    });
-                    return false;
-                  }
-                  
-                  // Step 4: Detailed iframe analysis
-                  let cognosIframe = null;
-                  let cognosDoc = null;
-                  let iframeAnalysis = [];
-                  
-                  console.log('🔄 [NAV-DEBUG] Step 4: Analyzing each iframe...');
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    console.log('🔄 [NAV-DEBUG] Analyzing iframe', i, '...');
-                    
-                    const iframeInfo = {
-                      index: i,
-                      src: iframe.src || '(no src)',
-                      id: iframe.id || '(no id)', 
-                      name: iframe.name || '(no name)',
-                      width: iframe.width || 'auto',
-                      height: iframe.height || 'auto',
-                      visible: iframe.offsetParent !== null,
-                      hasContentDocument: false,
-                      hasContentWindow: false,
-                      accessible: false,
-                      isCognosTarget: false,
-                      errorMessage: null
-                    };
-                    
-                    console.log('  - Src:', iframeInfo.src);
-                    console.log('  - ID:', iframeInfo.id);
-                    console.log('  - Name:', iframeInfo.name);
-                    console.log('  - Visible:', iframeInfo.visible);
-                    
-                    try {
-                      // Check basic accessibility
-                      iframeInfo.hasContentDocument = !!iframe.contentDocument;
-                      iframeInfo.hasContentWindow = !!iframe.contentWindow;
-                      console.log('  - Has contentDocument:', iframeInfo.hasContentDocument);
-                      console.log('  - Has contentWindow:', iframeInfo.hasContentWindow);
-                      
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        console.log('  - Accessible: YES - checking content...');
-                        iframeInfo.accessible = true;
-                        
-                        const iframeDoc = iframe.contentDocument;
-                        const iframeWin = iframe.contentWindow;
-                        
-                        // Get iframe details
-                        const iframeURL = iframeWin.location.href;
-                        const iframeTitle = iframeDoc.title;
-                        const iframeContent = iframeDoc.documentElement.outerHTML;
-                        const iframeBodyText = iframeDoc.body ? (iframeDoc.body.textContent || iframeDoc.body.innerText || '') : '';
-                        
-                        console.log('  - Iframe URL:', iframeURL);
-                        console.log('  - Iframe Title:', iframeTitle);
-                        console.log('  - Content length:', iframeContent.length);
-                        console.log('  - Body text length:', iframeBodyText.length);
-                        
-                        // Extended to match actual iframe HTML from your example
-                        const cognosIndicators = {
-                          hasWeekEndDate: iframeBodyText.includes('Week End Date') || iframeContent.includes('Week End Date'),
-                          hasCognosViewer: iframeTitle.includes('IBM Cognos Viewer') || iframeContent.includes('IBM Cognos Viewer'),
-                          hasPRMT_SV: iframeContent.includes('PRMT_SV_'),
-                          hasScheduleTitle: iframeTitle.includes('Schedule'),
-                          hasCognosScript: iframeContent.includes('cognos_ext') || iframeContent.includes('CCognosViewer'),
-                          hasFormWarpRequest: iframeContent.includes('formWarpRequest_NS_'),
-                          hasPromptManager: iframeContent.includes('C_PromptManager') || iframeContent.includes('G_PM_NS_'),
-                          hasDispBiV1: iframeURL.includes('/bi/v1/disp') || iframeContent.includes('/bi/v1/disp')
-                        };
-                        
-                        console.log('  - Cognos indicators check:');
-                        Object.keys(cognosIndicators).forEach(key => {
-                          console.log('    * ' + key + ':', cognosIndicators[key]);
-                        });
-                        
-                        // Determine if this is our target iframe (more flexible matching)
-                        const cognosScore = Object.values(cognosIndicators).filter(v => v).length;
-                        console.log('  - Cognos score:', cognosScore + '/8');
-                        
-                        // If it has at least 3 cognos indicators, consider it a match
-                        if (cognosScore >= 3 || (cognosIndicators.hasDispBiV1 && cognosIndicators.hasScheduleTitle)) {
-                          console.log('✅ [NAV-DEBUG] COGNOS TARGET IFRAME FOUND at index', i);
-                          console.log('✅ [NAV-DEBUG] Cognos score:', cognosScore, 'indicators met');
-                          iframeInfo.isCognosTarget = true;
-                          cognosIframe = iframe;
-                          cognosDoc = iframeDoc;
-                          // Don't break, continue analysis for debugging
-                        }
-                        
-                        // Store additional analysis
-                        iframeInfo.cognosIndicators = cognosIndicators;
-                        iframeInfo.cognosScore = cognosScore;
-                        iframeInfo.iframeURL = iframeURL;
-                        iframeInfo.iframeTitle = iframeTitle;
-                        iframeInfo.contentLength = iframeContent.length;
-                        iframeInfo.bodyTextLength = iframeBodyText.length;
-                        
-                      } else {
-                        console.log('  - Accessible: NO (contentDocument or contentWindow missing)');
-                        iframeInfo.errorMessage = 'ContentDocument or contentWindow missing';
-                      }
-                    } catch (e) {
-                      console.log('  - Accessible: NO (error:', e.message, ')');
-                      iframeInfo.errorMessage = e.message;
-                    }
-                    
-                    iframeAnalysis.push(iframeInfo);
-                  }
-                  
-                  console.log('🔄 [NAV-DEBUG] Step 5: Iframe analysis complete');
-                  console.log('🔄 [NAV-DEBUG] Summary:');
-                  console.log('  - Total iframes:', allIframes.length);
-                  console.log('  - Accessible iframes:', iframeAnalysis.filter(f => f.accessible).length);
-                  console.log('  - Cognos target found:', !!cognosIframe);
-                  
-                  // Send detailed iframe analysis
-                  postMessage({
-                    type: 'enhanced_load_debug',
-                    step: 'iframe_analysis_complete',
-                    iframeAnalysis: iframeAnalysis,
-                    cognosTargetFound: !!cognosIframe,
-                    summary: {
-                      totalIframes: allIframes.length,
-                      accessibleIframes: iframeAnalysis.filter(f => f.accessible).length,
-                      cognosTargets: iframeAnalysis.filter(f => f.isCognosTarget).length
-                    }
-                  });
-                  
-                  if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [NAV-DEBUG] Cognos iframe not found or not accessible!');
-                    postMessage({
-                      type: 'enhanced_load_debug',
-                      step: 'cognos_iframe_not_found',
-                      error: 'No suitable Cognos iframe found',
-                      analysis: iframeAnalysis
-                    });
-                    return false;
-                  }
-                  
-                  // Step 6: Element search within Cognos iframe
-                  console.log('🔄 [NAV-DEBUG] Step 6: Searching for elements in Cognos iframe...');
-                  
-                  // Multiple selector strategies for finding elements
-                  const elementSearchStrategies = {
-                    weekDropdown: [
-                      'select[id*="PRMT_SV_"][name*="EndDate"]',
-                      'select[id*="PRMT_SV_"][name*="p_EndDate"]',
-                      'select[id*="PRMT_SV_"][id*="_NS_"]',
-                      'select[name*="EndDate"]',
-                      'select[name*="Date"]',
-                      'select.clsSelectControl',
-                      'select[role="listbox"]',
-                      'select'
-                    ],
-                    runButton: [
-                      'button[id*="next"][id*="_NS_"]',
-                      'button[onclick*="promptAction"]',
-                      'button.bp',
-                      'input[type="submit"]',
-                      'button[type="submit"]',
-                      'button'
-                    ]
-                  };
-                  
-                  let foundElements = {};
-                  
-                  Object.keys(elementSearchStrategies).forEach(elementType => {
-                    console.log('🔍 [NAV-DEBUG] Searching for', elementType, '...');
-                    const selectors = elementSearchStrategies[elementType];
-                    
-                    for (let j = 0; j < selectors.length; j++) {
-                      const selector = selectors[j];
-                      try {
-                        const elements = cognosDoc.querySelectorAll(selector);
-                        console.log('  - Selector "' + selector + '": found', elements.length, 'elements');
-                        
-                        if (elements.length > 0) {
-                          foundElements[elementType] = foundElements[elementType] || [];
-                          Array.from(elements).forEach((el, idx) => {
-                            const elementInfo = {
-                              index: idx,
-                              selector: selector,
-                              tagName: el.tagName,
-                              id: el.id || '(no id)',
-                              name: el.name || '(no name)',
-                              className: el.className || '(no class)',
-                              textContent: (el.textContent || '').substring(0, 100),
-                              visible: el.offsetParent !== null,
-                              disabled: el.disabled,
-                              optionsCount: el.tagName === 'SELECT' ? el.options.length : null
-                            };
-                            
-                            foundElements[elementType].push(elementInfo);
-                            console.log('    * Element', idx, ':', JSON.stringify(elementInfo, null, 2));
-                          });
-                          
-                          if (!foundElements[elementType + '_primary']) {
-                            foundElements[elementType + '_primary'] = elements[0]; // Store actual element
-                          }
-                        }
-                      } catch (selectorError) {
-                        console.log('  - Selector "' + selector + '": error -', selectorError.message);
-                      }
-                    }
-                  });
-                  
-                  console.log('🔄 [NAV-DEBUG] Step 7: Element search complete');
-                  console.log('🔄 [NAV-DEBUG] Found elements summary:');
-                  Object.keys(foundElements).forEach(key => {
-                    if (!key.endsWith('_primary')) {
-                      console.log('  -', key + ':', foundElements[key] ? foundElements[key].length : 0, 'elements');
-                    }
-                  });
-                  
-                  // Send element analysis
-                  postMessage({
-                    type: 'enhanced_load_debug',
-                    step: 'element_search_complete',
-                    foundElements: Object.keys(foundElements).reduce((acc, key) => {
-                      if (!key.endsWith('_primary')) {
-                        acc[key] = foundElements[key];
-                      }
-                      return acc;
-                    }, {}),
-                    elementSearchStrategies: elementSearchStrategies
-                  });
-                  
-                  // Step 8: Verification and testing
-                  console.log('🔄 [NAV-DEBUG] Step 8: Element verification...');
-                  
-                  const weekDropdown = foundElements.weekDropdown_primary;
-                  const runButton = foundElements.runButton_primary;
-                  
-                  const verificationResults = {
-                    weekDropdown: {
-                      found: !!weekDropdown,
-                      id: weekDropdown ? weekDropdown.id : null,
-                      optionsCount: weekDropdown ? weekDropdown.options.length : 0,
-                      visible: weekDropdown ? weekDropdown.offsetParent !== null : false,
-                      disabled: weekDropdown ? weekDropdown.disabled : null
-                    },
-                    runButton: {
-                      found: !!runButton,
-                      id: runButton ? runButton.id : null,
-                      text: runButton ? runButton.textContent.trim() : null,
-                      visible: runButton ? runButton.offsetParent !== null : false,
-                      disabled: runButton ? runButton.disabled : null
-                    }
-                  };
-                  
-                  console.log('🔄 [NAV-DEBUG] Verification results:');
-                  console.log(JSON.stringify(verificationResults, null, 2));
-                  
-                  // Final status
-                  const allElementsFound = verificationResults.weekDropdown.found && verificationResults.runButton.found;
-                  const readyForNavigation = allElementsFound && 
-                                           verificationResults.weekDropdown.optionsCount > 0 && 
-                                           verificationResults.weekDropdown.visible &&
-                                           verificationResults.runButton.visible;
-                  
-                  console.log('🔄 [NAV-DEBUG] Final assessment:');
-                  console.log('  - All required elements found:', allElementsFound);
-                  console.log('  - Ready for navigation:', readyForNavigation);
-                  
-                  postMessage({
-                    type: 'enhanced_load_debug',
-                    step: 'verification_complete',
-                    verificationResults: verificationResults,
-                    allElementsFound: allElementsFound,
-                    readyForNavigation: readyForNavigation,
-                    message: readyForNavigation ? 
-                      'All elements found and ready for navigation!' : 
-                      'Some elements missing or not ready for navigation'
-                  });
-                  
-                  console.log('🔄 [NAV-DEBUG] === ENHANCED LOAD SCHEDULES DEBUG COMPLETE ===');
-                  return readyForNavigation;
-                } catch (error) {
-                  console.log('❌ [NAV-DEBUG] Fatal error:', error);
-                  if (typeof window.ReactNativeWebView !== 'undefined') {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'enhanced_load_debug',
-                      step: 'fatal_error',
-                      error: error.message,
-                      stack: error.stack
-                    }));
-                  }
-                  return false;
-                }
-              })();`;
-              
-              webViewRef.current.injectJavaScript(enhancedLoadSchedulesScript);
-              
-            } catch (error) {
-              console.log('❌ [UI] Error injecting enhanced debug script:', error);
-              Alert.alert('Script Error', 'Failed to inject enhanced debug script: ' + (error as Error).message);
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
-            🔄 Load Schedules (Enhanced Debug)
           </Text>
         </TouchableOpacity>
 
@@ -3871,5 +2343,124 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'right',
     lineHeight: 16,
+  },
+  automationSection: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.lg,
+    borderRadius: 8,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  automationTitle: {
+    fontSize: TYPOGRAPHY.h5.fontSize,
+    fontWeight: TYPOGRAPHY.h5.fontWeight,
+    color: COLORS.primary,
+    marginBottom: SPACING.sm,
+  },
+  scheduleButtonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.md,
+  },
+  scheduleButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '48%',
+  },
+  scheduleButtonSelected: {
+    backgroundColor: COLORS.success,
+  },
+  scheduleButtonDisabled: {
+    backgroundColor: COLORS.textSecondary,
+  },
+  scheduleButtonText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '600',
+  },
+  scheduleButtonTextSelected: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '600',
+  },
+  automationStatus: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  automationStatusText: {
+    color: COLORS.text,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '500',
+  },
+  automationError: {
+    backgroundColor: COLORS.warningLight,
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.error,
+  },
+  automationErrorText: {
+    color: COLORS.error,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '500',
+  },
+  manualControlsContainer: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.lg,
+    borderRadius: 8,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  manualControlsTitle: {
+    fontSize: TYPOGRAPHY.h5.fontSize,
+    fontWeight: TYPOGRAPHY.h5.fontWeight,
+    color: COLORS.primary,
+    marginBottom: SPACING.sm,
+  },
+  manualButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.md,
+  },
+  manualButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '48%',
+  },
+  manualButtonText: {
+    color: COLORS.text,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '500',
+  },
+  resetButton: {
+    borderWidth: 1,
+    borderColor: COLORS.error,
+    borderRadius: 8,
+    padding: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.md,
+  },
+  resetButtonText: {
+    color: COLORS.error,
+    fontSize: TYPOGRAPHY.body.fontSize,
+    fontWeight: '500',
   },
 }); 

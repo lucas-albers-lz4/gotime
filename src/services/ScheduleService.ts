@@ -97,7 +97,7 @@ export class ScheduleService {
       
       // Find Monday's date from the schedule entries
       let mondayDate: string | null = null;
-      let allDates: Array<{day: string, date: string}> = [];
+      const allDates: Array<{day: string, date: string}> = [];
       
       for (const row of rowMatches) {
         // Skip header rows
@@ -111,7 +111,7 @@ export class ScheduleService {
         if (dayMatch && dateMatch) {
           const day = dayMatch[1].trim();
           const date = dateMatch[1].trim();
-          allDates.push({day, date});
+          allDates.push({ day, date });
           
           if (day.toLowerCase() === 'monday') {
             mondayDate = date;
@@ -132,7 +132,7 @@ export class ScheduleService {
       const mondayDateObj = new Date(
         parseInt(mondayParts[2]), // year
         parseInt(mondayParts[0]) - 1, // month (0-indexed)
-        parseInt(mondayParts[1]) // day
+        parseInt(mondayParts[1]), // day
       );
       
       const sundayDateObj = new Date(mondayDateObj.getTime() + (6 * 24 * 60 * 60 * 1000));
@@ -170,7 +170,7 @@ export class ScheduleService {
         
         return {
           start: mondayDate,    // Use actual Monday date
-          end: correctSunday    // Use calculated Sunday date
+          end: correctSunday,    // Use calculated Sunday date
         };
       } else {
         console.log('✅ [WEEK-VALIDATION] Week dates are already correctly aligned');
@@ -680,7 +680,7 @@ export class ScheduleService {
       // Handle both standard ISO and malformed variants (e.g., AZ instead of Z)
       if (timestamp.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
         // Clean up malformed ISO timestamps (e.g., "2025-06-01T02:54:13.48AZ" → "2025-06-01T02:54:13.48Z")
-        let cleanTimestamp = timestamp.replace(/\.?\d*AZ?$/, 'Z').replace(/\.\d+Z$/, 'Z');
+        const cleanTimestamp = timestamp.replace(/[^\w\s-:]/g, '').trim();
         
         const date = new Date(cleanTimestamp);
         if (!isNaN(date.getTime())) {
@@ -1599,7 +1599,7 @@ export class ScheduleService {
             const mockHtml = this.createMockHtmlForValidation(normalizedSchedule);
             const correctedWeekInfo = this.validateAndCorrectWeekDates(
               { start: normalizedSchedule.weekStart, end: normalizedSchedule.weekEnd },
-              mockHtml
+              mockHtml,
             );
             
             // Apply the corrected week dates
@@ -1625,7 +1625,7 @@ export class ScheduleService {
               normalizedSchedule.weekStart !== schedule.weekStart ||
               normalizedSchedule.weekEnd !== schedule.weekEnd ||
               normalizedSchedule.entries.some((entry, index) => 
-                entry.date !== schedule.entries[index]?.date
+                entry.date !== schedule.entries[index]?.date,
               );
             
             if (hasChanges) {

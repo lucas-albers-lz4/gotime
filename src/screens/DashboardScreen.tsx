@@ -169,11 +169,9 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       console.log('DashboardScreen: No stored schedules found, loading demo schedules...');
       await loadDemoSchedule();
       
-    } catch (error) {
-      console.error('DashboardScreen: Error loading schedule data:', error);
-      // Fall back to demo schedules on error
-      await loadDemoSchedule();
-    } finally {
+    } catch (err) {
+      console.error('Error loading schedules:', err);
+      setAvailableWeeks([]);
       setLoading(false);
     }
   };
@@ -406,7 +404,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         }
         
         return false;
-      } catch (error) {
+      } catch (_error) {
         // If date parsing fails, don't highlight
         return false;
       }
