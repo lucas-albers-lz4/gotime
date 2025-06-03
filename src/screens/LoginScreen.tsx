@@ -14,9 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import * as Clipboard from 'expo-clipboard';
 import { COLORS, TYPOGRAPHY, SPACING, APP_CONFIG } from '../constants';
-import { UserCredentials } from '../types';
 import { AuthService } from '../services/AuthService';
 import { ScheduleService } from '../services/ScheduleService';
 import { useCognosAutomation } from '../services/useCognosAutomation';
@@ -30,28 +28,11 @@ interface LoginScreenProps {
 
 type AuthStep = 'CREDENTIALS' | 'MFA_CODE' | 'SAML_REDIRECT' | 'WEBVIEW_AUTH';
 
-// TypeScript interfaces for iframe objects
-interface IframeInfo {
-  index: number;
-  src: string;
-  id: string;
-  name: string;
-  url?: string;
-  title?: string;
-  html?: string;
-  textContent?: string;
+// Define a minimal type for the iframes in the html_document_dump message
+interface DumpedIframe {
   accessible: boolean;
-  visible: boolean;
-  error?: string;
-}
-
-interface IframeAnalysisItem {
-  accessible: boolean;
-  isCognosTarget: boolean;
-  src: string;
-  iframeTitle?: string;
-  cognosScore?: number;
-  index: number;
+  html?: string | null; // html can be string or null
+  // Add other properties if accessed, e.g., src, id, etc.
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
@@ -139,66 +120,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       }
     } catch (error) {
       console.log('No saved credentials found:', error instanceof Error ? error.message : 'Unknown error');
-    }
-  };
-
-  const handleLogin = async () => {
-    if (!employeeId.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both Employee ID and Password');
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const credentials: UserCredentials = {
-        employeeId: employeeId.trim(),
-        password: password.trim(),
-        rememberMe,
-      };
-
-      console.log('🚀 [UI] Starting authentication flow...');
-      console.log('👤 [UI] Employee ID:', employeeId.substring(0, 3) + '***');
-      
-      const result = await authService.login(credentials);
-
-      if (result.success) {
-        console.log('✅ [UI] Authentication successful - navigating to main app');
-        onLoginSuccess();
-      } else if (result.requiresMFA) {
-        console.log('🔐 [UI] MFA required - switching to code input screen');
-        setCurrentStep('MFA_CODE');
-        setErrorMessage('Please enter the verification code sent to your phone');
-      } else if (result.errorType === 'SAML_REQUIRED') {
-        console.log('🔄 [UI] SAML authentication required - showing SAML instructions');
-        setCurrentStep('SAML_REDIRECT');
-        setErrorMessage(result.error || 'SAML authentication required');
-      } else {
-        console.log('❌ [UI] Authentication failed:', result.errorType || 'Unknown');
-        setErrorMessage(result.error || 'Authentication failed');
-        
-        // Handle specific error types
-        if (result.errorType === 'CAPTCHA_REQUIRED') {
-          Alert.alert(
-            'Authentication Blocked',
-            'The server detected automated behavior and requires manual verification. Please:\n\n1. Open your browser\n2. Go to ess.costco.com\n3. Complete the login process manually\n4. Return here and try again\n\nThis helps establish a trusted session.',
-            [{ text: 'OK' }],
-          );
-        } else if (result.errorType === 'RATE_LIMITED' && result.retryAfter) {
-          const retrySeconds = Math.round(result.retryAfter / 1000);
-          Alert.alert(
-            'Rate Limited',
-            `Please wait ${retrySeconds} seconds before trying again.`,
-            [{ text: 'OK' }],
-          );
-        }
-      }
-    } catch (error) {
-      console.error('💥 [UI] Login exception:', error);
-      setErrorMessage('Network error. Please check your connection and try again.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -1136,25 +1057,24 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 } else if (parsedMessage.type === 'cognos_js_analysis') {
                   console.log('🧪 [WEBVIEW] Cognos JS analysis received:', parsedMessage.analysis);
                   
-                  const { analysis } = parsedMessage;
-                  const dropdown = analysis.dropdownInfo;
-                  const button = analysis.buttonInfo;
+                  const dropdown = parsedMessage.analysis.dropdownInfo;
+                  const button = parsedMessage.analysis.buttonInfo;
                   
                   Alert.alert(
                     'Cognos Analysis Complete! 🧪',
                     'Interface Analysis:\n\n' +
-                    `📍 URL: ${analysis.url.includes('cognos') ? '✅ Cognos detected' : '❓ Unknown page'}\n` +
-                    `🔍 Iframes: ${analysis.totalIframes} found\n` +
-                    `📊 Cognos Interface: ${analysis.cognosIframeFound ? '✅ Found' : '❌ Not found'}\n\n` +
+                    `📍 URL: ${parsedMessage.analysis.url.includes('cognos') ? '✅ Cognos detected' : '❓ Unknown page'}\n` +
+                    `🔍 Iframes: ${parsedMessage.analysis.totalIframes} found\n` +
+                    `📊 Cognos Interface: ${parsedMessage.analysis.cognosIframeFound ? '✅ Found' : '❌ Not found'}\n\n` +
                     'Dropdown Info:\n' +
                     `• ${dropdown ? '✅ Found' : '❌ Not found'}${dropdown ? ` (${dropdown.optionsCount} options)` : ''}\n` +
                     `• Current: ${dropdown?.selectedText || 'None'}\n\n` +
                     'Run Button:\n' +
                     `• ${button ? '✅ Found' : '❌ Not found'}${button ? ` ("${button.textContent}")` : ''}\n\n` +
                     'Environment:\n' +
-                    `• jQuery: ${analysis.jsEnvironment.hasJQuery ? '✅' : '❌'}\n` +
-                    `• Ready State: ${analysis.jsEnvironment.documentReadyState}\n\n` +
-                    `This interface ${analysis.cognosIframeFound && dropdown && button ? 'is ready for automation! 🚀' : 'may need manual interaction.'}`,
+                    `• jQuery: ${parsedMessage.analysis.jsEnvironment.hasJQuery ? '✅' : '❌'}\n` +
+                    `• Ready State: ${parsedMessage.analysis.jsEnvironment.documentReadyState}\n\n` +
+                    `This interface ${parsedMessage.analysis.cognosIframeFound && dropdown && button ? 'is ready for automation! 🚀' : 'may need manual interaction.'}`,
                     [{ text: 'Great!' }],
                   );
                   
@@ -1175,7 +1095,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 } else if (parsedMessage.type === 'dropdown_discovery_complete') {
                   console.log('🔍 [WEBVIEW] Dropdown discovery completed:', parsedMessage);
                   
-                  const analysis = parsedMessage.dropdownAnalysis || [];
                   const weekCandidates = parsedMessage.weekEndDateCandidates || [];
                   const employeeDropdowns = parsedMessage.employeeDropdowns || [];
                   const bestCandidate = parsedMessage.bestCandidate;
@@ -1208,8 +1127,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   console.log('📄 [WEBVIEW] HTML document dump received:', parsedMessage);
                   
                   const { mainDocument, iframes, iframeCount } = parsedMessage;
-                  const accessibleIframes = iframes?.filter((iframe: any) => iframe.accessible) || [];
-                  const totalHtmlSize = mainDocument?.htmlLength + (accessibleIframes.reduce((sum: number, iframe: any) => sum + (iframe.html?.length || 0), 0) || 0);
+                  const accessibleIframes = iframes?.filter((iframe: DumpedIframe) => iframe.accessible) || [];
+                  const totalHtmlSize = (mainDocument?.htmlLength || 0) + (accessibleIframes.reduce((sum: number, iframe: DumpedIframe) => sum + (iframe.html?.length || 0), 0) || 0);
                   
                   Alert.alert(
                     'HTML Document Dump Complete! 📄',
@@ -2049,18 +1968,20 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={[styles.demoButton, { 
-                borderColor: COLORS.primary, 
-                backgroundColor: automation.state.isAutomating ? COLORS.textSecondary : 'transparent',
-                marginTop: SPACING.md, 
-              }]}
+              style={[
+                styles.demoButton,
+                styles.multiWeekTestButton,
+                automation.state.isAutomating && styles.multiWeekTestButtonAutomating,
+              ]}
               onPress={automation.testMultiWeekAutomation}
               disabled={automation.state.isAutomating}
             >
-              <Text style={[styles.demoButtonText, { 
-                color: automation.state.isAutomating ? COLORS.white : COLORS.primary,
-                fontWeight: 'bold',
-              }]}>
+              <Text style={[
+                styles.demoButtonText,
+                styles.multiWeekTestButtonText,
+                styles.boldText, // Added for fontWeight: 'bold'
+                automation.state.isAutomating && styles.multiWeekTestButtonTextAutomating,
+              ]}>
                 {automation.state.isAutomating ? '🔄 Testing...' : '🧪 Multi-Week Automation Test'}
               </Text>
             </TouchableOpacity> 
@@ -2443,5 +2364,22 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     fontSize: TYPOGRAPHY.body.fontSize,
     fontWeight: '500',
+  },
+  multiWeekTestButton: {
+    borderColor: COLORS.primary,
+    marginTop: SPACING.md,
+    // Default background is transparent (from demoButton or inherent)
+  },
+  multiWeekTestButtonAutomating: {
+    backgroundColor: COLORS.textSecondary,
+  },
+  multiWeekTestButtonText: {
+    // Default color is COLORS.primary (from demoButtonText)
+  },
+  multiWeekTestButtonTextAutomating: {
+    color: COLORS.white,
+  },
+  boldText: {
+    fontWeight: 'bold',
   },
 }); 

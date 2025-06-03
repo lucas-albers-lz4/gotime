@@ -235,8 +235,15 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadScheduleData();
-    setRefreshing(false);
+    try {
+      await scheduleService.refreshSchedulesFromWebView();
+      await loadScheduleData(); // Reload schedules after refresh
+      Alert.alert('Schedules Refreshed', 'Latest schedules have been fetched.');
+    } catch {
+      Alert.alert('Refresh Failed', 'Could not refresh schedules. Please check your connection or try logging in again via the WebView method.');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -385,11 +392,10 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
     // and prevents highlighting when viewing demo/stored schedules from different time periods
     const isToday = (() => {
       try {
+        // Parse dates to compare
         const today = new Date();
-        const entryDate = new Date(entry.date);
-        
-        // Normalize both dates to compare only year, month, day (ignore time)
         const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const entryDate = new Date(entry.date);
         const entryNormalized = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
         
         // Only highlight as "today" if we're viewing current week schedules
@@ -404,7 +410,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         }
         
         return false;
-      } catch (_error) {
+      } catch (_) {
         // If date parsing fails, don't highlight
         return false;
       }

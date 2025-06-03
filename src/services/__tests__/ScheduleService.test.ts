@@ -581,8 +581,9 @@ describe('ScheduleService', () => {
       mockStorageService.saveWeeklySchedule.mockResolvedValue(undefined);
       
       // Replace the storage service temporarily
-      const originalStorageService = (scheduleService as any).storageService;
-      (scheduleService as any).storageService = mockStorageService;
+      // Need to use unknown as intermediate step when accessing private fields in test
+      const originalStorageService = (scheduleService as unknown as { storageService: unknown }).storageService;
+      (scheduleService as unknown as { storageService: unknown }).storageService = mockStorageService;
       
       try {
         // Run re-normalization
@@ -591,7 +592,7 @@ describe('ScheduleService', () => {
         // Verify that saveWeeklySchedule was called with corrected week dates
         expect(mockStorageService.saveWeeklySchedule).toHaveBeenCalled();
         
-        const savedSchedule = mockStorageService.saveWeeklySchedule.mock.calls[0][0];
+        const savedSchedule: WeeklySchedule = mockStorageService.saveWeeklySchedule.mock.calls[0][0];
         
         // Should correct the week start to Monday's date
         expect(savedSchedule.weekStart).toBe('5/26/2025');
@@ -600,7 +601,7 @@ describe('ScheduleService', () => {
         
       } finally {
         // Restore the original storage service
-        (scheduleService as any).storageService = originalStorageService;
+        (scheduleService as unknown as { storageService: unknown }).storageService = originalStorageService;
       }
     });
 
@@ -643,15 +644,20 @@ describe('ScheduleService', () => {
       // CRITICAL: Verify Thursday 6/5/2025 entry matches actual HTML data
       const thursdayEntry = scheduleWithThursday.entries.find(e => e.day === 'Thursday');
       expect(thursdayEntry).toBeDefined();
-      expect(thursdayEntry!.date).toBe('6/5/2025');
-      expect(thursdayEntry!.shifts.length).toBe(1);
-      
-      // These values MUST match the actual HTML: "Thursday	6/5/2025	12:30 PM	05:00 PM	4.50	4.50"
-      expect(thursdayEntry!.shifts[0].startTime).toBe('12:30 PM');
-      expect(thursdayEntry!.shifts[0].endTime).toBe('05:00 PM');
-      expect(thursdayEntry!.shifts[0].shiftHours).toBe(4.50);
-      expect(thursdayEntry!.dailyHours).toBe(4.50);
-      expect(thursdayEntry!.shifts[0].changedOn).toBe('5/22/2025');
+
+      if (thursdayEntry) {
+        expect(thursdayEntry.date).toBe('6/5/2025');
+        expect(thursdayEntry.shifts.length).toBe(1);
+        
+        // These values MUST match the actual HTML: "Thursday\t6/5/2025\t12:30 PM\t05:00 PM\t4.50\t4.50"
+        if (thursdayEntry.shifts.length > 0) {
+          expect(thursdayEntry.shifts[0].startTime).toBe('12:30 PM');
+          expect(thursdayEntry.shifts[0].endTime).toBe('05:00 PM');
+          expect(thursdayEntry.shifts[0].shiftHours).toBe(4.50);
+          expect(thursdayEntry.shifts[0].changedOn).toBe('5/22/2025');
+        }
+        expect(thursdayEntry.dailyHours).toBe(4.50);
+      }
       
       // Verify total hours
       expect(scheduleWithThursday.totalHours).toBe(27.50);

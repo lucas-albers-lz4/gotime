@@ -56,8 +56,35 @@ export interface AutomationResult {
   success: boolean;
   error?: string;
   selectedOption?: ScheduleOption;
-  scheduleData?: any;
+  scheduleData?: ScheduleData;
   message?: string;
+}
+
+export interface ScheduleData {
+  tableCount?: number;
+  totalRows?: number;
+  employeeName?: string;
+  employeeId?: string;
+  location?: string;
+  department?: string;
+  jobTitle?: string;
+  status?: string;
+  hireDate?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  totalHours?: number;
+  scheduleEntries?: Array<{
+    day: string;
+    date: string;
+    shifts: Array<{
+      startTime: string;
+      endTime: string;
+      shiftHours: number;
+      changedOn?: string;
+    }>;
+    dailyHours: number;
+  }>;
+  [key: string]: unknown;
 }
 
 export class CognosAutomationService {

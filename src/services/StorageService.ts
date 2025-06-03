@@ -6,6 +6,23 @@ import * as Crypto from 'expo-crypto';
 import { UserCredentials, ScheduleEntry, AppSettings, WeeklySchedule } from '../types';
 import { APP_CONFIG } from '../constants';
 
+// Define database row types
+interface WeeklyScheduleRow {
+  weekStart: string;
+  weekEnd: string;
+  dataAsOf: string;
+  employeeName: string;
+  employeeId: string;
+  location: string;
+  department: string;
+  jobTitle: string;
+  status: string;
+  hireDate: string;
+  scheduleData: string;
+  totalHours: number;
+  straightTimeEarnings: number;
+}
+
 class StorageService {
   private db: SQLite.SQLiteDatabase | null = null;
   private isWeb = Platform.OS === 'web';
@@ -233,16 +250,17 @@ class StorageService {
       if (!this.db) {
         throw new Error('Database not initialized');
       }
+      const currentDb = this.db; // Assign to a non-nullable local constant
 
-      await this.db.withTransactionAsync(async () => {
+      await currentDb.withTransactionAsync(async () => {
         // Remove existing schedule for this employee/week if it exists
-        await this.db!.runAsync(
+        await currentDb.runAsync(
           'DELETE FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
           [schedule.employee.employeeId, schedule.weekEnd],
         );
         
         // Insert new schedule
-        await this.db!.runAsync(
+        await currentDb.runAsync(
           `INSERT INTO weekly_schedules (
             id, employeeId, weekStart, weekEnd, dataAsOf, 
             employeeName, location, department, jobTitle, status, hireDate,
@@ -293,7 +311,7 @@ class StorageService {
       const result = await this.db.getFirstAsync(
         'SELECT * FROM weekly_schedules WHERE employeeId = ? AND weekEnd = ?',
         [employeeId, weekEnd],
-      ) as any;
+      ) as WeeklyScheduleRow | null;
 
       if (!result) {
         return null;
@@ -354,7 +372,7 @@ class StorageService {
 
       query += ' ORDER BY weekEnd DESC';
 
-      const results = await this.db.getAllAsync(query, params) as any[];
+      const results = await this.db.getAllAsync(query, params) as WeeklyScheduleRow[];
       
       return results.map(result => ({
         weekStart: result.weekStart,
@@ -603,7 +621,7 @@ class StorageService {
       const result = await this.db.getFirstAsync(
         'SELECT * FROM weekly_schedules WHERE employeeId = ? ORDER BY weekEnd DESC LIMIT 1',
         [employeeId],
-      ) as any;
+      ) as WeeklyScheduleRow | null;
 
       if (!result) {
         return null;
@@ -741,6 +759,68 @@ class StorageService {
       await AsyncStorage.removeItem(key);
     } catch (error) {
       console.error(`Failed to remove item ${key}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Saves an item to storage after serializing it.
+   * @param key The key to store the item under.
+   * @param value The value to store (will be JSON.stringified).
+   */
+  async saveItem<T = unknown>(key: string, value: T): Promise<void> {
+    try {
+      const serializedValue = JSON.stringify(value);
+      await AsyncStorage.setItem(key, serializedValue);
+    } catch (error) {
+      console.error(`Failed to save item ${key}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Saves multiple key-value pairs to storage.
+   * Values must be strings.
+   * @param pairs Array of [key, value] tuples.
+   */
+  async multiSet(pairs: Array<[string, unknown]>): Promise<void> {
+    try {
+      const stringPairs = pairs.map(([key, value]) => {
+        if (typeof value !== 'string') {
+          console.warn(`[StorageService] Value for key '${key}' in multiSet is not a string. Attempting to stringify.`);
+          try {
+            return [key, JSON.stringify(value)];
+          } catch (stringifyError) {
+            console.error(`[StorageService] Failed to stringify value for key '${key}' in multiSet:`, stringifyError);
+            // Skip this pair or throw, depending on desired error handling
+            return [key, 'Or some default/error indicator']; // Ensured single quotes
+          }
+        }
+        return [key, value];
+      });
+      await AsyncStorage.multiSet(stringPairs as Array<[string, string]>);
+    } catch (error) {
+      console.error(`Failed to multiSet items:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Saves a raw item (already stringified or a primitive string) to storage.
+   * Use this if you are handling serialization manually.
+   * @param key The key to store the item under.
+   * @param value The raw string value to store.
+   */
+  async saveRawItem(key: string, value: unknown): Promise<void> {
+    try {
+      if (typeof value !== 'string') {
+        console.warn(`[StorageService] Value for saveRawItem with key '${key}' is not a string. Attempting to stringify.`);
+        await AsyncStorage.setItem(key, JSON.stringify(value));
+      } else {
+        await AsyncStorage.setItem(key, value);
+      }
+    } catch (error) {
+      console.error(`Failed to save raw item ${key}:`, error);
       throw error;
     }
   }

@@ -1659,18 +1659,7 @@ export class ScheduleService {
         }
         
         // Now save all the schedules we want to keep for this employee
-        // First clear all schedules for this employee to prevent duplicates
         console.log('🧹 [SCHEDULE] Clearing existing schedules for employee', employeeId, 'to prevent duplicates');
-        
-        // Clear all schedules for this employee first
-        for (const oldSchedule of employeeSchedules) {
-          try {
-            // This is a bit of a hack - we'll save a dummy schedule and then delete it to clean up
-            // Actually, let's just rely on the saveWeeklySchedule method's built-in duplicate handling
-          } catch (error) {
-            console.error('❌ [SCHEDULE] Error clearing old schedule:', error);
-          }
-        }
         
         // Save all the normalized schedules
         for (const scheduleToSave of schedulesToKeep) {
