@@ -12,6 +12,7 @@ import StorageService from './StorageService';
 export class ScheduleService {
   private static instance: ScheduleService;
   private storageService: typeof StorageService;
+  private isDemoMode: boolean = false;
 
   private constructor() {
     this.storageService = StorageService;
@@ -1721,5 +1722,14 @@ export class ScheduleService {
       console.error('❌ [SCHEDULE] Error creating mock HTML for validation:', error);
       return '';
     }
+  }
+
+  public setDemoMode(isDemoMode: boolean): void {
+    this.isDemoMode = isDemoMode;
+    console.log(`🚩 [SCHEDULE] Demo mode set to: ${isDemoMode}`);
+  }
+
+  public getDemoMode(): boolean {
+    return this.isDemoMode;
   }
 }

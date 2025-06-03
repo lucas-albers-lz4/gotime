@@ -25,7 +25,6 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [availableWeeks, setAvailableWeeks] = useState<WeeklySchedule[]>([]);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
-  const [isUsingDemoSchedules, setIsUsingDemoSchedules] = useState(false);
 
   const scheduleService = ScheduleService.getInstance();
   const authService = AuthService.getInstance();
@@ -157,7 +156,6 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         
         setSchedule(currentSchedule);
         setCurrentWeekIndex(initialWeekIndex);
-        setIsUsingDemoSchedules(false); // Using stored schedules, not demo
         
         console.log('DashboardScreen: Set current schedule for week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
         console.log('DashboardScreen: Available weeks (chronological order):', sortedSchedules.map((s: WeeklySchedule) => `${s.weekStart} - ${s.weekEnd}`));
@@ -206,7 +204,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         
         setSchedule(currentSchedule);
         setCurrentWeekIndex(initialWeekIndex);
-        setIsUsingDemoSchedules(true); // Using demo schedules
+        
         console.log('DashboardScreen: Set current schedule for week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
       } else {
         console.log('DashboardScreen: No demo schedules available');
@@ -236,7 +234,6 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await scheduleService.refreshSchedulesFromWebView();
       await loadScheduleData(); // Reload schedules after refresh
       Alert.alert('Schedules Refreshed', 'Latest schedules have been fetched.');
     } catch {
@@ -550,10 +547,14 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
               </Text>
             </View>
 
-            {/* Demo Mode Notice - only show when using demo schedules */}
-            {isUsingDemoSchedules && (
+            {/* Mode Indicator - show either Demo Mode or Employee Schedule Data */}
+            {scheduleService.getDemoMode() ? (
               <View style={styles.demoNotice}>
                 <Text style={styles.demoTitle}>Demo Mode</Text>
+              </View>
+            ) : (
+              <View style={styles.employeeDataNotice}>
+                <Text style={styles.employeeDataTitle}>Employee Schedule Data</Text>
               </View>
             )}
 
@@ -825,16 +826,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   demoNotice: {
-    backgroundColor: COLORS.warningLight,
+    backgroundColor: COLORS.warning,
+    padding: SPACING.sm,
     borderRadius: 8,
-    padding: SPACING.md,
     marginBottom: SPACING.md,
+    alignItems: 'center',
   },
   demoTitle: {
-    ...TYPOGRAPHY.caption,
-    color: COLORS.warning,
+    ...TYPOGRAPHY.body,
+    color: COLORS.white,
     fontWeight: 'bold',
-    marginBottom: SPACING.xs,
   },
   noDataContainer: {
     flex: 1,
@@ -872,5 +873,17 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
     fontStyle: 'italic',
+  },
+  employeeDataNotice: {
+    backgroundColor: COLORS.success,
+    padding: SPACING.sm,
+    borderRadius: 8,
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+  },
+  employeeDataTitle: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.white,
+    fontWeight: 'bold',
   },
 }); 

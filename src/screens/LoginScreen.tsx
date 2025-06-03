@@ -180,7 +180,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Continue',
-          onPress: () => onLoginSuccess(),
+          onPress: () => {
+            // Set demo mode flag
+            scheduleService.setDemoMode(true);
+            onLoginSuccess();
+          },
         },
       ],
     );
@@ -786,7 +790,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       <TouchableOpacity 
         style={[styles.demoButton, { borderColor: COLORS.success }]} 
-        onPress={() => onLoginSuccess()}
+        onPress={() => {
+          // Set NOT in demo mode
+          scheduleService.setDemoMode(false);
+          onLoginSuccess();
+        }}
       >
         <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
           📅 My Schedule
