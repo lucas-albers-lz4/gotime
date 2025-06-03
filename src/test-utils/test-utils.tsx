@@ -23,15 +23,15 @@ export const mockScheduleShift: ScheduleShift = {
 
 export const mockScheduleEntry: ScheduleEntry = {
   day: 'Monday',
-  date: '01/01/2024',
+  date: '6/2/2025',
   shifts: [mockScheduleShift],
   dailyHours: 8.0,
 };
 
 export const mockWeeklySchedule: WeeklySchedule = {
-  weekStart: '01/01/2024',
-  weekEnd: '01/07/2024',
-  dataAsOf: '12/29/2023 8:00:00 AM',
+  weekStart: '6/2/2025',
+  weekEnd: '6/8/2025',
+  dataAsOf: '5/29/2025 7:24:02 AM',
   employee: mockEmployeeInfo,
   entries: [mockScheduleEntry],
   totalHours: 40.0,
@@ -67,7 +67,7 @@ export { customRender as render };
 export const createMockScheduleWithDays = (days: string[]): WeeklySchedule => {
   const entries = days.map((day, index) => ({
     day,
-    date: `01/0${index + 1}/2024`,
+    date: `6/${index + 2}/2025`,
     shifts: [mockScheduleShift],
     dailyHours: 8.0,
   }));
@@ -85,7 +85,7 @@ export const createMockScheduleWithNoShifts = (): WeeklySchedule => {
     entries: [
       {
         day: 'Monday',
-        date: '01/01/2024',
+        date: '6/2/2025',
         shifts: [],
         dailyHours: 0,
       },

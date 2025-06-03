@@ -800,7 +800,7 @@ class StorageService {
       });
       await AsyncStorage.multiSet(stringPairs as Array<[string, string]>);
     } catch (error) {
-      console.error(`Failed to multiSet items:`, error);
+      console.error('Failed to multiSet items:', error);
       throw error;
     }
   }

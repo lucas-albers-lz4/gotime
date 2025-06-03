@@ -307,7 +307,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         Alert.alert(
           'Import Failed ❌',
           'No schedule HTML available. Please extract data first.',
-          [{ text: 'OK' }]
+          [{ text: 'OK' }],
         );
         return;
       }
@@ -333,7 +333,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         Alert.alert(
           'Schedule Imported! ✅',
           `Successfully imported schedule for ${schedule.employee.name} (${schedule.weekStart} - ${schedule.weekEnd})`,
-          [{ text: 'Great!' }]
+          [{ text: 'Great!' }],
         );
       } else {
         setState(prev => ({
@@ -346,7 +346,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         Alert.alert(
           'Import Failed ❌',
           'Could not parse or save the schedule data. Please try again.',
-          [{ text: 'OK' }]
+          [{ text: 'OK' }],
         );
       }
     } catch (error) {
@@ -361,7 +361,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       Alert.alert(
         'Import Error ❌',
         `An error occurred: ${(error as Error).message}`,
-        [{ text: 'OK' }]
+        [{ text: 'OK' }],
       );
     }
   }, [state.currentHtml]);
@@ -760,7 +760,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         Alert.alert(
           'Multi-Week Test Complete',
           'Test completed but no detailed results available.',
-          [{ text: 'OK' }]
+          [{ text: 'OK' }],
         );
       }
       break;
