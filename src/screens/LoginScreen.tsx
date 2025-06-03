@@ -812,7 +812,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <Text style={[styles.demoButtonText, { 
           color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
         }]}>
-          {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
+          {hasStoredSchedules ? '🗑️ Wipe Schedule Data' : '🧪 Test Offline Storage'}
         </Text>
       </TouchableOpacity>
 
@@ -2019,7 +2019,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <Text style={[styles.demoButtonText, { 
             color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
           }]}>
-            {hasStoredSchedules ? '🗑️ Clear Offline Storage' : '🧪 Test Offline Storage'}
+            {hasStoredSchedules ? '🗑️ Wipe Schedule Data' : '🧪 Test Offline Storage'}
           </Text>
         </TouchableOpacity>
 
