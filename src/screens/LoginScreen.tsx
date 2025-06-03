@@ -1082,7 +1082,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 // First check if this is a Cognos automation message
                 if (parsedMessage.type && parsedMessage.type.startsWith('cognos_') || 
                     ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
-                     'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error'].includes(parsedMessage.type)) {
+                      'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error'].includes(parsedMessage.type)) {
                   automation.handleWebViewMessage(parsedMessage);
                   return;
                 }
@@ -1111,7 +1111,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         },
                         {
                           text: 'Close & Auto-Sync',
-                            onPress: () => {
+                          onPress: () => {
                             console.log('🔄 [AUTH] Starting auto-sync after WebView capture...');
                             onLoginSuccess();
                           },
@@ -1119,19 +1119,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       ],
                     );
                   } else {
-                        Alert.alert(
+                    Alert.alert(
                       'No Session Found',
                       'Could not find valid session cookies. Please ensure you are logged in to the system.',
-                        [{ text: 'OK' }],
-                      );
-                    }
-                } else if (parsedMessage.type === 'manual_extraction_error') {
-                  console.log('❌ [WEBVIEW] Manual extraction error:', parsedMessage.error);
-                      Alert.alert(
-                    'Session Capture Failed',
-                    `Could not capture session: ${parsedMessage.error}\n\nThis may happen if you haven't logged in yet or if there are browser security restrictions.`,
                       [{ text: 'OK' }],
                     );
+                  }
+                } else if (parsedMessage.type === 'manual_extraction_error') {
+                  console.log('❌ [WEBVIEW] Manual extraction error:', parsedMessage.error);
+                  Alert.alert(
+                    'Session Capture Failed',
+                    `Could not capture session: ${parsedMessage.error}\n\nThis may happen if you haven't logged in yet or if there are browser security restrictions.`,
+                    [{ text: 'OK' }],
+                  );
                 
                 } else if (parsedMessage.type === 'cognos_js_analysis') {
                   console.log('🧪 [WEBVIEW] Cognos JS analysis received:', parsedMessage.analysis);
@@ -1142,29 +1142,29 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   
                   Alert.alert(
                     'Cognos Analysis Complete! 🧪',
-                    `Interface Analysis:\n\n` +
+                    'Interface Analysis:\n\n' +
                     `📍 URL: ${analysis.url.includes('cognos') ? '✅ Cognos detected' : '❓ Unknown page'}\n` +
                     `🔍 Iframes: ${analysis.totalIframes} found\n` +
                     `📊 Cognos Interface: ${analysis.cognosIframeFound ? '✅ Found' : '❌ Not found'}\n\n` +
-                    `Dropdown Info:\n` +
+                    'Dropdown Info:\n' +
                     `• ${dropdown ? '✅ Found' : '❌ Not found'}${dropdown ? ` (${dropdown.optionsCount} options)` : ''}\n` +
                     `• Current: ${dropdown?.selectedText || 'None'}\n\n` +
-                    `Run Button:\n` +
+                    'Run Button:\n' +
                     `• ${button ? '✅ Found' : '❌ Not found'}${button ? ` ("${button.textContent}")` : ''}\n\n` +
-                    `Environment:\n` +
+                    'Environment:\n' +
                     `• jQuery: ${analysis.jsEnvironment.hasJQuery ? '✅' : '❌'}\n` +
                     `• Ready State: ${analysis.jsEnvironment.documentReadyState}\n\n` +
                     `This interface ${analysis.cognosIframeFound && dropdown && button ? 'is ready for automation! 🚀' : 'may need manual interaction.'}`,
-                    [{ text: 'Great!' }]
+                    [{ text: 'Great!' }],
                   );
                   
                 } else if (parsedMessage.type === 'js_analysis_error') {
                   console.log('❌ [WEBVIEW] JS analysis error:', parsedMessage);
-                      Alert.alert(
+                  Alert.alert(
                     'JS Analysis Error ❌',
                     `Error analyzing Cognos interface: ${parsedMessage.error}`,
-                      [{ text: 'OK' }],
-                    );
+                    [{ text: 'OK' }],
+                  );
                 } else if (parsedMessage.type === 'html_document_dump_error') {
                   console.log('❌ [WEBVIEW] HTML document dump error:', parsedMessage);
                   Alert.alert(
@@ -1180,26 +1180,26 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   const employeeDropdowns = parsedMessage.employeeDropdowns || [];
                   const bestCandidate = parsedMessage.bestCandidate;
                   
-                      Alert.alert(
+                  Alert.alert(
                     'Dropdown Discovery Complete! 🔍',
                     `Found ${parsedMessage.totalDropdowns} total dropdowns:\n\n` +
                     `🎯 Week End Date Candidates: ${weekCandidates.length}\n` +
                     `👤 Employee Dropdowns: ${employeeDropdowns.length}\n\n` +
                     `${bestCandidate ? 
-                      `🏆 Best Week End Date Candidate:\n` +
+                      '🏆 Best Week End Date Candidate:\n' +
                       `• ID: ${bestCandidate.id}\n` +
                       `• Score: ${bestCandidate.weekEndDateScore}/10\n` +
                       `• Options: ${bestCandidate.optionsCount}\n` +
                       `• Current: ${bestCandidate.selectedValue}` :
                       '❌ No clear Week End Date dropdown found'
                     }\n\n` +
-                    `Check console logs for detailed analysis of all dropdowns.`,
-                    [{ text: 'Great!' }]
+                    'Check console logs for detailed analysis of all dropdowns.',
+                    [{ text: 'Great!' }],
                   );
                 
                 } else if (parsedMessage.type === 'dropdown_discovery_error') {
                   console.log('❌ [WEBVIEW] Dropdown discovery error:', parsedMessage.error);
-                      Alert.alert(
+                  Alert.alert(
                     'Dropdown Discovery Failed ❌',
                     `Could not discover dropdowns:\n\n${parsedMessage.error}`,
                     [{ text: 'OK' }],
@@ -1213,18 +1213,18 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   
                   Alert.alert(
                     'HTML Document Dump Complete! 📄',
-                    `Successfully captured page content:\n\n` +
+                    'Successfully captured page content:\n\n' +
                     `🌐 URL: ${parsedMessage.url}\n` +
                     `📄 Title: ${parsedMessage.title || 'No title'}\n\n` +
-                    `📊 Main Document:\n` +
+                    '📊 Main Document:\n' +
                     `• HTML: ${mainDocument?.htmlLength?.toLocaleString() || 0} chars\n` +
                     `• Text: ${mainDocument?.textLength?.toLocaleString() || 0} chars\n\n` +
                     `🖼️ Iframes: ${iframeCount || 0} total\n` +
                     `• Accessible: ${accessibleIframes.length}\n` +
                     `• Blocked: ${(iframeCount || 0) - accessibleIframes.length}\n\n` +
                     `📏 Total HTML Size: ${totalHtmlSize?.toLocaleString() || 0} chars\n\n` +
-                    `All HTML content has been logged to the console for analysis.`,
-                    [{ text: 'Great!' }]
+                    'All HTML content has been logged to the console for analysis.',
+                    [{ text: 'Great!' }],
                   );
                 }
               } catch (parseError) {
@@ -1983,14 +1983,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   style={[
                     styles.scheduleButton,
                     schedule.selected && styles.scheduleButtonSelected,
-                    automation.state.isAutomating && styles.scheduleButtonDisabled
+                    automation.state.isAutomating && styles.scheduleButtonDisabled,
                   ]}
                   onPress={() => automation.automateSchedule(schedule.value)}
                   disabled={automation.state.isAutomating}
                 >
                   <Text style={[
                     styles.scheduleButtonText,
-                    schedule.selected && styles.scheduleButtonTextSelected
+                    schedule.selected && styles.scheduleButtonTextSelected,
                   ]}>
                     {schedule.text}
                   </Text>
@@ -2052,18 +2052,18 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               style={[styles.demoButton, { 
                 borderColor: COLORS.primary, 
                 backgroundColor: automation.state.isAutomating ? COLORS.textSecondary : 'transparent',
-                marginTop: SPACING.md 
+                marginTop: SPACING.md, 
               }]}
               onPress={automation.testMultiWeekAutomation}
               disabled={automation.state.isAutomating}
             >
               <Text style={[styles.demoButtonText, { 
                 color: automation.state.isAutomating ? COLORS.white : COLORS.primary,
-                fontWeight: 'bold'
+                fontWeight: 'bold',
               }]}>
                 {automation.state.isAutomating ? '🔄 Testing...' : '🧪 Multi-Week Automation Test'}
-          </Text>
-        </TouchableOpacity> 
+              </Text>
+            </TouchableOpacity> 
           </View>
         )}
 
