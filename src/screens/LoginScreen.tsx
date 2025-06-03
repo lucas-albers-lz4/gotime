@@ -1973,16 +1973,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.primary, marginBottom: SPACING.md }]} 
-          onPress={automation.loadInitialSchedule}
-          disabled={automation.state.isAutomating}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.primary }]}>
-            {automation.state.isAutomating ? '🔄 Loading...' : '🚀 Load Initial Schedule'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
           style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 
           onPress={automation.analyzeInterface}
           disabled={automation.state.isAnalyzing}
