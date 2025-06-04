@@ -468,7 +468,10 @@ export class CognosAutomationService {
           // Capture the full HTML for proper parsing
           const currentHtml = cognosDoc.documentElement.outerHTML;
           
-          window.ReactNativeWebView.postMessage(JSON.stringify({
+          console.log('📊 [COGNOS-EXTRACT] Captured HTML content, length:', currentHtml ? currentHtml.length : 0);
+          
+          // Make sure we're sending a properly formatted message with HTML content
+          const message = {
             type: 'schedule_data_extracted',
             success: true,
             scheduleData: scheduleData,
@@ -476,7 +479,18 @@ export class CognosAutomationService {
             tableCount: tables.length,
             currentHtml: currentHtml, // Include the full HTML for proper parsing
             message: 'Schedule data extracted successfully'
-          }));
+          };
+          
+          // Verify html content is included
+          if (!currentHtml) {
+            console.warn('⚠️ [COGNOS-EXTRACT] Warning: No HTML content captured for import');
+          } else if (currentHtml.length < 100) {
+            console.warn('⚠️ [COGNOS-EXTRACT] Warning: HTML content too small:', currentHtml.length, 'characters');
+          } else {
+            console.log('✅ [COGNOS-EXTRACT] HTML content ready for import:', currentHtml.length, 'characters');
+          }
+          
+          window.ReactNativeWebView.postMessage(JSON.stringify(message));
           
         } catch (error) {
           console.error('📊 [COGNOS-EXTRACT] Error:', error);
