@@ -12,6 +12,8 @@ export interface AutomationState {
   availableSchedules: ScheduleOption[];
   error: string | null;
   currentHtml?: string;
+  importCompleted?: boolean;
+  isExportFlow?: boolean;
 }
 
 // Define a base type for WebView messages handled by this hook
@@ -55,7 +57,9 @@ export interface CognosAutomationHook {
   automateSchedule: (scheduleValue: string) => Promise<void>;
   testMultiWeekAutomation: () => Promise<void>;
   importSchedule: () => Promise<void>;
+  exportSchedule: () => Promise<void>;
   resetState: () => void;
+  resetImportCompletedFlag: () => void;
   handleWebViewMessage: (messageData: AutomationWebViewMessage) => void;
 }
 
@@ -67,6 +71,8 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     analysis: null,
     availableSchedules: [],
     error: null,
+    importCompleted: false,
+    isExportFlow: false,
   });
 
   const resetState = useCallback(() => {
@@ -77,6 +83,8 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       analysis: null,
       availableSchedules: [],
       error: null,
+      importCompleted: false,
+      isExportFlow: false,
     });
   }, []);
 
@@ -303,6 +311,8 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
   // New function to import the current schedule data
   const importSchedule = useCallback(async () => {
     try {
+      console.log('🔄 [AUTOMATION] Import schedule called. Export flow:', state.isExportFlow ? 'Yes' : 'No');
+      
       if (!state.currentHtml) {
         Alert.alert(
           'Import Failed ❌',
@@ -328,6 +338,8 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
           ...prev,
           isAutomating: false,
           currentStep: null,
+          importCompleted: true,
+          isExportFlow: false, // Reset export flow flag after successful import
         }));
 
         Alert.alert(
@@ -341,6 +353,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
           isAutomating: false,
           error: 'Failed to parse or save schedule',
           currentStep: null,
+          isExportFlow: false, // Reset export flow flag on failure too
         }));
 
         Alert.alert(
@@ -356,6 +369,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         isAutomating: false,
         error: (error as Error).message,
         currentStep: null,
+        isExportFlow: false, // Reset export flow flag on error
       }));
 
       Alert.alert(
@@ -365,6 +379,42 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       );
     }
   }, [state.currentHtml]);
+
+  // New function to export schedule - combines extractData and importSchedule
+  const exportSchedule = useCallback(async () => {
+    if (!webViewRef.current) {
+      Alert.alert('Error', 'WebView not ready');
+      return;
+    }
+
+    setState(prev => ({ 
+      ...prev, 
+      isAutomating: true, 
+      error: null,
+      currentStep: 'Exporting schedule (step 1/2): Extracting data...',
+      isExportFlow: true, // Set the dedicated export flow flag
+    }));
+
+    try {
+      // Step 1: Extract data
+      const script = CognosAutomationService.generateExtractDataScript();
+      webViewRef.current.injectJavaScript(script);
+      
+      // The handleWebViewMessage function will receive the extracted HTML
+      // and update state.currentHtml, then we'll process the import
+      // This is handled in the 'extract_data_complete' case of the switch statement
+    } catch (error) {
+      console.error('❌ [AUTOMATION] Error in export schedule:', error);
+      setState(prev => ({ 
+        ...prev, 
+        isAutomating: false, 
+        error: 'Export schedule failed',
+        currentStep: null,
+        isExportFlow: false, // Reset the flag on error
+      }));
+      Alert.alert('Error', 'Export schedule failed');
+    }
+  }, [webViewRef]);
 
   // Handler for WebView messages - this should be called from the parent component
   const handleWebViewMessage = useCallback((messageData: AutomationWebViewMessage) => {
@@ -503,23 +553,48 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     }
     case 'schedule_data_extracted': {
       console.log('✅ [AUTOMATION] Schedule data extracted:', messageData.scheduleData);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-        // Store the HTML from the current page for later import
-        currentHtml: messageData.currentHtml as string || prev.currentHtml,
-      }));
+      
+      // Store the HTML from the current page for later import
+      const extractedHtml = messageData.currentHtml as string;
+      
+      // Check if we're in the export flow using the dedicated flag
+      const isInExportFlow = state.isExportFlow === true;
+      console.log('✅ [AUTOMATION] Export flow check:', isInExportFlow ? 'In export flow' : 'Regular extraction');
+      
+      setState(prev => {
+        // Keep the export flow state during update
+        const inExportFlow = prev.isExportFlow === true;
         
-      Alert.alert(
-        'Data Extraction Complete! 🎉',
-        'Successfully extracted schedule data:\n\n' +
-          `• ${messageData.scheduleData?.totalRows || 0} rows of data\n` +
-          `• ${messageData.scheduleData?.tableCount || 0} tables found\n\n` +
-          'You can now import this schedule data.',
-        [{ text: 'Great!' }],
-      );
+        return {
+          ...prev,
+          isAutomating: inExportFlow, // Keep automating if in export flow
+          currentStep: inExportFlow ? 'Exporting schedule (step 2/2): Importing data...' : null,
+          error: null,
+          currentHtml: extractedHtml || prev.currentHtml,
+          // Don't reset isExportFlow here to maintain the flow state
+        };
+      });
+      
+      // Check if this is part of an export flow
+      if (isInExportFlow) {
+        console.log('✅ [AUTOMATION] Continuing with export flow, proceeding to import...');
+        // If we're in an export flow, continue to step 2 (import)
+        // Need to use setTimeout to ensure state is updated before proceeding
+        global.setTimeout(() => {
+          console.log('✅ [AUTOMATION] Starting import as part of export flow');
+          importSchedule();
+        }, 500);
+      } else {
+        // Regular extraction flow - show standard alert
+        Alert.alert(
+          'Data Extraction Complete! 🎉',
+          'Successfully extracted schedule data:\n\n' +
+            `• ${messageData.scheduleData?.totalRows || 0} rows of data\n` +
+            `• ${messageData.scheduleData?.tableCount || 0} tables found\n\n` +
+            'You can now import this schedule data.',
+          [{ text: 'Great!' }],
+        );
+      }
       break;
     }
     case 'schedule_extraction_error': {
@@ -667,7 +742,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       Alert.alert(
         'Login Form 2 Analysis Complete! 🔐',
         'Successfully analyzed login form:\n\n' +
-          `📍 URL: ${(loginSummary?.url || '').includes('bireport') ? '✅ Cognos BI page' : '❓ Other page'}\n` +
+          `📍 URL: ${typeof (loginSummary?.url) === 'string' && (loginSummary.url).includes('bireport') ? '✅ Cognos BI page' : '❓ Other page'}\n` +
           `🔐 Is Login Form 2: ${messageData.isLoginForm2 ? '✅ Yes' : '❌ No'}\n` +
           `📝 Input Fields: ${loginSummary?.inputCount || 0}\n` +
           `📋 Forms: ${loginSummary?.formCount || 0}\n` +
@@ -785,7 +860,15 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     default:
       console.log('ℹ️ [AUTOMATION] Unhandled message type:', messageData.type);
     }
-  }, [runReport, extractData]);
+  }, [runReport, extractData, importSchedule]);
+
+  const resetImportCompletedFlag = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      importCompleted: false,
+    }));
+    console.log('🔄 [AUTOMATION] Reset import completed flag');
+  }, []);
 
   return {
     state,
@@ -798,7 +881,9 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     automateSchedule,
     testMultiWeekAutomation,
     importSchedule,
+    exportSchedule,
     resetState,
+    resetImportCompletedFlag,
     handleWebViewMessage,
   };
 }

@@ -59,21 +59,61 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   // Check for stored schedules on component mount
   useEffect(() => {
+    setLastCheckTime(Date.now()); // Initialize the last check time
     checkStoredSchedules();
   }, []);
 
+  // Add effect to check stored schedules when automation state changes
+  useEffect(() => {
+    // If automation just completed a schedule import successfully
+    if (automation.state.importCompleted) {
+      // Add a small delay to prevent race conditions
+      const timer = global.setTimeout(() => {
+        console.log('🔄 [LOGIN] Import completed flag detected, checking stored schedules...');
+        checkStoredSchedules();
+        // Reset the flag to avoid repeated checks
+        automation.resetImportCompletedFlag();
+      }, 300);
+      
+      return () => global.clearTimeout(timer);
+    }
+  }, [automation.state.importCompleted]);
+
+  // Create a debounced storage check to avoid repetitive checks
+  const [lastCheckTime, setLastCheckTime] = useState<number>(0);
+  
   const checkStoredSchedules = async () => {
     try {
+      // Implement debouncing to prevent excessive checks
+      const now = Date.now();
+      const timeSinceLastCheck = now - lastCheckTime;
+      const minimumInterval = 2000; // 2 seconds minimum between checks
+      
+      if (timeSinceLastCheck < minimumInterval) {
+        console.log('🛑 [LOGIN] Skipping redundant storage check (last check was', 
+          Math.round(timeSinceLastCheck), 'ms ago)');
+        return;
+      }
+      
+      console.log('📊 [LOGIN] Checking stored schedules...');
+      setLastCheckTime(now);
+      
       const stats = await scheduleService.getStorageStats();
       setHasStoredSchedules(stats.totalSchedules > 0);
+      console.log('📊 [LOGIN] Storage check complete:', 
+        stats.totalSchedules > 0 ? `Found ${stats.totalSchedules} schedules` : 'No stored schedules');
     } catch (error) {
-      console.error('Error checking stored schedules:', error);
-      setHasStoredSchedules(false);
+      console.error('❌ [LOGIN] Error checking stored schedules:', error);
+      // Don't update state on error to avoid triggering re-renders
+      // If we previously determined there are schedules, maintain that state
     }
   };
 
   const toggleOfflineStorage = async () => {
     try {
+      // Reset the debounce timer to ensure this operation always runs
+      setLastCheckTime(0);
+      
       if (hasStoredSchedules) {
         // Clear stored schedules
         console.log('🗑️ [UI] Clearing offline storage...');
@@ -654,6 +694,146 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 console.log('  - Username value set:', usernameField.value === employeeId);
                 console.log('  - Password value set:', passwordField.value === password);
                 console.log('  - Form type:', isCarbonForm ? 'Carbon Design System' : 'Standard');
+                
+                // Auto click the Sign In button for Login Form 1 (not for Login Form 2)
+                if (!isLoginForm2) {
+                  console.log('🔑 [CREDENTIALS] This is Login Form 1, attempting to click Sign In button...');
+                  
+                  // Find the Submit/Sign In button
+                  const loginButtons = [
+                    document.querySelector('button[type="submit"]'),
+                    document.querySelector('input[type="submit"]'),
+                    document.querySelector('button.login-button'),
+                    document.querySelector('button[id*="login"]'),
+                    document.querySelector('a.button[title="Sign In"]'), // Specific selector for this form
+                    document.querySelector('a[onclick*="postOk"]'), // Anchor with postOk function
+                    ...Array.from(document.querySelectorAll('a')).filter(link => 
+                      link.textContent && 
+                      (link.textContent.trim() === 'Sign In' || 
+                       link.textContent.toLowerCase().includes('sign in')) &&
+                      (link.onclick || link.getAttribute('onclick'))
+                    ),
+                    ...Array.from(document.querySelectorAll('button')).filter(btn => 
+                      btn.textContent && 
+                      (btn.textContent.toLowerCase().includes('sign in') || 
+                       btn.textContent.toLowerCase().includes('login') || 
+                       btn.textContent.toLowerCase().includes('log in'))
+                    ),
+                    ...Array.from(document.querySelectorAll('input[type="button"]')).filter(btn => 
+                      btn.value && 
+                      (btn.value.toLowerCase().includes('sign in') || 
+                       btn.value.toLowerCase().includes('login') || 
+                       btn.value.toLowerCase().includes('log in'))
+                    )
+                  ].filter(Boolean)[0]; // Get first matching button
+                  
+                  if (loginButtons) {
+                    console.log('🔑 [CREDENTIALS] Found Sign In button:', 
+                      loginButtons.tagName, 
+                      loginButtons.type, 
+                      loginButtons.textContent || loginButtons.value,
+                      'onclick:', loginButtons.getAttribute ? loginButtons.getAttribute('onclick') : 'N/A'
+                    );
+                    
+                    console.log('🔑 [CREDENTIALS] Button details:', {
+                      tagName: loginButtons.tagName,
+                      id: loginButtons.id || 'none',
+                      className: loginButtons.className || 'none',
+                      type: loginButtons.type || 'none',
+                      text: loginButtons.textContent ? loginButtons.textContent.trim() : 'none',
+                      value: loginButtons.value || 'none',
+                      visible: loginButtons.offsetParent !== null,
+                      hasOnClick: !!loginButtons.onclick || !!(loginButtons.getAttribute && loginButtons.getAttribute('onclick'))
+                    });
+                    
+                    // Focus and click the button
+                    loginButtons.focus();
+                    console.log('🔑 [CREDENTIALS] Button focused, will click in 500ms');
+                    
+                    setTimeout(() => {
+                      console.log('🔑 [CREDENTIALS] Clicking Sign In button...');
+                      
+                      // Try different approaches based on the element type
+                      if (loginButtons.tagName === 'A' && loginButtons.getAttribute('onclick')) {
+                        // For anchor tags with onclick handlers, try to directly call the postOk function
+                        console.log('🔑 [CREDENTIALS] Detected anchor with onclick, trying direct function call...');
+                        
+                        console.log('🔑 [CREDENTIALS] Step 1: Regular click on anchor element');
+                        // First try clicking the element
+                        loginButtons.click();
+                        
+                        // If that doesn't work, try to call postOk directly
+                        try {
+                          console.log('🔑 [CREDENTIALS] Step 2: Attempting to call postOk() directly...');
+                          // Try to eval the onclick content or call postOk function directly
+                          if (typeof window.postOk === 'function') {
+                            console.log('🔑 [CREDENTIALS] Found global postOk function, calling directly');
+                            window.postOk();
+                          } else if (loginButtons.getAttribute('onclick').includes('postOk')) {
+                            // Try to execute the onclick content
+                            console.log('🔑 [CREDENTIALS] Evaluating onclick attribute:', loginButtons.getAttribute('onclick'));
+                            eval(loginButtons.getAttribute('onclick'));
+                          }
+                          console.log('🔑 [CREDENTIALS] Direct function call complete');
+                        } catch (e) {
+                          console.log('🔑 [CREDENTIALS] Direct function call failed:', e);
+                          // Fallback to alternative submit approach
+                          const form = document.querySelector('form');
+                          if (form && typeof form.submit === 'function') {
+                            console.log('🔑 [CREDENTIALS] Step 3: Falling back to form.submit()...');
+                            
+                            // Set the pf.ok value if needed
+                            const pfOkField = form.querySelector('input[name="pf.ok"]');
+                            if (pfOkField) {
+                              pfOkField.value = 'clicked';
+                              console.log('🔑 [CREDENTIALS] Set pf.ok field value to "clicked"');
+                            }
+                            
+                            console.log('🔑 [CREDENTIALS] Submitting form directly');
+                            form.submit();
+                            console.log('🔑 [CREDENTIALS] Form submission complete');
+                          }
+                        }
+                      } else {
+                        // Standard approach for buttons
+                        console.log('🔑 [CREDENTIALS] Using standard button click approach');
+                        loginButtons.click();
+                        
+                        // Dispatch additional events to ensure the click is registered
+                        console.log('🔑 [CREDENTIALS] Dispatching additional events');
+                        loginButtons.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                        loginButtons.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                        loginButtons.dispatchEvent(new Event('click', { bubbles: true }));
+                        console.log('🔑 [CREDENTIALS] All click events dispatched');
+                      }
+                      
+                      console.log('🔑 [CREDENTIALS] Sign In button click sequence completed');
+                      
+                      // Log form submission attempt
+                      setTimeout(() => {
+                        console.log('🔑 [CREDENTIALS] Form submission status check (after 1s):');
+                        try {
+                          const forms = document.querySelectorAll('form');
+                          console.log('🔑 [CREDENTIALS] Forms on page: ' + forms.length);
+                          
+                          if (forms.length > 0) {
+                            console.log('🔑 [CREDENTIALS] First form still present on page - might indicate submission issue');
+                          } else {
+                            console.log('🔑 [CREDENTIALS] No forms found - may indicate successful submission');
+                          }
+                          
+                          console.log('🔑 [CREDENTIALS] Current URL:', window.location.href);
+                        } catch (e) {
+                          console.log('🔑 [CREDENTIALS] Error checking form status:', e);
+                        }
+                      }, 1000);
+                    }, 500);
+                  } else {
+                    console.log('🔑 [CREDENTIALS] Could not find Sign In button');
+                  }
+                } else {
+                  console.log('🔑 [CREDENTIALS] This is Login Form 2, NOT auto-clicking any buttons');
+                }
                 
                 window.ReactNativeWebView.postMessage(JSON.stringify({
                   type: 'credentials_filled',
@@ -1966,6 +2146,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               </View>
               
               <View style={styles.manualButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.manualButton, { borderColor: COLORS.primary }]}
+                  onPress={automation.exportSchedule}
+                  disabled={automation.state.isAutomating}
+                >
+                  <Text style={[styles.manualButtonText, { color: COLORS.primary }]}>
+                    📤 Export Schedule
+                  </Text>
+                </TouchableOpacity>
+                
                 <TouchableOpacity
                   style={[styles.manualButton, { borderColor: COLORS.success }]}
                   onPress={automation.importSchedule}
