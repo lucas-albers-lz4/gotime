@@ -47,9 +47,21 @@
     <dict>
       <key>NSAllowsArbitraryLoads</key>
       <false/>
-      <key>NSAllowsLocalNetworking</key>
-      <true/>
+      <key>NSExceptionDomains</key>
+      <dict>
+        <key>costco.com</key>
+        <dict>
+          <key>NSExceptionAllowsInsecureHTTPLoads</key>
+          <false/>
+          <key>NSExceptionMinimumTLSVersion</key>
+          <string>1.2</string>
+        </dict>
+      </dict>
     </dict>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Use Face ID to securely access your stored credentials.</string>
+    <key>NSUserNotificationUsageDescription</key>
+    <string>This app sends notifications to remind you of upcoming work shifts.</string>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>
