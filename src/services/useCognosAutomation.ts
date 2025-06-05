@@ -62,6 +62,7 @@ export interface CognosAutomationHook {
   resetState: () => void;
   resetImportCompletedFlag: () => void;
   handleWebViewMessage: (messageData: AutomationWebViewMessage) => Promise<void>;
+  inspectLoginForm: () => Promise<void>;
 }
 
 export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>): CognosAutomationHook {
@@ -251,6 +252,30 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         ...prev,
         isAutomating: false,
         error: 'Failed to inject HTML dump script',
+        currentStep: null,
+      }));
+    }
+  }, []);
+
+  const inspectLoginForm = useCallback(async () => {
+    if (!webViewRef.current) {
+      Alert.alert('Error', 'WebView not ready');
+      return;
+    }
+
+    try {
+      setState(prev => ({ ...prev, isAutomating: true, currentStep: 'Inspecting login form...' }));
+      
+      const loginFormScript = CognosAutomationService.generateLoginForm2DumpScript();
+      webViewRef.current.injectJavaScript(loginFormScript);
+      
+      console.log('🔍 [AUTOMATION] Injected login form inspection script');
+    } catch (error) {
+      console.error('❌ [AUTOMATION] Error inspecting login form:', error);
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: 'Failed to inspect login form',
         currentStep: null,
       }));
     }
@@ -1118,7 +1143,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'login_form_2_dump_complete': {
-      console.log('🔐 [AUTOMATION] Login Form 2 dump complete:', trackedMessage.summary);
+      console.log('🔍 [AUTOMATION] Login form inspection complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -1126,23 +1151,22 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const loginSummary = trackedMessage.summary;
+      const loginFormSummary = trackedMessage.summary;
       Alert.alert(
-        'Login Form 2 Analysis Complete! 🔐',
+        'Login Form Inspection Complete! 🔍',
         'Successfully analyzed login form:\n\n' +
-          `📍 URL: ${typeof (loginSummary?.url) === 'string' && (loginSummary.url).includes('bireport') ? '✅ Cognos BI page' : '❓ Other page'}\n` +
-          `🔐 Is Login Form 2: ${trackedMessage.isLoginForm2 ? '✅ Yes' : '❌ No'}\n` +
-          `📝 Input Fields: ${loginSummary?.inputCount || 0}\n` +
-          `📋 Forms: ${loginSummary?.formCount || 0}\n` +
-          `🔘 Buttons: ${loginSummary?.buttonCount || 0}\n` +
-          `📜 Validation Scripts: ${loginSummary?.validationScriptCount || 0}\n\n` +
-          'Check console logs for detailed field validation states and HTML structure.',
+          `📍 URL: ${loginFormSummary?.url || 'N/A'}\n` +
+          `📋 Input Fields: ${loginFormSummary?.inputCount || 0}\n` +
+          `📃 Forms: ${loginFormSummary?.formCount || 0}\n` +
+          `🔘 Buttons: ${loginFormSummary?.buttonCount || 0}\n` +
+          `🔐 Validation Scripts: ${loginFormSummary?.validationScriptCount || 0}\n\n` +
+          'Check console logs for detailed validation logic analysis.',
         [{ text: 'Great!' }],
       );
       break;
     }
     case 'login_form_2_dump_error': {
-      console.log('❌ [AUTOMATION] Login Form 2 dump error:', trackedMessage.error);
+      console.log('❌ [AUTOMATION] Login form inspection error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -1151,7 +1175,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       }));
         
       Alert.alert(
-        'Login Form 2 Analysis Failed ❌',
+        'Login Form Inspection Failed ❌',
         `Could not analyze login form:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
@@ -1293,5 +1317,6 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     resetState,
     resetImportCompletedFlag,
     handleWebViewMessage,
+    inspectLoginForm
   };
 }
