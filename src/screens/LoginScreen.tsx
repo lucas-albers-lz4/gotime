@@ -1191,7 +1191,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 // First check if this is a Cognos automation message
                 if (parsedMessage.type && parsedMessage.type.startsWith('cognos_') || 
                     ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
-                      'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error'].includes(parsedMessage.type)) {
+                     'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
+                     'multi_week_test_complete', 'multi_week_test_progress', 'multi_week_test_error'].includes(parsedMessage.type)) {
+                  console.log('🤖 [WEBVIEW] Routing message to Cognos automation handler:', parsedMessage.type);
                   automation.handleWebViewMessage(parsedMessage);
                   return;
                 }
@@ -1381,234 +1383,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         >
           <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
             🔑 Fill Login Credentials
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🔍 [UI] Dropdown Discovery - Finding all select elements...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not ready'); 
-              return;
-            }
-            try {
-              const { CognosAutomationService } = await import('../services/CognosAutomationService');
-              const dropdownDiscoveryScript = CognosAutomationService.generateDropdownDiscoveryScript();
-              webViewRef.current.injectJavaScript(dropdownDiscoveryScript);
-            } catch (error) {
-              console.error('❌ [UI] Error injecting dropdown discovery script:', error);
-              Alert.alert('Error', 'Failed to inject dropdown discovery script');
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
-            🔍 Discover All Dropdowns
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🔍 [UI] Diagnose Elements - Analyzing current page...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not ready'); 
-              return;
-            }
-            try {
-              const diagnoseElementsScript = `
-              (function() { 
-                try { 
-                  console.log('🔍 [DIAGNOSE] Starting element analysis...');
-                  
-                  // Main document analysis
-                  console.log('🔍 [DIAGNOSE] === MAIN DOCUMENT ===');
-                  console.log('URL:', window.location.href);
-                  console.log('Title:', document.title);
-                  console.log('Ready state:', document.readyState);
-                  
-                  const mainSelects = document.querySelectorAll('select');
-                  const mainButtons = document.querySelectorAll('button, input[type="submit"], input[type="button"]');
-                  
-                  console.log('Main document selects:', mainSelects.length);
-                  console.log('Main document buttons:', mainButtons.length);
-                  
-                  // Iframe analysis
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('🔍 [DIAGNOSE] === IFRAMES ===');
-                  console.log('Total iframes found:', allIframes.length);
-                  
-                  const iframeResults = [];
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    const iframeInfo = {
-                      index: i,
-                      src: iframe.src || '',
-                      id: iframe.id || '',
-                      name: iframe.name || '',
-                      accessible: false,
-                      cognosScore: 0,
-                      selectCount: 0,
-                      buttonCount: 0,
-                      selects: [],
-                      buttons: [],
-                      error: null
-                    };
-                    
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        iframeInfo.accessible = true;
-                        const iframeDoc = iframe.contentDocument;
-                        const iframeUrl = iframe.contentWindow.location.href;
-                        const iframeTitle = iframeDoc.title;
-                        
-                        console.log(\`🔍 [IFRAME-\${i}] Accessible - URL: \${iframeUrl}\`);
-                        console.log(\`🔍 [IFRAME-\${i}] Title: \${iframeTitle}\`);
-                        
-                        // Calculate Cognos score
-                        const content = iframeDoc.documentElement.outerHTML;
-                        if (content.includes('Week End Date')) iframeInfo.cognosScore += 2;
-                        if (content.includes('IBM Cognos')) iframeInfo.cognosScore += 2;
-                        if (content.includes('Schedule')) iframeInfo.cognosScore += 1;
-                        if (content.includes('PRMT_SV_')) iframeInfo.cognosScore += 1;
-                        if (content.includes('_oLstChoices')) iframeInfo.cognosScore += 2;
-                        
-                        console.log(\`🔍 [IFRAME-\${i}] Cognos score: \${iframeInfo.cognosScore}/8\`);
-                        
-                        // Find all selects in iframe
-                        const iframeSelects = iframeDoc.querySelectorAll('select');
-                        iframeInfo.selectCount = iframeSelects.length;
-                        
-                        console.log(\`🔍 [IFRAME-\${i}] Found \${iframeSelects.length} select elements\`);
-                        
-                        for (let j = 0; j < iframeSelects.length; j++) {
-                          const select = iframeSelects[j];
-                          const selectInfo = {
-                            index: j,
-                            id: select.id || '',
-                            name: select.name || '',
-                            className: select.className || '',
-                            optionsCount: select.options.length,
-                            selectedIndex: select.selectedIndex,
-                            value: select.value,
-                            visible: select.offsetParent !== null,
-                            options: []
-                          };
-                          
-                          // Get first few options
-                          for (let k = 0; k < Math.min(select.options.length, 5); k++) {
-                            const option = select.options[k];
-                            selectInfo.options.push({
-                              value: option.value,
-                              text: option.text,
-                              selected: option.selected
-                            });
-                          }
-                          
-                          iframeInfo.selects.push(selectInfo);
-                          
-                          console.log(\`🔍 [SELECT-\${j}] ID: "\${selectInfo.id}", Name: "\${selectInfo.name}", Options: \${selectInfo.optionsCount}, Visible: \${selectInfo.visible}\`);
-                          if (selectInfo.options.length > 0) {
-                            console.log(\`🔍 [SELECT-\${j}] First option: "\${selectInfo.options[0].text}" (value: "\${selectInfo.options[0].value}")\`);
-                          }
-                        }
-                        
-                        // Find all buttons/inputs in iframe
-                        const iframeButtons = iframeDoc.querySelectorAll('button, input[type="submit"], input[type="button"]');
-                        iframeInfo.buttonCount = iframeButtons.length;
-                        
-                        console.log(\`🔍 [IFRAME-\${i}] Found \${iframeButtons.length} button elements\`);
-                        
-                        for (let j = 0; j < iframeButtons.length; j++) {
-                          const button = iframeButtons[j];
-                          const buttonInfo = {
-                            index: j,
-                            id: button.id || '',
-                            name: button.name || '',
-                            className: button.className || '',
-                            type: button.type || button.tagName,
-                            value: button.value || '',
-                            textContent: (button.textContent || '').trim(),
-                            visible: button.offsetParent !== null,
-                            disabled: button.disabled
-                          };
-                          
-                          iframeInfo.buttons.push(buttonInfo);
-                          
-                          console.log(\`🔍 [BUTTON-\${j}] ID: "\${buttonInfo.id}", Type: "\${buttonInfo.type}", Value: "\${buttonInfo.value}", Text: "\${buttonInfo.textContent}", Visible: \${buttonInfo.visible}\`);
-                        }
-                        
-                      } else {
-                        iframeInfo.error = 'Cross-origin access blocked';
-                        console.log(\`❌ [IFRAME-\${i}] Cross-origin blocked\`);
-                      }
-                    } catch (e) {
-                      iframeInfo.error = e.message;
-                      console.log(\`❌ [IFRAME-\${i}] Error: \${e.message}\`);
-                    }
-                    
-                    iframeResults.push(iframeInfo);
-                  }
-                  
-                  // Find the best Cognos candidate
-                  const cognosCandidates = iframeResults.filter(iframe => iframe.accessible && iframe.cognosScore > 0);
-                  cognosCandidates.sort((a, b) => b.cognosScore - a.cognosScore);
-                  
-                  console.log('🔍 [DIAGNOSE] === SUMMARY ===');
-                  console.log('Total accessible iframes:', iframeResults.filter(i => i.accessible).length);
-                  console.log('Cognos candidates:', cognosCandidates.length);
-                  
-                  if (cognosCandidates.length > 0) {
-                    const best = cognosCandidates[0];
-                    console.log('Best Cognos candidate:');
-                    console.log('  - Iframe index:', best.index);
-                    console.log('  - Cognos score:', best.cognosScore);
-                    console.log('  - Select elements:', best.selectCount);
-                    console.log('  - Button elements:', best.buttonCount);
-                    
-                    if (best.selects.length > 0) {
-                      console.log('  - Primary select:', best.selects[0].id || best.selects[0].name);
-                    }
-                    if (best.buttons.length > 0) {
-                      console.log('  - Primary button:', best.buttons[0].id || best.buttons[0].value || best.buttons[0].textContent);
-                    }
-                  }
-                  
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'element_diagnosis_complete',
-                    url: window.location.href,
-                    title: document.title,
-                    mainDocument: {
-                      selectCount: mainSelects.length,
-                      buttonCount: mainButtons.length
-                    },
-                    iframes: iframeResults,
-                    cognosCandidates: cognosCandidates,
-                    bestCandidate: cognosCandidates.length > 0 ? cognosCandidates[0] : null,
-                    recommendations: cognosCandidates.length > 0 ? 
-                      'Found Cognos iframe - check console for element details' : 
-                      'No Cognos iframe found - check if you are on the correct page'
-                  }));
-                  
-                } catch (error) {
-                  console.error('🔍 [DIAGNOSE] Error:', error);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'element_diagnosis_error',
-                    error: error.message
-                  }));
-                }
-              })();`;
-              
-              webViewRef.current.injectJavaScript(diagnoseElementsScript);
-            } catch (error) {
-              console.error('❌ [UI] Error injecting diagnose script:', error);
-              Alert.alert('Error', 'Failed to inject diagnose script');
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.warning }]}>
-            🔍 Diagnose Elements
           </Text>
         </TouchableOpacity>
 
@@ -2136,34 +1910,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 </TouchableOpacity>
                 
                 <TouchableOpacity
-                  style={[styles.manualButton, { borderColor: COLORS.info }]}
-                  onPress={automation.extractData}
-                  disabled={automation.state.isAutomating}
-                >
-                  <Text style={[styles.manualButtonText, { color: COLORS.info }]}>
-                    📊 Extract Data
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.manualButtonsRow}>
-                <TouchableOpacity
                   style={[styles.manualButton, { borderColor: COLORS.primary }]}
                   onPress={automation.exportSchedule}
                   disabled={automation.state.isAutomating}
                 >
                   <Text style={[styles.manualButtonText, { color: COLORS.primary }]}>
                     📤 Export Schedule
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[styles.manualButton, { borderColor: COLORS.success }]}
-                  onPress={automation.importSchedule}
-                  disabled={automation.state.isAutomating}
-                >
-                  <Text style={[styles.manualButtonText, { color: COLORS.success }]}>
-                    💾 Import Schedule
                   </Text>
                 </TouchableOpacity>
               </View>

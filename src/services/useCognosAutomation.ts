@@ -75,6 +75,9 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     importCompleted: false,
     exportSessionId: null,
   });
+  
+  // Use a ref to store the safety timeout ID
+  const safetyTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const resetState = useCallback(() => {
     setState({
@@ -288,6 +291,9 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       return;
     }
 
+    console.log('🚀 [AUTOMATION] Starting multi-week automation test...');
+
+    // Reset any previous state
     setState(prev => ({ 
       ...prev, 
       isAutomating: true, 
@@ -296,8 +302,35 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     }));
 
     try {
+      // Set a safety timeout to ensure the test doesn't get stuck in automating state
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+      }
+      
+      safetyTimeoutRef.current = setTimeout(() => {
+        console.warn('⚠️ [AUTOMATION] Safety timeout triggered for multi-week test');
+        setState(prev => {
+          // Only update if we're still automating (to avoid race conditions)
+          if (prev.isAutomating) {
+            return {
+              ...prev,
+              isAutomating: false,
+              error: 'Multi-week test timed out - check console for details',
+              currentStep: null,
+            };
+          }
+          return prev;
+        });
+        safetyTimeoutRef.current = null;
+      }, 60000); // 60 second safety timeout
+
+      // Generate and inject the multi-week test script
       const script = CognosAutomationService.generateMultiWeekAutomationTest();
       webViewRef.current.injectJavaScript(script);
+      
+      console.log('✅ [AUTOMATION] Multi-week test script injected successfully');
+      
+      // Don't return anything from an async function that's typed to return Promise<void>
     } catch (error) {
       console.error('❌ [AUTOMATION] Error injecting multi-week test script:', error);
       setState(prev => ({ 
@@ -784,6 +817,38 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       );
       break;
     }
+    case 'multi_week_test_progress': {
+      console.log('📊 [AUTOMATION] Multi-week test progress update:', messageData.summary);
+      
+      // Only update the current step to show progress
+      if (messageData.currentStep) {
+        setState(prev => {
+          // Don't override if we're no longer in automating state
+          if (!prev.isAutomating) return prev;
+          
+          const summary = messageData.summary as {
+            currentWeekIndex: number;
+            totalWeeksAvailable: number;
+            progress: string;
+          } | undefined;
+          
+          let progressMessage: string;
+          if (summary && typeof summary.currentWeekIndex === 'number' && 
+              typeof summary.totalWeeksAvailable === 'number' &&
+              typeof summary.progress === 'string') {
+            progressMessage = `Processing week ${summary.currentWeekIndex + 1}/${summary.totalWeeksAvailable} (${summary.progress})`;
+          } else {
+            progressMessage = String(messageData.currentStep);
+          }
+            
+          return {
+            ...prev,
+            currentStep: progressMessage,
+          };
+        });
+      }
+      break;
+    }
     case 'html_dump_complete': {
       console.log('📋 [AUTOMATION] HTML dump complete:', messageData.summary);
       setState(prev => ({
@@ -981,33 +1046,91 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     }
     case 'multi_week_test_complete': {
       console.log('✅ [AUTOMATION] Multi-week test complete:', messageData.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
       
-      const summary = messageData.summary;
-      if (summary && typeof summary === 'object') {
-        const conclusiveResult = 'conclusiveResult' in summary ? summary.conclusiveResult : 'Test completed.';
+      // Additional detailed logging for debugging completion issues
+      console.log('📊 [AUTOMATION] Multi-week test detailed results:');
+      console.log('  - Type:', messageData.type);
+      console.log('  - Success flag:', messageData.success);
+      console.log('  - Has summary:', !!messageData.summary);
+      
+      if (messageData.summary) {
+        console.log('  - Weeks processed:', messageData.summary.weeksProcessed);
+        console.log('  - Total weeks available:', messageData.summary.totalWeeksAvailable);
+        console.log('  - Success rate:', messageData.summary.successRate);
+        console.log('  - Test duration:', messageData.summary.testDuration);
+        console.log('  - Errors encountered:', messageData.summary.errorsEncountered);
+        console.log('  - Conclusive result:', messageData.summary.conclusiveResult);
+      }
+      
+      // CRITICAL: Force UI state update with high priority
+      console.log('🔄 [AUTOMATION] Forcing UI state update to exit automation mode...');
+      
+      // Clear any pending automation timers
+      if (safetyTimeoutRef.current) {
+        console.log('⏱️ [AUTOMATION] Clearing existing safety timeout');
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+      
+      // Immediate state update
+      setState(prev => {
+        console.log('🔄 [AUTOMATION] State before update - isAutomating:', prev.isAutomating);
+        return {
+          ...prev,
+          isAutomating: false,
+          currentStep: null,
+          error: null,
+        };
+      });
+      
+      // Double-check state update with slight delay
+      setTimeout(() => {
+        setState(prev => {
+          if (prev.isAutomating) {
+            console.log('⚠️ [AUTOMATION] State still showing automating, forcing update again');
+            return {
+              ...prev,
+              isAutomating: false,
+              currentStep: null,
+            };
+          }
+          return prev;
+        });
+      }, 500);
+      
+      // DEDUPLICATION: Only show alert if we haven't shown one recently
+      // Use a static variable to track the last time we showed an alert
+      const now = Date.now();
+      // @ts-ignore: Adding a static property to the function
+      if (!handleWebViewMessage.lastMultiWeekAlertTime || (now - handleWebViewMessage.lastMultiWeekAlertTime) > 3000) {
+        console.log('🔔 [AUTOMATION] Showing multi-week completion alert');
+        // @ts-ignore: Update the last alert time
+        handleWebViewMessage.lastMultiWeekAlertTime = now;
         
-        Alert.alert(
-          'Multi-Week Test Complete! 🎉',
-          'Automation test results:\n\n' +
-            `• Weeks Processed: ${summary.weeksProcessed || 0} / ${summary.totalWeeksAvailable || 0}\n` +
-            `• Success Rate: ${summary.successRate || '0%'}\n` +
-            `• Test Duration: ${summary.testDuration || 'unknown'}\n` +
-            `• Errors: ${summary.errorsEncountered || 0}\n\n` +
-            conclusiveResult,
-          [{ text: 'Great!' }],
-        );
+        const summary = messageData.summary;
+        if (summary && typeof summary === 'object') {
+          const conclusiveResult = 'conclusiveResult' in summary ? summary.conclusiveResult : 'Test completed.';
+          
+          Alert.alert(
+            'Multi-Week Test Complete! 🎉',
+            'Automation test results:\n\n' +
+              `• Weeks Processed: ${summary.weeksProcessed || 0} / ${summary.totalWeeksAvailable || 0}\n` +
+              `• Success Rate: ${summary.successRate || '0%'}\n` +
+              `• Test Duration: ${summary.testDuration || 'unknown'}\n` +
+              `• Errors: ${summary.errorsEncountered || 0}\n\n` +
+              conclusiveResult,
+            [{ text: 'Great!' }],
+          );
+        } else {
+          console.warn('⚠️ [AUTOMATION] Multi-week test completed but summary data is missing or invalid');
+          Alert.alert(
+            'Multi-Week Test Complete',
+            'Test completed but no detailed results available.',
+            [{ text: 'OK' }],
+          );
+        }
       } else {
-        Alert.alert(
-          'Multi-Week Test Complete',
-          'Test completed but no detailed results available.',
-          [{ text: 'OK' }],
-        );
+        console.log('🔕 [AUTOMATION] Skipping duplicate multi-week completion alert (shown recently)');
       }
       break;
     }

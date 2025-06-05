@@ -580,8 +580,37 @@ export class CognosAutomationService {
             processedWeeks: [],
             errors: [],
             startTime: new Date().toISOString(),
-            currentStep: 'initialization'
+            currentStep: 'initialization',
+            lastProgressUpdate: Date.now()
           };
+          
+          // Report progress periodically to ensure UI is updated
+          function reportProgress(forceUpdate = false) {
+            const now = Date.now();
+            // Only send updates every 2 seconds (unless force update is requested)
+            if (forceUpdate || (now - testState.lastProgressUpdate) > 2000) {
+              console.log('📊 [MULTI-WEEK-TEST] Progress update: Processing week ' + 
+                (testState.currentWeekIndex + 1) + ' of ' + testState.totalWeeks);
+              
+              const progressSummary = {
+                testDuration: Math.round((now - new Date(testState.startTime).getTime()) / 1000) + ' seconds',
+                totalWeeksAvailable: testState.totalWeeks,
+                weeksProcessed: testState.processedWeeks.length,
+                errorsEncountered: testState.errors.length,
+                currentWeekIndex: testState.currentWeekIndex,
+                progress: Math.round((testState.currentWeekIndex / testState.totalWeeks) * 100) + '%',
+                status: 'in_progress'
+              };
+              
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'multi_week_test_progress',
+                summary: progressSummary,
+                currentStep: testState.currentStep
+              }));
+              
+              testState.lastProgressUpdate = now;
+            }
+          }
           
           function findCognosIframe() {
             console.log('🔍 [MULTI-WEEK-TEST] Searching for Cognos iframe...');
@@ -726,10 +755,26 @@ export class CognosAutomationService {
           
           function processNextWeek() {
             console.log('🔄 [MULTI-WEEK-TEST] Processing week ' + (testState.currentWeekIndex + 1) + ' of ' + testState.totalWeeks + '...');
+            testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
+            reportProgress(true); // Force a progress update when starting a new week
             
             const cognosInfo = findCognosIframe();
             if (!cognosInfo) {
-              throw new Error('Cognos iframe lost during processing');
+              const error = new Error('Cognos iframe lost during processing');
+              testState.errors.push({
+                weekIndex: testState.currentWeekIndex,
+                step: 'find_cognos_iframe',
+                error: error.message
+              });
+              
+              // Try to continue with next week
+              testState.currentWeekIndex++;
+              if (testState.currentWeekIndex < testState.totalWeeks) {
+                setTimeout(() => processNextWeek(), 2000);
+              } else {
+                completeTest();
+              }
+              return;
             }
             
             try {
@@ -764,6 +809,7 @@ export class CognosAutomationService {
                   
                   // Move to next week
                   testState.currentWeekIndex++;
+                  reportProgress();
                   
                   if (testState.currentWeekIndex < testState.totalWeeks) {
                     // Wait for page to reload/update, then process next week
@@ -814,6 +860,7 @@ export class CognosAutomationService {
           
           function completeTest() {
             console.log('🎉 [MULTI-WEEK-TEST] Test completed!');
+            testState.currentStep = 'completed';
             
             const endTime = new Date().toISOString();
             const duration = new Date(endTime) - new Date(testState.startTime);
@@ -828,22 +875,37 @@ export class CognosAutomationService {
               errors: testState.errors,
               conclusiveResult: testState.processedWeeks.length >= 2 ? 
                 'SUCCESS: Automation can handle multiple weeks with ID changes' :
-                'PARTIAL: Limited week processing, needs investigation'
+                'PARTIAL: Limited week processing, needs investigation',
+              status: 'completed'
             };
             
             console.log('📊 [MULTI-WEEK-TEST] Final Summary:', summary);
             
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'multi_week_test_complete',
-              success: testState.processedWeeks.length >= 2,
-              summary: summary,
-              detailedResults: {
-                processedWeeks: testState.processedWeeks,
-                errors: testState.errors,
-                testState: testState
-              },
-              message: summary.conclusiveResult
-            }));
+            // Make multiple attempts to send completion message
+            // This ensures the parent gets notified even if there are network/communication issues
+            function sendCompletionMessage() {
+              console.log('📨 [MULTI-WEEK-TEST] Sending completion message...');
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'multi_week_test_complete',
+                success: testState.processedWeeks.length >= 2,
+                summary: summary,
+                detailedResults: {
+                  processedWeeks: testState.processedWeeks,
+                  errors: testState.errors,
+                  testState: testState
+                },
+                message: summary.conclusiveResult
+              }));
+            }
+            
+            // Send immediately
+            sendCompletionMessage();
+            
+            // And also with a slight delay to ensure it goes through
+            setTimeout(sendCompletionMessage, 1000);
+            
+            // And one more time after a longer delay
+            setTimeout(sendCompletionMessage, 3000);
           }
           
           // Start the test
