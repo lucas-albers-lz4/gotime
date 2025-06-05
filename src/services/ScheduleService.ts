@@ -751,6 +751,10 @@ export class ScheduleService {
       let currentShifts: ScheduleShift[] = [];
       let currentDailyHours = 0;
       
+      // Check if we have a Changed On column by looking for the header
+      const hasChangedOnColumn = tableHtml.includes('Changed On</span>');
+      console.log('🔍 [SCHEDULE] Table has Changed On column:', hasChangedOnColumn);
+      
       for (let i = 0; i < rowMatches.length; i++) {
         const row = rowMatches[i];
         
@@ -784,20 +788,24 @@ export class ScheduleService {
         // Look for time patterns in span contents
         const timePattern = /(\d{1,2}:\d{2}\s*[AP]M)/;
         const hourPattern = /^(\d+\.?\d*)$/;
+        const datePattern = /^(\d{1,2}\/\d{1,2}\/\d{4})$/;
         
         const times = spanContents.filter(content => timePattern.test(content));
         const hours = spanContents.filter(content => hourPattern.test(content) && parseFloat(content) > 0 && parseFloat(content) <= 24);
+        const changedOnDates = spanContents.filter(content => datePattern.test(content) && content !== (dateMatch ? dateMatch[1] : ''));
         
         console.log('🔍 [SCHEDULE] Extracted times:', times);
         console.log('🔍 [SCHEDULE] Extracted hours:', hours);
+        console.log('🔍 [SCHEDULE] Possible changed on dates:', changedOnDates);
         
         // Check if this is a data row (has either day name or date with times)
         const hasDay = dayMatch && dayMatch[1];
         const hasDate = dateMatch && dateMatch[1];
         const hasTimes = times.length >= 2;
         const hasHours = hours.length >= 1;
+        const hasChangedOnDate = changedOnDates.length > 0;
         
-        console.log('🔍 [SCHEDULE] Row analysis - hasDay:', hasDay, 'hasDate:', hasDate, 'hasTimes:', hasTimes, 'hasHours:', hasHours);
+        console.log('🔍 [SCHEDULE] Row analysis - hasDay:', hasDay, 'hasDate:', hasDate, 'hasTimes:', hasTimes, 'hasHours:', hasHours, 'hasChangedOnDate:', hasChangedOnDate);
         
         if ((hasDay && hasDate) || (hasDate && hasTimes && hasHours)) {
           dataRowsFound++;
@@ -840,7 +848,14 @@ export class ScheduleService {
             dailyHours = this.safeParseFloat(hours[1]);
           }
           
-          console.log('🔍 [SCHEDULE] Parsed values - Day:', dayName, 'Date:', date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours);
+          // Extract changed on date if present
+          let changedOn: string | undefined = undefined;
+          if (hasChangedOnDate && hasChangedOnColumn) {
+            changedOn = changedOnDates[0];
+            console.log('🔍 [SCHEDULE] Found changed on date:', changedOn);
+          }
+          
+          console.log('🔍 [SCHEDULE] Parsed values - Day:', dayName, 'Date:', date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours, 'Changed On:', changedOn);
           
           // Check if this is a new day or continuation of current day
           if (dayName && dayName !== currentDay) {
@@ -870,8 +885,9 @@ export class ScheduleService {
               startTime,
               endTime,
               shiftHours,
+              changedOn
             });
-            console.log('✅ [SCHEDULE] Added shift:', { startTime, endTime, shiftHours });
+            console.log('✅ [SCHEDULE] Added shift:', { startTime, endTime, shiftHours, changedOn });
           }
           
           // Update daily hours if provided (use the latest non-zero value)
@@ -880,7 +896,7 @@ export class ScheduleService {
             console.log('✅ [SCHEDULE] Updated daily hours to:', dailyHours);
           }
           
-          console.log('✅ [SCHEDULE] Processed row for day:', dayName, date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours);
+          console.log('✅ [SCHEDULE] Processed row for day:', dayName, date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours, 'Changed On:', changedOn);
         }
       }
       

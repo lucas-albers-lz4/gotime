@@ -377,7 +377,10 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       </Text>
       <Text style={styles.compactHoursText}>{shift.shiftHours}h</Text>
       {shift.changedOn && (
-        <Text style={styles.compactChangedText}>*</Text>
+        <View style={styles.changedIndicator}>
+          <Text style={styles.compactChangedText}>*</Text>
+          <Text style={styles.compactChangedDateText}>{shift.changedOn}</Text>
+        </View>
       )}
     </View>
   );
@@ -543,7 +546,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
             {/* Schedule Change Indicator */}
             <View style={styles.scheduleChangeNotice}>
               <Text style={styles.scheduleChangeText}>
-                <Text style={styles.redAsterisk}>*</Text> = Schedule changed after original posting
+                <Text style={styles.redAsterisk}>*</Text> = Schedule changed after original posting (date indicates when change was made)
               </Text>
             </View>
 
@@ -803,11 +806,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 2,
   },
-  compactNoShiftText: {
+  compactChangedDateText: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
     fontStyle: 'italic',
-    marginLeft: 35 + SPACING.xs,
+    marginLeft: 2,
+  },
+  changedIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   scheduleChangeNotice: {
     backgroundColor: COLORS.white,
@@ -885,5 +892,11 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: COLORS.white,
     fontWeight: 'bold',
+  },
+  compactNoShiftText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
+    marginLeft: 35 + SPACING.xs,
   },
 }); 

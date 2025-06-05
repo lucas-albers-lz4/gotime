@@ -1364,6 +1364,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           keyboardDisplayRequiresUserAction={false}
           nestedScrollEnabled={false}
           mixedContentMode='compatibility'
+          setSupportMultipleWindows={false}
           renderLoading={() => (
             <View style={styles.webViewLoading}>
               <ActivityIndicator size="large" color={COLORS.primary} />
