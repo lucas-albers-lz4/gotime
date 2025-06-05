@@ -61,7 +61,7 @@ export interface CognosAutomationHook {
   exportSchedule: () => Promise<void>;
   resetState: () => void;
   resetImportCompletedFlag: () => void;
-  handleWebViewMessage: (messageData: AutomationWebViewMessage) => void;
+  handleWebViewMessage: (messageData: AutomationWebViewMessage) => Promise<void>;
 }
 
 export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>): CognosAutomationHook {
@@ -79,16 +79,17 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
   // Use a ref to store the safety timeout ID
   const safetyTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   
-  // Track active tests and their message history
-  const activeTestsRef = useRef<{
-    [testId: string]: {
-      startTime: number;
-      lastActivityTime: number;
-      messageIds: Set<string>;
-      completionMessageId: string | null;
-      isAcknowledged: boolean;
-    }
-  }>({});
+  // Create a ref to store export handlers
+  const exportHandlersRef = useRef<Record<string, (htmlContent: string) => Promise<void>>>({});
+  
+  // Create a ref for tracking active test sessions
+  const activeTestsRef = useRef<Record<string, {
+    startTime: number;
+    lastActivityTime: number;
+    messageIds: Set<string>;
+    completionMessageId: string | null;
+    isAcknowledged: boolean;
+  }>>({});
   
   // Function to send acknowledgment back to WebView
   const sendAcknowledgment = useCallback((messageId: string, testId: string) => {
@@ -529,6 +530,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     // Use a dedicated variable for this export session
     // This avoids relying on complex shared state
     const exportSessionId = Date.now().toString();
+    console.log('🔄 [AUTOMATION] Created export session ID:', exportSessionId);
     
     setState(prev => ({ 
       ...prev, 
@@ -542,7 +544,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     try {
       // Create a new function to handle the export sequence
       const handleExportSequence = async (htmlContent: string) => {
-        console.log('🔄 [AUTOMATION] Export sequence: HTML content received, length:', htmlContent.length);
+        console.log('🔄 [AUTOMATION] Export sequence handler called with HTML content length:', htmlContent.length);
         
         setState(prev => ({
           ...prev,
@@ -619,6 +621,10 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       // @ts-ignore
       window.__exportHandlers[exportSessionId] = handleExportSequence;
       
+      // Also save in our local ref for easier access from React Native
+      exportHandlersRef.current[exportSessionId] = handleExportSequence;
+      console.log('🔄 [AUTOMATION] Saved export handler with ID:', exportSessionId);
+      
       // Step 1: Inject script to extract data
       console.log('🔄 [AUTOMATION] Injecting extract data script for export session:', exportSessionId);
       
@@ -666,7 +672,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     originalMessageId?: string;
   }
 
-  const handleWebViewMessage = useCallback((messageData: any) => {
+  const handleWebViewMessage = useCallback(async (messageData: any) => {
     if (!messageData || !messageData.type) {
       console.error('❌ [AUTOMATION] Received invalid message:', messageData);
       return;
@@ -873,6 +879,52 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         console.log('✅ [AUTOMATION] Generated HTML size:', extractedHtml.length);
       }
       
+      // Check if this is part of an export session and call the handler if it exists
+      const exportSessionId = trackedMessage.exportSessionId as string;
+      if (exportSessionId) {
+        console.log('✅ [AUTOMATION] Message contains export session ID:', exportSessionId);
+      }
+      
+      // First check our local ref (more reliable in React Native)
+      if (exportSessionId && exportHandlersRef.current[exportSessionId]) {
+        console.log('✅ [AUTOMATION] Found export handler in ref for session:', exportSessionId);
+        try {
+          // Call the export handler with the HTML content
+          await exportHandlersRef.current[exportSessionId](extractedHtml);
+          
+          // Clear the handler after use
+          delete exportHandlersRef.current[exportSessionId];
+          
+          // Don't show the alert here since the handler will handle that
+          return;
+        } catch (error) {
+          console.error('❌ [AUTOMATION] Error calling export handler from ref:', error);
+          // Continue with the default behavior
+        }
+      } 
+      // Fallback to global window (this might not work in React Native)
+      else if (exportSessionId && (window as any).__exportHandlers && (window as any).__exportHandlers[exportSessionId]) {
+        console.log('✅ [AUTOMATION] Found export handler in window for session:', exportSessionId);
+        try {
+          // Call the export handler with the HTML content
+          (window as any).__exportHandlers[exportSessionId](extractedHtml);
+          
+          // Clear the handler after use
+          delete (window as any).__exportHandlers[exportSessionId];
+          
+          // Don't show the alert here since the handler will handle that
+          return;
+        } catch (error) {
+          console.error('❌ [AUTOMATION] Error calling export handler from window:', error);
+          // Continue with the default behavior
+        }
+      } else if (state.exportSessionId) {
+        // If there's an active export session but no handler was found
+        console.log('⚠️ [AUTOMATION] Export session active but no handler found:', state.exportSessionId);
+        console.log('⚠️ [AUTOMATION] Available handlers in ref:', Object.keys(exportHandlersRef.current));
+      }
+      
+      // Default behavior if no export handler is found
       setState(prev => ({
         ...prev,
         isAutomating: false,
