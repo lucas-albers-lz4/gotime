@@ -703,4 +703,35 @@ describe('ScheduleService', () => {
       });
     });
   });
+
+  describe('calculateHoursBetweenTimes', () => {
+    test('should correctly calculate hours between times', () => {
+      
+      // Additional test cases
+      expect(scheduleService.calculateHoursBetweenTimes('12:00 PM', '05:00 PM')).toBe(5);
+      expect(scheduleService.calculateHoursBetweenTimes('01:00 PM', '05:30 PM')).toBe(4.5);
+      expect(scheduleService.calculateHoursBetweenTimes('08:45 AM', '05:15 PM')).toBe(8.5);
+      expect(scheduleService.calculateHoursBetweenTimes('10:00 PM', '06:00 AM')).toBe(8); // Overnight shift
+      expect(scheduleService.calculateHoursBetweenTimes('11:15 AM', '02:30 PM')).toBe(3.25);
+      expect(scheduleService.calculateHoursBetweenTimes('12:30 PM', '05:00 PM')).toBe(4.5);
+    });
+    
+    test('should handle edge cases', () => {
+      // Same time (0 hours)
+      expect(scheduleService.calculateHoursBetweenTimes('09:00 AM', '09:00 AM')).toBe(0);
+      
+      // Midnight crossing
+      expect(scheduleService.calculateHoursBetweenTimes('11:00 PM', '01:00 AM')).toBe(2);
+      
+      // Full 24 hours
+      expect(scheduleService.calculateHoursBetweenTimes('08:00 AM', '08:00 AM')).toBe(0);
+      // To represent 24 hours, times would need to be different days, which this function doesn't support
+    });
+    
+    test('should handle invalid inputs gracefully', () => {
+      // Invalid format should return 0
+      expect(scheduleService.calculateHoursBetweenTimes('invalid', 'invalid')).toBe(0);
+      expect(scheduleService.calculateHoursBetweenTimes('', '')).toBe(0);
+    });
+  });
 });
