@@ -1929,15 +1929,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             </View>
             
             <TouchableOpacity
-              style={[styles.resetButton, { borderColor: COLORS.error }]}
-              onPress={automation.resetState}
-            >
-              <Text style={[styles.resetButtonText, { color: COLORS.error }]}>
-                🔄 Reset Automation
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
               style={[
                 styles.demoButton,
                 styles.multiWeekTestButton,
