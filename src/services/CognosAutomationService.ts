@@ -574,6 +574,191 @@ export class CognosAutomationService {
         try {
           console.log('🧪 [MULTI-WEEK-TEST] Starting comprehensive multi-week automation test...');
           
+          // MESSAGE RELIABILITY SYSTEM
+          // Generate a unique test ID for this test run
+          let testId = localStorage.getItem('multiWeekTestId');
+          if (!testId) {
+            testId = 'mwt_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+            localStorage.setItem('multiWeekTestId', testId);
+            console.log('🧪 [MULTI-WEEK-TEST] Created new test ID:', testId);
+          } else {
+            console.log('🧪 [MULTI-WEEK-TEST] Resuming test with ID:', testId);
+          }
+          
+          // Message tracking for acknowledgments
+          let messageLog = JSON.parse(localStorage.getItem('multiWeekMessageLog') || '{}');
+          if (!messageLog[testId]) {
+            messageLog[testId] = {
+              sentMessages: {},
+              acknowledgedMessages: {},
+              completionSent: false,
+              completionAcknowledged: false,
+              lastProgressUpdate: 0
+            };
+          }
+          
+          // Function to save message log to localStorage
+          function saveMessageLog() {
+            localStorage.setItem('multiWeekMessageLog', JSON.stringify(messageLog));
+          }
+          
+          // Message sending with retry and acknowledgment tracking
+          function sendMessageWithTracking(messageType, messageData, isCompletion = false) {
+            const messageId = messageType + '_' + Date.now();
+            
+            // Add tracking metadata to message
+            const message = {
+              ...messageData,
+              type: messageType,
+              messageId: messageId,
+              testId: testId,
+              timestamp: Date.now()
+            };
+            
+            // Log this message as sent
+            messageLog[testId].sentMessages[messageId] = {
+              type: messageType,
+              timestamp: Date.now(),
+              retries: 0,
+              acknowledged: false,
+              isCompletion: isCompletion
+            };
+            
+            // If this is a completion message, mark completion as sent
+            if (isCompletion) {
+              messageLog[testId].completionSent = true;
+            }
+            
+            // Save state
+            saveMessageLog();
+            
+            // Send the message
+            console.log('📨 [MULTI-WEEK-TEST] Sending message:', messageType, messageId);
+            window.ReactNativeWebView.postMessage(JSON.stringify(message));
+            
+            // Set up retry logic for important messages only
+            if (isCompletion) {
+              setupRetry(messageId);
+            }
+          }
+          
+          // Setup retry for unacknowledged messages
+          function setupRetry(messageId) {
+            const maxRetries = 3;
+            const retryDelays = [2000, 5000, 10000]; // Increasing backoff
+            
+            function retry() {
+              // Check if message still needs retrying
+              if (!messageLog[testId] || 
+                  !messageLog[testId].sentMessages[messageId] ||
+                  messageLog[testId].sentMessages[messageId].acknowledged ||
+                  messageLog[testId].completionAcknowledged) {
+                console.log('📨 [MULTI-WEEK-TEST] No need to retry message:', messageId);
+                return;
+              }
+              
+              const msgInfo = messageLog[testId].sentMessages[messageId];
+              
+              // Check if we've hit max retries
+              if (msgInfo.retries >= maxRetries) {
+                console.log('⚠️ [MULTI-WEEK-TEST] Max retries reached for message:', messageId);
+                return;
+              }
+              
+              // Increment retry count
+              msgInfo.retries++;
+              saveMessageLog();
+              
+              // Resend the message
+              console.log('🔄 [MULTI-WEEK-TEST] Retrying message:', messageId, '(Attempt', msgInfo.retries, 'of', maxRetries, ')');
+              
+              // Get the original message content
+              let retryMessage;
+              
+              // For completion messages, rebuild with latest state
+              if (msgInfo.isCompletion) {
+                // Rebuild completion message with latest data
+                const summary = createSummary();
+                retryMessage = {
+                  type: msgInfo.type,
+                  messageId: messageId + '_retry' + msgInfo.retries,
+                  originalMessageId: messageId,
+                  testId: testId,
+                  timestamp: Date.now(),
+                  success: testState.processedWeeks.length >= 2,
+                  summary: summary,
+                  detailedResults: {
+                    processedWeeks: testState.processedWeeks,
+                    errors: testState.errors,
+                    testState: testState
+                  },
+                  message: summary.conclusiveResult,
+                  isRetry: true,
+                  retryCount: msgInfo.retries
+                };
+              }
+              
+              // Send the retry message
+              window.ReactNativeWebView.postMessage(JSON.stringify(retryMessage));
+              
+              // Schedule next retry if needed
+              if (msgInfo.retries < maxRetries) {
+                setTimeout(() => retry(), retryDelays[msgInfo.retries]);
+              }
+            }
+            
+            // Schedule first retry
+            setTimeout(retry, retryDelays[0]);
+          }
+          
+          // Handle acknowledgment messages from React Native
+          function setupMessageListener() {
+            // Try to access the original document for message listening
+            try {
+              window.document.addEventListener('message', function(event) {
+                try {
+                  const data = JSON.parse(event.data);
+                  
+                  // Check if this is an acknowledgment message
+                  if (data.type === 'ack' && data.testId === testId) {
+                    console.log('✅ [MULTI-WEEK-TEST] Received acknowledgment for message:', data.messageId);
+                    
+                    // Mark the message as acknowledged
+                    if (messageLog[testId].sentMessages[data.messageId]) {
+                      messageLog[testId].sentMessages[data.messageId].acknowledged = true;
+                      messageLog[testId].acknowledgedMessages[data.messageId] = Date.now();
+                      
+                      // If this is a completion ack, mark completion as acknowledged
+                      if (messageLog[testId].sentMessages[data.messageId].isCompletion) {
+                        messageLog[testId].completionAcknowledged = true;
+                        
+                        // If test is complete and acknowledged, clean up localStorage
+                        if (testState.currentStep === 'completed') {
+                          console.log('🧹 [MULTI-WEEK-TEST] Test complete and acknowledged, cleaning up localStorage');
+                          setTimeout(() => {
+                            localStorage.removeItem('multiWeekTestId');
+                            delete messageLog[testId];
+                            saveMessageLog();
+                          }, 2000);
+                        }
+                      }
+                      
+                      saveMessageLog();
+                    }
+                  }
+                } catch (e) {
+                  console.error('❌ [MULTI-WEEK-TEST] Error processing acknowledgment:', e);
+                }
+              });
+              console.log('👂 [MULTI-WEEK-TEST] Set up message listener for acknowledgments');
+            } catch (e) {
+              console.log('⚠️ [MULTI-WEEK-TEST] Could not set up message listener:', e);
+            }
+          }
+          
+          // Try to set up the message listener
+          setupMessageListener();
+          
           let testState = {
             totalWeeks: 0,
             currentWeekIndex: 0,
@@ -602,13 +787,18 @@ export class CognosAutomationService {
                 status: 'in_progress'
               };
               
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'multi_week_test_progress',
+              sendMessageWithTracking('multi_week_test_progress', {
                 summary: progressSummary,
                 currentStep: testState.currentStep
-              }));
+              });
               
               testState.lastProgressUpdate = now;
+              
+              // Also update the message log's last progress update
+              if (messageLog[testId]) {
+                messageLog[testId].lastProgressUpdate = now;
+                saveMessageLog();
+              }
             }
           }
           
@@ -858,14 +1048,11 @@ export class CognosAutomationService {
             }
           }
           
-          function completeTest() {
-            console.log('🎉 [MULTI-WEEK-TEST] Test completed!');
-            testState.currentStep = 'completed';
-            
+          function createSummary() {
             const endTime = new Date().toISOString();
             const duration = new Date(endTime) - new Date(testState.startTime);
             
-            const summary = {
+            return {
               testDuration: Math.round(duration / 1000) + ' seconds',
               totalWeeksAvailable: testState.totalWeeks,
               weeksProcessed: testState.processedWeeks.length,
@@ -878,35 +1065,98 @@ export class CognosAutomationService {
                 'PARTIAL: Limited week processing, needs investigation',
               status: 'completed'
             };
+          }
+          
+          function completeTest() {
+            console.log('🎉 [MULTI-WEEK-TEST] Test completed!');
+            testState.currentStep = 'completed';
+            
+            const summary = createSummary();
             
             console.log('📊 [MULTI-WEEK-TEST] Final Summary:', summary);
             
-            // Make multiple attempts to send completion message
-            // This ensures the parent gets notified even if there are network/communication issues
-            function sendCompletionMessage() {
-              console.log('📨 [MULTI-WEEK-TEST] Sending completion message...');
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'multi_week_test_complete',
-                success: testState.processedWeeks.length >= 2,
-                summary: summary,
-                detailedResults: {
-                  processedWeeks: testState.processedWeeks,
-                  errors: testState.errors,
-                  testState: testState
-                },
-                message: summary.conclusiveResult
-              }));
+            // Check if we've already sent a completion message for this test
+            if (messageLog[testId].completionSent && messageLog[testId].completionAcknowledged) {
+              console.log('⏩ [MULTI-WEEK-TEST] Completion already sent and acknowledged for test:', testId);
+              return;
             }
             
-            // Send immediately
-            sendCompletionMessage();
-            
-            // And also with a slight delay to ensure it goes through
-            setTimeout(sendCompletionMessage, 1000);
-            
-            // And one more time after a longer delay
-            setTimeout(sendCompletionMessage, 3000);
+            // Send completion message with tracking and retry
+            sendMessageWithTracking('multi_week_test_complete', {
+              success: testState.processedWeeks.length >= 2,
+              summary: summary,
+              detailedResults: {
+                processedWeeks: testState.processedWeeks,
+                errors: testState.errors,
+                testState: testState
+              },
+              message: summary.conclusiveResult
+            }, true); // Mark as completion message
           }
+          
+          // Try to load any existing state from previous page loads
+          try {
+            const savedState = localStorage.getItem('multiWeekTestState');
+            if (savedState) {
+              const parsedState = JSON.parse(savedState);
+              // Only restore if it's the same test (check testId)
+              if (parsedState.testId === testId) {
+                console.log('🔄 [MULTI-WEEK-TEST] Restoring saved state from localStorage');
+                
+                // Restore key properties but keep the current time references
+                testState.totalWeeks = parsedState.totalWeeks;
+                testState.currentWeekIndex = parsedState.currentWeekIndex;
+                testState.processedWeeks = parsedState.processedWeeks;
+                testState.errors = parsedState.errors;
+                testState.startTime = parsedState.startTime;
+                testState.currentStep = parsedState.currentStep;
+                
+                console.log('✅ [MULTI-WEEK-TEST] State restored - current week:', testState.currentWeekIndex, 'of', testState.totalWeeks);
+                console.log('✅ [MULTI-WEEK-TEST] State restored - processed weeks:', testState.processedWeeks.length);
+                
+                // Check if test was already completed
+                if (testState.currentStep === 'completed') {
+                  console.log('⏩ [MULTI-WEEK-TEST] Restored state shows test was already completed');
+                  
+                  // If we already completed the test but it wasn't acknowledged, resend completion
+                  if (!messageLog[testId].completionAcknowledged) {
+                    console.log('🔄 [MULTI-WEEK-TEST] Resending completion message as it was not acknowledged');
+                    completeTest();
+                  } else {
+                    console.log('✅ [MULTI-WEEK-TEST] Test was already completed and acknowledged');
+                    // Nothing more to do
+                  }
+                  
+                  return;
+                }
+              } else {
+                console.log('🔄 [MULTI-WEEK-TEST] Found saved state for different test, starting fresh');
+                localStorage.removeItem('multiWeekTestState');
+              }
+            }
+          } catch (e) {
+            console.log('⚠️ [MULTI-WEEK-TEST] Error restoring state:', e);
+          }
+          
+          // Function to periodically save state to localStorage
+          function saveState() {
+            try {
+              // Add testId to state for verification on reload
+              const stateToSave = {...testState, testId: testId};
+              localStorage.setItem('multiWeekTestState', JSON.stringify(stateToSave));
+              console.log('💾 [MULTI-WEEK-TEST] Saved state to localStorage');
+            } catch (e) {
+              console.log('⚠️ [MULTI-WEEK-TEST] Error saving state:', e);
+            }
+            
+            // Schedule next save if test is still running
+            if (testState.currentStep !== 'completed') {
+              setTimeout(saveState, 5000); // Save every 5 seconds
+            }
+          }
+          
+          // Start saving state periodically
+          saveState();
           
           // Start the test
           testState.currentStep = 'initializing';
@@ -942,11 +1192,10 @@ export class CognosAutomationService {
           
         } catch (error) {
           console.error('❌ [MULTI-WEEK-TEST] Fatal error:', error);
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'multi_week_test_error',
+          sendMessageWithTracking('multi_week_test_error', {
             error: error.message,
             stack: error.stack
-          }));
+          });
         }
       })();
     `;

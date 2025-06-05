@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { CognosAutomationService, CognosAnalysis, ScheduleOption } from './CognosAutomationService';
@@ -78,6 +78,91 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
   
   // Use a ref to store the safety timeout ID
   const safetyTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  
+  // Track active tests and their message history
+  const activeTestsRef = useRef<{
+    [testId: string]: {
+      startTime: number;
+      lastActivityTime: number;
+      messageIds: Set<string>;
+      completionMessageId: string | null;
+      isAcknowledged: boolean;
+    }
+  }>({});
+  
+  // Function to send acknowledgment back to WebView
+  const sendAcknowledgment = useCallback((messageId: string, testId: string) => {
+    if (!webViewRef.current) {
+      console.warn('⚠️ [AUTOMATION] Cannot send acknowledgment - WebView not available');
+      return;
+    }
+    
+    try {
+      const ackMessage = {
+        type: 'ack',
+        messageId,
+        testId,
+        timestamp: Date.now()
+      };
+      
+      console.log('✅ [AUTOMATION] Sending acknowledgment for message:', messageId);
+      
+      // Use the WebView's injectJavaScript method to post a message back to the WebView
+      const jsCode = `
+        (function() {
+          try {
+            if (window.document) {
+              const event = new MessageEvent('message', {
+                data: '${JSON.stringify(ackMessage)}'
+              });
+              window.document.dispatchEvent(event);
+              console.log('✅ [RN->WEB] Acknowledgment delivered for message: ${messageId}');
+            }
+          } catch (e) {
+            console.error('❌ [RN->WEB] Failed to deliver acknowledgment:', e);
+          }
+        })();
+      `;
+      
+      webViewRef.current.injectJavaScript(jsCode);
+    } catch (error) {
+      console.error('❌ [AUTOMATION] Error sending acknowledgment:', error);
+    }
+  }, [webViewRef]);
+  
+  // Track test completion with improved reliability
+  const markTestCompleted = useCallback((testId: string) => {
+    // Update test tracking
+    if (activeTestsRef.current[testId]) {
+      activeTestsRef.current[testId].isAcknowledged = true;
+      console.log('✅ [AUTOMATION] Marked test as completed and acknowledged:', testId);
+      
+      // Clean up after some time
+      setTimeout(() => {
+        if (activeTestsRef.current[testId]) {
+          console.log('🧹 [AUTOMATION] Cleaning up completed test:', testId);
+          delete activeTestsRef.current[testId];
+        }
+      }, 10000);
+    }
+    
+    // Update UI state
+    setState(prev => {
+      if (!prev.isAutomating) return prev;
+      
+      return {
+        ...prev,
+        isAutomating: false,
+        currentStep: null
+      };
+    });
+    
+    // Clear any safety timeout
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+  }, []);
 
   const resetState = useCallback(() => {
     setState({
@@ -311,35 +396,39 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         console.warn('⚠️ [AUTOMATION] Safety timeout triggered for multi-week test');
         setState(prev => {
           // Only update if we're still automating (to avoid race conditions)
-          if (prev.isAutomating) {
-            return {
-              ...prev,
-              isAutomating: false,
-              error: 'Multi-week test timed out - check console for details',
-              currentStep: null,
-            };
-          }
-          return prev;
+          if (!prev.isAutomating) return prev;
+          
+          return {
+            ...prev,
+            isAutomating: false,
+            error: 'Test timed out after 60 seconds',
+            currentStep: null
+          };
         });
-        safetyTimeoutRef.current = null;
-      }, 60000); // 60 second safety timeout
+        
+        // Show timeout alert
+        Alert.alert(
+          'Multi-Week Test Timeout',
+          'The test took longer than expected. It may have completed but failed to notify the app.',
+          [{ text: 'OK' }]
+        );
+      }, 60000); // 60 second timeout
 
-      // Generate and inject the multi-week test script
-      const script = CognosAutomationService.generateMultiWeekAutomationTest();
-      webViewRef.current.injectJavaScript(script);
-      
+      // Inject the test script into the WebView
+      const multiWeekTestScript = CognosAutomationService.generateMultiWeekAutomationTest();
+      await webViewRef.current.injectJavaScript(multiWeekTestScript);
       console.log('✅ [AUTOMATION] Multi-week test script injected successfully');
-      
-      // Don't return anything from an async function that's typed to return Promise<void>
     } catch (error) {
-      console.error('❌ [AUTOMATION] Error injecting multi-week test script:', error);
-      setState(prev => ({ 
-        ...prev, 
-        isAutomating: false, 
-        error: 'Failed to inject multi-week test script',
-        currentStep: null,
+      console.error('❌ [AUTOMATION] Error starting multi-week test:', error);
+      
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        currentStep: null
       }));
-      Alert.alert('Error', 'Failed to inject multi-week test script');
+      
+      Alert.alert('Error', `Failed to start multi-week test: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, [webViewRef]);
 
@@ -567,108 +656,109 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     }
   }, [webViewRef]);
 
-  // Handler for WebView messages - this should be called from the parent component
-  const handleWebViewMessage = useCallback((messageData: AutomationWebViewMessage) => {
-    console.log('🤖 [AUTOMATION] Received message:', messageData.type);
-    
-    // Special handling for export session messages
-    if (messageData.type === 'schedule_data_extracted' && messageData.exportSessionId) {
-      console.log('🔄 [AUTOMATION] Export session message received:', messageData.exportSessionId);
-      
-      // Extract the HTML content
-      const extractedHtml = messageData.currentHtml as string;
-      
-      if (!extractedHtml) {
-        console.error('❌ [AUTOMATION] Export session error: No HTML content in message');
-        setState(prev => ({
-          ...prev,
-          isAutomating: false,
-          error: 'No HTML content was extracted',
-          currentStep: null,
-          exportSessionId: null
-        }));
-        
-        Alert.alert(
-          'Export Failed ❌',
-          'No HTML content was extracted from the schedule. Please try again.',
-          [{ text: 'OK' }],
-        );
-        return;
-      }
-      
-      // Call the export sequence handler
-      console.log('🔄 [AUTOMATION] Calling export sequence handler with HTML content, length:', extractedHtml.length);
-      
-      // @ts-ignore
-      const exportHandler = window.__exportHandlers && window.__exportHandlers[messageData.exportSessionId];
-      
-      if (exportHandler) {
-        exportHandler(extractedHtml);
-        
-        // Clean up after use
-        // @ts-ignore
-        delete window.__exportHandlers[messageData.exportSessionId];
-      } else {
-        console.error('❌ [AUTOMATION] Export handler not found for session:', messageData.exportSessionId);
-        setState(prev => ({
-          ...prev,
-          isAutomating: false,
-          error: 'Export handler not found',
-          currentStep: null,
-          exportSessionId: null
-        }));
-        
-        Alert.alert(
-          'Export Error ❌',
-          'Internal error: Export handler not found',
-          [{ text: 'OK' }],
-        );
-      }
-      
+  // Define an interface for WebView messages with tracking info
+  interface TrackedWebViewMessage extends AutomationWebViewMessage {
+    messageId?: string;
+    testId?: string;
+    timestamp?: number;
+    isRetry?: boolean;
+    retryCount?: number;
+    originalMessageId?: string;
+  }
+
+  const handleWebViewMessage = useCallback((messageData: any) => {
+    if (!messageData || !messageData.type) {
+      console.error('❌ [AUTOMATION] Received invalid message:', messageData);
       return;
     }
-
-    // Normal message handling
-    switch (messageData.type) {
+    
+    // Type assertion to the tracked message interface
+    const trackedMessage = messageData as TrackedWebViewMessage;
+    
+    // Extract message tracking info if available
+    const messageId = trackedMessage.messageId || `legacy_${Date.now()}`;
+    const testId = trackedMessage.testId || 'default_test';
+    const timestamp = trackedMessage.timestamp || Date.now();
+    
+    // Track this message and test
+    if (testId && messageId) {
+      // Initialize test tracking if this is a new test
+      if (!activeTestsRef.current[testId]) {
+        activeTestsRef.current[testId] = {
+          startTime: timestamp,
+          lastActivityTime: timestamp,
+          messageIds: new Set<string>(),
+          completionMessageId: null,
+          isAcknowledged: false
+        };
+        console.log('🆕 [AUTOMATION] Tracking new test:', testId);
+      }
+      
+      // Update last activity time
+      activeTestsRef.current[testId].lastActivityTime = timestamp;
+      
+      // Check if we've seen this message before
+      const isDuplicate = activeTestsRef.current[testId].messageIds.has(messageId);
+      if (isDuplicate) {
+        console.log('🔄 [AUTOMATION] Received duplicate message:', messageId, 'for test:', testId);
+        
+        // For completion messages, we might still want to acknowledge again
+        if (trackedMessage.type === 'multi_week_test_complete') {
+          sendAcknowledgment(messageId, testId);
+        } else {
+          // For other messages, no need to process duplicates
+          return;
+        }
+      } else {
+        // Track this message
+        activeTestsRef.current[testId].messageIds.add(messageId);
+        
+        // Always acknowledge messages that have IDs
+        sendAcknowledgment(messageId, testId);
+      }
+    }
+    
+    // Process message based on type
+    switch (trackedMessage.type) {
     case 'cognos_analysis_complete': {
-      console.log('✅ [AUTOMATION] Analysis complete:', messageData.analysis);
+      console.log('✅ [AUTOMATION] Analysis complete:', trackedMessage.analysis);
       setState(prev => ({
         ...prev,
         isAnalyzing: false,
-        analysis: messageData.analysis ?? null,
-        availableSchedules: messageData.analysis?.dropdownInfo?.allOptions || [],
+        analysis: trackedMessage.analysis ?? null,
+        availableSchedules: trackedMessage.analysis?.dropdownInfo?.allOptions || [],
         currentStep: null,
         error: null,
       }));
         
       Alert.alert(
         'Analysis Complete! ✅',
-        `Found Cognos interface with ${messageData.analysis?.dropdownInfo?.optionsCount || 0} schedule options.\n\n` +
-          `Current selection: ${messageData.analysis?.dropdownInfo?.selectedText || 'None'}\n\n` +
+        `Found Cognos interface with ${trackedMessage.analysis?.dropdownInfo?.optionsCount || 0} schedule options.\n\n` +
+          `Current selection: ${trackedMessage.analysis?.dropdownInfo?.selectedText || 'None'}\n\n` +
           'Available schedules ready for automation.',
         [{ text: 'Great!' }],
       );
       break;
     }
     case 'cognos_analysis_error': {
-      console.log('❌ [AUTOMATION] Analysis error:', messageData.error);
+      console.log('❌ [AUTOMATION] Analysis error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAnalyzing: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Analysis Failed ❌',
-        `Could not analyze Cognos interface:\n\n${messageData.error ?? 'Unknown error'}\n\n` +
+        `Could not analyze Cognos interface:\n\n${trackedMessage.error ?? 'Unknown error'}\n\n` +
           'Make sure you are on the correct Cognos page.',
         [{ text: 'OK' }],
       );
       break;
     }
     case 'initial_schedule_load_complete': {
-      console.log('✅ [AUTOMATION] Initial schedule load complete:', messageData.buttonClicked);
+      console.log('✅ [AUTOMATION] Initial schedule load complete:', trackedMessage.buttonClicked);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -679,31 +769,31 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       Alert.alert(
         'Initial Load Complete! ✅',
         'Successfully loaded initial schedule to initialize Cognos interface.\n\n' +
-          `Button clicked: ${messageData.buttonClicked?.textContent || 'Run'}\n\n` +
+          `Button clicked: ${trackedMessage.buttonClicked?.textContent || 'Run'}\n\n` +
           'Now you can run "Analyze Cognos Interface" to see the proper week schedule options.',
         [{ text: 'Great!' }],
       );
       break;
     }
     case 'initial_schedule_load_error': {
-      console.log('❌ [AUTOMATION] Initial schedule load error:', messageData.error);
+      console.log('❌ [AUTOMATION] Initial schedule load error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Initial Load Failed ❌',
-        `Could not load initial schedule:\n\n${messageData.error ?? 'Unknown error'}\n\n` +
+        `Could not load initial schedule:\n\n${trackedMessage.error ?? 'Unknown error'}\n\n` +
           'Make sure you are on the correct Cognos page.',
         [{ text: 'OK' }],
       );
       break;
     }
     case 'schedule_selected': {
-      console.log('✅ [AUTOMATION] Schedule selected:', messageData.selectedOption);
+      console.log('✅ [AUTOMATION] Schedule selected:', trackedMessage.selectedOption);
       setState(prev => ({
         ...prev,
         currentStep: 'Schedule selected, running report...',
@@ -716,17 +806,17 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'schedule_selection_error': {
-      console.log('❌ [AUTOMATION] Schedule selection error:', messageData.error);
+      console.log('❌ [AUTOMATION] Schedule selection error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Schedule Selection Failed ❌',
-        `Could not select schedule:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not select schedule:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
@@ -745,38 +835,38 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'run_button_error': {
-      console.log('❌ [AUTOMATION] Run button error:', messageData.error);
+      console.log('❌ [AUTOMATION] Run button error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Run Button Failed ❌',
-        `Could not click run button:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not click run button:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'schedule_data_extracted': {
-      console.log('✅ [AUTOMATION] Schedule data extracted:', messageData.scheduleData);
+      console.log('✅ [AUTOMATION] Schedule data extracted:', trackedMessage.scheduleData);
       
       // Store the HTML from the current page for later import
-      let extractedHtml = messageData.currentHtml as string;
+      let extractedHtml = trackedMessage.currentHtml as string;
       
       // If currentHtml isn't available, try to generate HTML from the schedule data
-      if (!extractedHtml && Array.isArray(messageData.scheduleData) && messageData.scheduleData.length > 0) {
+      if (!extractedHtml && Array.isArray(trackedMessage.scheduleData) && trackedMessage.scheduleData.length > 0) {
         // Convert schedule data to HTML content suitable for import
         console.log('✅ [AUTOMATION] No direct HTML found, generating from schedule data');
         
         // Create a simple HTML structure with the schedule data
         extractedHtml = `<html><body>
           <div class="schedule-container">
-            ${Array.isArray(messageData.scheduleData[0]) 
-              ? messageData.scheduleData[0].join('\n')
-              : JSON.stringify(messageData.scheduleData)}
+            ${Array.isArray(trackedMessage.scheduleData[0]) 
+              ? trackedMessage.scheduleData[0].join('\n')
+              : JSON.stringify(trackedMessage.scheduleData)}
           </div>
         </body></html>`;
         
@@ -794,63 +884,73 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       Alert.alert(
         'Data Extraction Complete! 🎉',
         'Successfully extracted schedule data:\n\n' +
-          `• ${messageData.scheduleData?.totalRows || 0} rows of data\n` +
-          `• ${messageData.scheduleData?.tableCount || 0} tables found\n\n` +
+          `• ${trackedMessage.scheduleData?.totalRows || 0} rows of data\n` +
+          `• ${trackedMessage.scheduleData?.tableCount || 0} tables found\n\n` +
           'You can now import this schedule data.',
         [{ text: 'Great!' }],
       );
       break;
     }
     case 'schedule_extraction_error': {
-      console.log('❌ [AUTOMATION] Data extraction error:', messageData.error);
+      console.log('❌ [AUTOMATION] Data extraction error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Data Extraction Failed ❌',
-        `Could not extract schedule data:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not extract schedule data:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'multi_week_test_progress': {
-      console.log('📊 [AUTOMATION] Multi-week test progress update:', messageData.summary);
+      console.log('📊 [AUTOMATION] Multi-week test progress update:', trackedMessage.summary);
       
       // Only update the current step to show progress
-      if (messageData.currentStep) {
+      if (trackedMessage.currentStep) {
         setState(prev => {
           // Don't override if we're no longer in automating state
           if (!prev.isAutomating) return prev;
           
-          const summary = messageData.summary as {
+          const summary = trackedMessage.summary as {
             currentWeekIndex: number;
             totalWeeksAvailable: number;
             progress: string;
+            testDuration: string;
+            weeksProcessed: number;
+            errorsEncountered: number;
+            status: string;
           } | undefined;
           
           let progressMessage: string;
           if (summary && typeof summary.currentWeekIndex === 'number' && 
-              typeof summary.totalWeeksAvailable === 'number' &&
-              typeof summary.progress === 'string') {
-            progressMessage = `Processing week ${summary.currentWeekIndex + 1}/${summary.totalWeeksAvailable} (${summary.progress})`;
+              typeof summary.totalWeeksAvailable === 'number') {
+            progressMessage = `Processing week ${summary.currentWeekIndex + 1} of ${summary.totalWeeksAvailable} (${summary.progress})`;
+            if (summary.weeksProcessed > 0) {
+              progressMessage += ` - ${summary.weeksProcessed} completed`;
+            }
+            if (summary.errorsEncountered > 0) {
+              progressMessage += ` - ${summary.errorsEncountered} errors`;
+            }
           } else {
-            progressMessage = String(messageData.currentStep);
+            progressMessage = trackedMessage.currentStep as string;
           }
-            
+          
           return {
             ...prev,
-            currentStep: progressMessage,
+            currentStep: progressMessage
           };
         });
       }
+      
       break;
     }
     case 'html_dump_complete': {
-      console.log('📋 [AUTOMATION] HTML dump complete:', messageData.summary);
+      console.log('📋 [AUTOMATION] HTML dump complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -858,7 +958,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const summary = messageData.summary;
+      const summary = trackedMessage.summary;
       Alert.alert(
         'HTML Dump Complete! 📋',
         'Successfully dumped HTML content:\n\n' +
@@ -874,23 +974,23 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'html_dump_error': {
-      console.log('❌ [AUTOMATION] HTML dump error:', messageData.error);
+      console.log('❌ [AUTOMATION] HTML dump error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'HTML Dump Failed ❌',
-        `Could not dump HTML content:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not dump HTML content:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'main_html_dump_complete': {
-      console.log('📄 [AUTOMATION] Main HTML dump complete:', messageData.summary);
+      console.log('📄 [AUTOMATION] Main HTML dump complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -898,7 +998,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const mainSummary = messageData.summary;
+      const mainSummary = trackedMessage.summary;
       Alert.alert(
         'Main HTML Dump Complete! 📄',
         'Successfully dumped main document HTML:\n\n' +
@@ -912,23 +1012,23 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'main_html_dump_error': {
-      console.log('❌ [AUTOMATION] Main HTML dump error:', messageData.error);
+      console.log('❌ [AUTOMATION] Main HTML dump error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Main HTML Dump Failed ❌',
-        `Could not dump main HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not dump main HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'iframe_html_dump_complete': {
-      console.log('🖼️ [AUTOMATION] Iframe HTML dump complete:', messageData.summary);
+      console.log('🖼️ [AUTOMATION] Iframe HTML dump complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -936,7 +1036,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const iframeSummary = messageData.summary;
+      const iframeSummary = trackedMessage.summary;
       Alert.alert(
         'Iframe HTML Dump Complete! 🖼️',
         'Successfully dumped iframe HTML analysis:\n\n' +
@@ -950,23 +1050,23 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'iframe_html_dump_error': {
-      console.log('❌ [AUTOMATION] Iframe HTML dump error:', messageData.error);
+      console.log('❌ [AUTOMATION] Iframe HTML dump error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Iframe HTML Dump Failed ❌',
-        `Could not dump iframe HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not dump iframe HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'login_form_2_dump_complete': {
-      console.log('🔐 [AUTOMATION] Login Form 2 dump complete:', messageData.summary);
+      console.log('🔐 [AUTOMATION] Login Form 2 dump complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -974,12 +1074,12 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const loginSummary = messageData.summary;
+      const loginSummary = trackedMessage.summary;
       Alert.alert(
         'Login Form 2 Analysis Complete! 🔐',
         'Successfully analyzed login form:\n\n' +
           `📍 URL: ${typeof (loginSummary?.url) === 'string' && (loginSummary.url).includes('bireport') ? '✅ Cognos BI page' : '❓ Other page'}\n` +
-          `🔐 Is Login Form 2: ${messageData.isLoginForm2 ? '✅ Yes' : '❌ No'}\n` +
+          `🔐 Is Login Form 2: ${trackedMessage.isLoginForm2 ? '✅ Yes' : '❌ No'}\n` +
           `📝 Input Fields: ${loginSummary?.inputCount || 0}\n` +
           `📋 Forms: ${loginSummary?.formCount || 0}\n` +
           `🔘 Buttons: ${loginSummary?.buttonCount || 0}\n` +
@@ -990,23 +1090,23 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'login_form_2_dump_error': {
-      console.log('❌ [AUTOMATION] Login Form 2 dump error:', messageData.error);
+      console.log('❌ [AUTOMATION] Login Form 2 dump error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'Login Form 2 Analysis Failed ❌',
-        `Could not analyze login form:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not analyze login form:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'simple_html_dump_complete': {
-      console.log('📋 [AUTOMATION] Simple HTML dump complete:', messageData.summary);
+      console.log('📋 [AUTOMATION] Simple HTML dump complete:', trackedMessage.summary);
       setState(prev => ({
         ...prev,
         isAutomating: false,
@@ -1014,7 +1114,7 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
         error: null,
       }));
         
-      const htmlSummary = messageData.summary;
+      const htmlSummary = trackedMessage.summary;
       Alert.alert(
         'HTML Dump Complete! 📋',
         'Successfully dumped all HTML content:\n\n' +
@@ -1029,132 +1129,94 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
       break;
     }
     case 'simple_html_dump_error': {
-      console.log('❌ [AUTOMATION] Simple HTML dump error:', messageData.error);
+      console.log('❌ [AUTOMATION] Simple HTML dump error:', trackedMessage.error);
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
+        error: trackedMessage.error ?? null,
         currentStep: null,
       }));
         
       Alert.alert(
         'HTML Dump Failed ❌',
-        `Could not dump HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+        `Could not dump HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
         [{ text: 'OK' }],
       );
       break;
     }
     case 'multi_week_test_complete': {
-      console.log('✅ [AUTOMATION] Multi-week test complete:', messageData.summary);
+      console.log('✅ [AUTOMATION] Multi-week test complete:', trackedMessage.summary);
       
       // Additional detailed logging for debugging completion issues
       console.log('📊 [AUTOMATION] Multi-week test detailed results:');
-      console.log('  - Type:', messageData.type);
-      console.log('  - Success flag:', messageData.success);
-      console.log('  - Has summary:', !!messageData.summary);
+      console.log('  - Message ID:', messageId);
+      console.log('  - Test ID:', testId);
+      console.log('  - Type:', trackedMessage.type);
+      console.log('  - Success flag:', trackedMessage.success);
+      console.log('  - Has summary:', !!trackedMessage.summary);
       
-      if (messageData.summary) {
-        console.log('  - Weeks processed:', messageData.summary.weeksProcessed);
-        console.log('  - Total weeks available:', messageData.summary.totalWeeksAvailable);
-        console.log('  - Success rate:', messageData.summary.successRate);
-        console.log('  - Test duration:', messageData.summary.testDuration);
-        console.log('  - Errors encountered:', messageData.summary.errorsEncountered);
-        console.log('  - Conclusive result:', messageData.summary.conclusiveResult);
+      if (trackedMessage.summary) {
+        console.log('  - Weeks processed:', trackedMessage.summary.weeksProcessed);
+        console.log('  - Total weeks available:', trackedMessage.summary.totalWeeksAvailable);
+        console.log('  - Success rate:', trackedMessage.summary.successRate);
+        console.log('  - Test duration:', trackedMessage.summary.testDuration);
+        console.log('  - Errors encountered:', trackedMessage.summary.errorsEncountered);
       }
       
-      // CRITICAL: Force UI state update with high priority
-      console.log('🔄 [AUTOMATION] Forcing UI state update to exit automation mode...');
+      // Track this as a completion message
+      if (activeTestsRef.current[testId]) {
+        activeTestsRef.current[testId].completionMessageId = messageId;
+      }
       
-      // Clear any pending automation timers
+      // Update UI state - force exit automating state
+      markTestCompleted(testId);
+      
+      // Show alert only if we haven't already shown one for this test
+      // or if this is a legacy message without tracking info
+      if (!activeTestsRef.current[testId]?.isAcknowledged || !testId) {
+        const successfulWeeks = trackedMessage.summary?.weeksProcessed ?? 0;
+        const totalWeeks = trackedMessage.summary?.totalWeeksAvailable ?? 0;
+        const testDuration = trackedMessage.summary?.testDuration ?? 'unknown duration';
+        
+        Alert.alert(
+          'Multi-Week Test Complete!',
+          `Successfully processed ${successfulWeeks} of ${totalWeeks} weeks in ${testDuration}.`,
+          [{ text: 'OK' }]
+        );
+      }
+      
+      break;
+    }
+    case 'multi_week_test_error': {
+      console.error('❌ [AUTOMATION] Multi-week test error:', trackedMessage.error);
+      
+      // Clear any pending safety timeout
       if (safetyTimeoutRef.current) {
-        console.log('⏱️ [AUTOMATION] Clearing existing safety timeout');
         clearTimeout(safetyTimeoutRef.current);
         safetyTimeoutRef.current = null;
       }
       
-      // Immediate state update
-      setState(prev => {
-        console.log('🔄 [AUTOMATION] State before update - isAutomating:', prev.isAutomating);
-        return {
-          ...prev,
-          isAutomating: false,
-          currentStep: null,
-          error: null,
-        };
-      });
-      
-      // Double-check state update with slight delay
-      setTimeout(() => {
-        setState(prev => {
-          if (prev.isAutomating) {
-            console.log('⚠️ [AUTOMATION] State still showing automating, forcing update again');
-            return {
-              ...prev,
-              isAutomating: false,
-              currentStep: null,
-            };
-          }
-          return prev;
-        });
-      }, 500);
-      
-      // DEDUPLICATION: Only show alert if we haven't shown one recently
-      // Use a static variable to track the last time we showed an alert
-      const now = Date.now();
-      // @ts-ignore: Adding a static property to the function
-      if (!handleWebViewMessage.lastMultiWeekAlertTime || (now - handleWebViewMessage.lastMultiWeekAlertTime) > 3000) {
-        console.log('🔔 [AUTOMATION] Showing multi-week completion alert');
-        // @ts-ignore: Update the last alert time
-        handleWebViewMessage.lastMultiWeekAlertTime = now;
-        
-        const summary = messageData.summary;
-        if (summary && typeof summary === 'object') {
-          const conclusiveResult = 'conclusiveResult' in summary ? summary.conclusiveResult : 'Test completed.';
-          
-          Alert.alert(
-            'Multi-Week Test Complete! 🎉',
-            'Automation test results:\n\n' +
-              `• Weeks Processed: ${summary.weeksProcessed || 0} / ${summary.totalWeeksAvailable || 0}\n` +
-              `• Success Rate: ${summary.successRate || '0%'}\n` +
-              `• Test Duration: ${summary.testDuration || 'unknown'}\n` +
-              `• Errors: ${summary.errorsEncountered || 0}\n\n` +
-              conclusiveResult,
-            [{ text: 'Great!' }],
-          );
-        } else {
-          console.warn('⚠️ [AUTOMATION] Multi-week test completed but summary data is missing or invalid');
-          Alert.alert(
-            'Multi-Week Test Complete',
-            'Test completed but no detailed results available.',
-            [{ text: 'OK' }],
-          );
-        }
-      } else {
-        console.log('🔕 [AUTOMATION] Skipping duplicate multi-week completion alert (shown recently)');
-      }
-      break;
-    }
-    case 'multi_week_test_error': {
-      console.log('❌ [AUTOMATION] Multi-week test error:', messageData.error);
+      // Update UI state
       setState(prev => ({
         ...prev,
         isAutomating: false,
-        error: messageData.error ?? null,
-        currentStep: null,
+        error: typeof trackedMessage.error === 'string' ? trackedMessage.error : 'Unknown error in multi-week test',
+        currentStep: null
       }));
-        
+      
+      // Show alert
       Alert.alert(
-        'Multi-Week Test Failed ❌',
-        `Multi-week automation test failed:\n\n${messageData.error ?? 'Unknown error'}\n\n` +
-          'This indicates the automation may not be able to handle Cognos ID changes reliably.',
-        [{ text: 'OK' }],
+        'Multi-Week Test Error',
+        `The test encountered an error: ${typeof trackedMessage.error === 'string' ? trackedMessage.error : 'Unknown error'}`,
+        [{ text: 'OK' }]
       );
+      
       break;
     }
     default:
-      console.log('ℹ️ [AUTOMATION] Unhandled message type:', messageData.type);
+      console.log('ℹ️ [AUTOMATION] Unhandled message type:', trackedMessage.type);
     }
-  }, [runReport, extractData, exportSchedule]);
+  }, [sendAcknowledgment, markTestCompleted]);
 
   const resetImportCompletedFlag = useCallback(() => {
     setState(prev => ({

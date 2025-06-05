@@ -1189,10 +1189,17 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 console.log('📨 [WEBVIEW] Parsed message:', parsedMessage);
                 
                 // First check if this is a Cognos automation message
-                if (parsedMessage.type && parsedMessage.type.startsWith('cognos_') || 
-                    ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
-                     'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
-                     'multi_week_test_complete', 'multi_week_test_progress', 'multi_week_test_error'].includes(parsedMessage.type)) {
+                if (parsedMessage.type && (
+                  parsedMessage.type.startsWith('cognos_') || 
+                  parsedMessage.type.startsWith('multi_week_test_') ||
+                  ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
+                   'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
+                   'html_dump_complete', 'html_dump_error', 'main_html_dump_complete', 
+                   'main_html_dump_error', 'iframe_html_dump_complete', 'iframe_html_dump_error',
+                   'login_form_2_dump_complete', 'login_form_2_dump_error', 
+                   'simple_html_dump_complete', 'simple_html_dump_error',
+                   'initial_schedule_load_complete', 'initial_schedule_load_error'].includes(parsedMessage.type)
+                )) {
                   console.log('🤖 [WEBVIEW] Routing message to Cognos automation handler:', parsedMessage.type);
                   automation.handleWebViewMessage(parsedMessage);
                   return;
