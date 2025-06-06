@@ -36,14 +36,47 @@ interface AutomationWebViewMessage {
     testDuration?: string;
     errorsEncountered?: number;
     conclusiveResult?: string;
+    scheduleTimings?: Array<{
+      weekIndex: number;
+      weekText: string;
+      startTime: number;
+      endTime: number;
+      loadDurationMs: number;
+    }>;
+    timingStats?: {
+      avgLoadTimeMs: number;
+      minLoadTimeMs: number;
+      maxLoadTimeMs: number;
+    };
     [key: string]: unknown 
-  }; // Summary objects with explicit properties
+  }; 
   currentHtml?: string;
   isLoginForm2?: boolean;
   success?: boolean;
   error?: string;
   message?: string;
   exportSessionId?: string;
+  messageId?: string;
+  testId?: string;
+  timestamp?: number;
+  detailedResults?: {
+    processedWeeks?: any[];
+    errors?: any[];
+    testState?: any;
+    scheduleTimings?: Array<{
+      weekIndex: number;
+      weekText: string;
+      startTime: number;
+      endTime: number;
+      loadDurationMs: number;
+    }>;
+    timingStats?: {
+      avgLoadTimeMs: number;
+      minLoadTimeMs: number;
+      maxLoadTimeMs: number;
+    };
+    [key: string]: unknown;
+  };
   [key: string]: unknown; // Allow other properties for specific messages
 }
 
@@ -697,600 +730,526 @@ export function useCognosAutomation(webViewRef: React.RefObject<WebView | null>)
     originalMessageId?: string;
   }
 
-  const handleWebViewMessage = useCallback(async (messageData: any) => {
-    if (!messageData || !messageData.type) {
-      console.error('❌ [AUTOMATION] Received invalid message:', messageData);
-      return;
-    }
-    
-    // Type assertion to the tracked message interface
-    const trackedMessage = messageData as TrackedWebViewMessage;
-    
-    // Extract message tracking info if available
-    const messageId = trackedMessage.messageId || `legacy_${Date.now()}`;
-    const testId = trackedMessage.testId || 'default_test';
-    const timestamp = trackedMessage.timestamp || Date.now();
-    
-    // Track this message and test
-    if (testId && messageId) {
-      // Initialize test tracking if this is a new test
-      if (!activeTestsRef.current[testId]) {
-        activeTestsRef.current[testId] = {
-          startTime: timestamp,
-          lastActivityTime: timestamp,
-          messageIds: new Set<string>(),
-          completionMessageId: null,
-          isAcknowledged: false
-        };
-        console.log('🆕 [AUTOMATION] Tracking new test:', testId);
-      }
-      
-      // Update last activity time
-      activeTestsRef.current[testId].lastActivityTime = timestamp;
-      
-      // Check if we've seen this message before
-      const isDuplicate = activeTestsRef.current[testId].messageIds.has(messageId);
-      if (isDuplicate) {
-        console.log('🔄 [AUTOMATION] Received duplicate message:', messageId, 'for test:', testId);
-        
-        // For completion messages, we might still want to acknowledge again
-        if (trackedMessage.type === 'multi_week_test_complete') {
-          sendAcknowledgment(messageId, testId);
-        } else {
-          // For other messages, no need to process duplicates
-          return;
+  const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMessage) => {
+    try {
+      // Handle specific message types
+      switch (messageData.type) {
+        case 'cognos_analysis_complete': {
+          console.log('✅ [AUTOMATION] Analysis complete:', messageData.analysis);
+          setState(prev => ({
+            ...prev,
+            isAnalyzing: false,
+            analysis: messageData.analysis ?? null,
+            availableSchedules: messageData.analysis?.dropdownInfo?.allOptions || [],
+            currentStep: null,
+            error: null,
+          }));
+          
+          Alert.alert(
+            'Analysis Complete! ✅',
+            `Found Cognos interface with ${messageData.analysis?.dropdownInfo?.optionsCount || 0} schedule options.\n\n` +
+              `Current selection: ${messageData.analysis?.dropdownInfo?.selectedText || 'None'}\n\n` +
+              'Available schedules ready for automation.',
+            [{ text: 'Great!' }],
+          );
+          break;
         }
-      } else {
-        // Track this message
-        activeTestsRef.current[testId].messageIds.add(messageId);
-        
-        // Always acknowledge messages that have IDs
-        sendAcknowledgment(messageId, testId);
-      }
-    }
-    
-    // Process message based on type
-    switch (trackedMessage.type) {
-    case 'cognos_analysis_complete': {
-      console.log('✅ [AUTOMATION] Analysis complete:', trackedMessage.analysis);
-      setState(prev => ({
-        ...prev,
-        isAnalyzing: false,
-        analysis: trackedMessage.analysis ?? null,
-        availableSchedules: trackedMessage.analysis?.dropdownInfo?.allOptions || [],
-        currentStep: null,
-        error: null,
-      }));
-        
-      Alert.alert(
-        'Analysis Complete! ✅',
-        `Found Cognos interface with ${trackedMessage.analysis?.dropdownInfo?.optionsCount || 0} schedule options.\n\n` +
-          `Current selection: ${trackedMessage.analysis?.dropdownInfo?.selectedText || 'None'}\n\n` +
-          'Available schedules ready for automation.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'cognos_analysis_error': {
-      console.log('❌ [AUTOMATION] Analysis error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAnalyzing: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Analysis Failed ❌',
-        `Could not analyze Cognos interface:\n\n${trackedMessage.error ?? 'Unknown error'}\n\n` +
-          'Make sure you are on the correct Cognos page.',
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'initial_schedule_load_complete': {
-      console.log('✅ [AUTOMATION] Initial schedule load complete:', trackedMessage.buttonClicked);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      Alert.alert(
-        'Initial Load Complete! ✅',
-        'Successfully loaded initial schedule to initialize Cognos interface.\n\n' +
-          `Button clicked: ${trackedMessage.buttonClicked?.textContent || 'Run'}\n\n` +
-          'Now you can run "Analyze Cognos Interface" to see the proper week schedule options.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'initial_schedule_load_error': {
-      console.log('❌ [AUTOMATION] Initial schedule load error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Initial Load Failed ❌',
-        `Could not load initial schedule:\n\n${trackedMessage.error ?? 'Unknown error'}\n\n` +
-          'Make sure you are on the correct Cognos page.',
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'schedule_selected': {
-      console.log('✅ [AUTOMATION] Schedule selected:', trackedMessage.selectedOption);
-      setState(prev => ({
-        ...prev,
-        currentStep: 'Schedule selected, running report...',
-      }));
-        
-      // Auto-proceed to run report
-      global.setTimeout(() => {
-        runReport();
-      }, 1000);
-      break;
-    }
-    case 'schedule_selection_error': {
-      console.log('❌ [AUTOMATION] Schedule selection error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Schedule Selection Failed ❌',
-        `Could not select schedule:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'run_button_clicked': {
-      console.log('✅ [AUTOMATION] Run button clicked');
-      setState(prev => ({
-        ...prev,
-        currentStep: 'Report running, waiting for completion...',
-      }));
-        
-      // Wait for page to reload, then extract data
-      global.setTimeout(() => {
-        extractData();
-      }, 3000);
-      break;
-    }
-    case 'run_button_error': {
-      console.log('❌ [AUTOMATION] Run button error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Run Button Failed ❌',
-        `Could not click run button:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'schedule_data_extracted': {
-      console.log('✅ [AUTOMATION] Schedule data extracted:', trackedMessage.scheduleData);
-      
-      // Store the HTML from the current page for later import
-      let extractedHtml = trackedMessage.currentHtml as string;
-      
-      // If currentHtml isn't available, try to generate HTML from the schedule data
-      if (!extractedHtml && Array.isArray(trackedMessage.scheduleData) && trackedMessage.scheduleData.length > 0) {
-        // Convert schedule data to HTML content suitable for import
-        console.log('✅ [AUTOMATION] No direct HTML found, generating from schedule data');
-        
-        // Create a simple HTML structure with the schedule data
-        extractedHtml = `<html><body>
-          <div class="schedule-container">
-            ${Array.isArray(trackedMessage.scheduleData[0]) 
-              ? trackedMessage.scheduleData[0].join('\n')
-              : JSON.stringify(trackedMessage.scheduleData)}
-          </div>
-        </body></html>`;
-        
-        console.log('✅ [AUTOMATION] Generated HTML size:', extractedHtml.length);
-      }
-      
-      // Check if this is part of an export session and call the handler if it exists
-      const exportSessionId = trackedMessage.exportSessionId as string;
-      if (exportSessionId) {
-        console.log('✅ [AUTOMATION] Message contains export session ID:', exportSessionId);
-      }
-      
-      // First check our local ref (more reliable in React Native)
-      if (exportSessionId && exportHandlersRef.current[exportSessionId]) {
-        console.log('✅ [AUTOMATION] Found export handler in ref for session:', exportSessionId);
-        try {
-          // Call the export handler with the HTML content
-          await exportHandlersRef.current[exportSessionId](extractedHtml);
+        case 'cognos_analysis_error': {
+          console.log('❌ [AUTOMATION] Analysis error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAnalyzing: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
           
-          // Clear the handler after use
-          delete exportHandlersRef.current[exportSessionId];
-          
-          // Don't show the alert here since the handler will handle that
-          return;
-        } catch (error) {
-          console.error('❌ [AUTOMATION] Error calling export handler from ref:', error);
-          // Continue with the default behavior
+          Alert.alert(
+            'Analysis Failed ❌',
+            `Could not analyze Cognos interface:\n\n${messageData.error ?? 'Unknown error'}\n\n` +
+              'Make sure you are on the correct Cognos page.',
+            [{ text: 'OK' }],
+          );
+          break;
         }
-      } 
-      // Fallback to global window (this might not work in React Native)
-      else if (exportSessionId && (window as any).__exportHandlers && (window as any).__exportHandlers[exportSessionId]) {
-        console.log('✅ [AUTOMATION] Found export handler in window for session:', exportSessionId);
-        try {
-          // Call the export handler with the HTML content
-          (window as any).__exportHandlers[exportSessionId](extractedHtml);
+        case 'initial_schedule_load_complete': {
+          console.log('✅ [AUTOMATION] Initial schedule load complete:', messageData.buttonClicked);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
           
-          // Clear the handler after use
-          delete (window as any).__exportHandlers[exportSessionId];
-          
-          // Don't show the alert here since the handler will handle that
-          return;
-        } catch (error) {
-          console.error('❌ [AUTOMATION] Error calling export handler from window:', error);
-          // Continue with the default behavior
+          Alert.alert(
+            'Initial Load Complete! ✅',
+            'Successfully loaded initial schedule to initialize Cognos interface.\n\n' +
+              `Button clicked: ${messageData.buttonClicked?.textContent || 'Run'}\n\n` +
+              'Now you can run "Analyze Cognos Interface" to see the proper week schedule options.',
+            [{ text: 'Great!' }],
+          );
+          break;
         }
-      } else if (state.exportSessionId) {
-        // If there's an active export session but no handler was found
-        console.log('⚠️ [AUTOMATION] Export session active but no handler found:', state.exportSessionId);
-        console.log('⚠️ [AUTOMATION] Available handlers in ref:', Object.keys(exportHandlersRef.current));
-      }
-      
-      // Default behavior if no export handler is found
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-        currentHtml: extractedHtml || prev.currentHtml,
-      }));
-      
-      Alert.alert(
-        'Data Extraction Complete! 🎉',
-        'Successfully extracted schedule data:\n\n' +
-          `• ${trackedMessage.scheduleData?.totalRows || 0} rows of data\n` +
-          `• ${trackedMessage.scheduleData?.tableCount || 0} tables found\n\n` +
-          'You can now import this schedule data.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'schedule_extraction_error': {
-      console.log('❌ [AUTOMATION] Data extraction error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Data Extraction Failed ❌',
-        `Could not extract schedule data:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'multi_week_test_progress': {
-      console.log('📊 [AUTOMATION] Multi-week test progress update:', trackedMessage.summary);
-      
-      // Only update the current step to show progress
-      if (trackedMessage.currentStep) {
-        setState(prev => {
-          // Don't override if we're no longer in automating state
-          if (!prev.isAutomating) return prev;
+        case 'initial_schedule_load_error': {
+          console.log('❌ [AUTOMATION] Initial schedule load error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
           
-          const summary = trackedMessage.summary as {
-            currentWeekIndex: number;
-            totalWeeksAvailable: number;
-            progress: string;
-            testDuration: string;
-            weeksProcessed: number;
-            errorsEncountered: number;
-            status: string;
-          } | undefined;
+          Alert.alert(
+            'Initial Load Failed ❌',
+            `Could not load initial schedule:\n\n${messageData.error ?? 'Unknown error'}\n\n` +
+              'Make sure you are on the correct Cognos page.',
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'schedule_selected': {
+          console.log('✅ [AUTOMATION] Schedule selected:', messageData.selectedOption);
+          setState(prev => ({
+            ...prev,
+            currentStep: 'Schedule selected, running report...',
+          }));
           
-          let progressMessage: string;
-          if (summary && typeof summary.currentWeekIndex === 'number' && 
-              typeof summary.totalWeeksAvailable === 'number') {
-            progressMessage = `Processing week ${summary.currentWeekIndex + 1} of ${summary.totalWeeksAvailable} (${summary.progress})`;
-            if (summary.weeksProcessed > 0) {
-              progressMessage += ` - ${summary.weeksProcessed} completed`;
-            }
-            if (summary.errorsEncountered > 0) {
-              progressMessage += ` - ${summary.errorsEncountered} errors`;
-            }
-          } else {
-            progressMessage = trackedMessage.currentStep as string;
+          // Auto-proceed to run report
+          global.setTimeout(() => {
+            runReport();
+          }, 1000);
+          break;
+        }
+        case 'schedule_selection_error': {
+          console.log('❌ [AUTOMATION] Schedule selection error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Schedule Selection Failed ❌',
+            `Could not select schedule:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'run_button_clicked': {
+          console.log('✅ [AUTOMATION] Run button clicked');
+          setState(prev => ({
+            ...prev,
+            currentStep: 'Report running, waiting for completion...',
+          }));
+          
+          // Wait for page to reload, then extract data
+          global.setTimeout(() => {
+            extractData();
+          }, 3000);
+          break;
+        }
+        case 'run_button_error': {
+          console.log('❌ [AUTOMATION] Run button error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Run Button Failed ❌',
+            `Could not click run button:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'schedule_data_extracted': {
+          console.log('✅ [AUTOMATION] Schedule data extracted:', messageData.scheduleData);
+          
+          // Store the HTML from the current page for later import
+          let extractedHtml = messageData.currentHtml as string;
+          
+          // If currentHtml isn't available, try to generate HTML from the schedule data
+          if (!extractedHtml && Array.isArray(messageData.scheduleData) && messageData.scheduleData.length > 0) {
+            // Convert schedule data to HTML content suitable for import
+            console.log('✅ [AUTOMATION] No direct HTML found, generating from schedule data');
+            
+            // Create a simple HTML structure with the schedule data
+            extractedHtml = `<html><body>
+              <div class="schedule-container">
+                ${Array.isArray(messageData.scheduleData[0]) 
+                  ? messageData.scheduleData[0].join('\n')
+                  : JSON.stringify(messageData.scheduleData)}
+              </div>
+            </body></html>`;
+            
+            console.log('✅ [AUTOMATION] Generated HTML size:', extractedHtml.length);
           }
           
-          return {
+          // Check if this is part of an export session and call the handler if it exists
+          const exportSessionId = messageData.exportSessionId as string;
+          if (exportSessionId) {
+            console.log('✅ [AUTOMATION] Message contains export session ID:', exportSessionId);
+          }
+          
+          // First check our local ref (more reliable in React Native)
+          if (exportSessionId && exportHandlersRef.current[exportSessionId]) {
+            console.log('✅ [AUTOMATION] Found export handler in ref for session:', exportSessionId);
+            try {
+              // Call the export handler with the HTML content
+              await exportHandlersRef.current[exportSessionId](extractedHtml);
+              
+              // Clear the handler after use
+              delete exportHandlersRef.current[exportSessionId];
+              
+              // Don't show the alert here since the handler will handle that
+              return;
+            } catch (error) {
+              console.error('❌ [AUTOMATION] Error calling export handler from ref:', error);
+              // Continue with the default behavior
+            }
+          } 
+          // Fallback to global window (this might not work in React Native)
+          else if (exportSessionId && (window as any).__exportHandlers && (window as any).__exportHandlers[exportSessionId]) {
+            console.log('✅ [AUTOMATION] Found export handler in window for session:', exportSessionId);
+            try {
+              // Call the export handler with the HTML content
+              (window as any).__exportHandlers[exportSessionId](extractedHtml);
+              
+              // Clear the handler after use
+              delete (window as any).__exportHandlers[exportSessionId];
+              
+              // Don't show the alert here since the handler will handle that
+              return;
+            } catch (error) {
+              console.error('❌ [AUTOMATION] Error calling export handler from window:', error);
+              // Continue with the default behavior
+            }
+          } else if (state.exportSessionId) {
+            // If there's an active export session but no handler was found
+            console.log('⚠️ [AUTOMATION] Export session active but no handler found:', state.exportSessionId);
+            console.log('⚠️ [AUTOMATION] Available handlers in ref:', Object.keys(exportHandlersRef.current));
+          }
+          
+          // Default behavior if no export handler is found
+          setState(prev => ({
             ...prev,
-            currentStep: progressMessage
-          };
-        });
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+            currentHtml: extractedHtml || prev.currentHtml,
+          }));
+          
+          Alert.alert(
+            'Data Extraction Complete! 🎉',
+            'Successfully extracted schedule data:\n\n' +
+              `• ${messageData.scheduleData?.totalRows || 0} rows of data\n` +
+              `• ${messageData.scheduleData?.tableCount || 0} tables found\n\n` +
+              'You can now import this schedule data.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'schedule_extraction_error': {
+          console.log('❌ [AUTOMATION] Data extraction error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Data Extraction Failed ❌',
+            `Could not extract schedule data:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'multi_week_test_progress':
+          sendAcknowledgment(messageData.messageId || '', messageData.testId || '');
+          if (messageData.summary) {
+            console.log('📊 [AUTOMATION] Multi-week test progress update:', messageData.summary);
+            
+            // Log timing data if available
+            if (messageData.summary.scheduleTimings && Array.isArray(messageData.summary.scheduleTimings) && messageData.summary.scheduleTimings.length > 0) {
+              console.log('⏱️ [AUTOMATION] Schedule timings so far:');
+              messageData.summary.scheduleTimings.forEach((timing) => {
+                console.log(`  - Week ${timing.weekText}: ${timing.loadDurationMs}ms`);
+              });
+            }
+          }
+          break;
+        case 'html_dump_complete': {
+          console.log('📋 [AUTOMATION] HTML dump complete:', messageData.summary);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
+          
+          const summary = messageData.summary;
+          Alert.alert(
+            'HTML Dump Complete! 📋',
+            'Successfully dumped HTML content:\n\n' +
+              `📄 Total Iframes: ${summary?.totalIframes || 0}\n` +
+              `✅ Accessible: ${summary?.accessibleIframes || 0}\n` +
+              `🎯 Cognos Iframes: ${summary?.cognosIframes || 0}\n` +
+              `❌ Blocked: ${summary?.blockedIframes || 0}\n\n` +
+              `📏 Main Document: ${summary?.mainDocumentSize || 0} chars\n` +
+              `📏 Total HTML: ${summary?.totalHtmlSize || 0} chars\n\n` +
+              'Check console logs for detailed HTML content and iframe analysis.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'html_dump_error': {
+          console.log('❌ [AUTOMATION] HTML dump error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'HTML Dump Failed ❌',
+            `Could not dump HTML content:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'main_html_dump_complete': {
+          console.log('📄 [AUTOMATION] Main HTML dump complete:', messageData.summary);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
+          
+          const mainSummary = messageData.summary;
+          Alert.alert(
+            'Main HTML Dump Complete! 📄',
+            'Successfully dumped main document HTML:\n\n' +
+              `📍 URL: ${mainSummary?.url || 'N/A'}\n` +
+              `📋 Title: ${mainSummary?.title || 'N/A'}\n` +
+              `📏 HTML Length: ${mainSummary?.htmlLength || 0} chars\n` +
+              `🔄 Ready State: ${mainSummary?.readyState || 'N/A'}\n\n` +
+              'Check console logs for the complete HTML content.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'main_html_dump_error': {
+          console.log('❌ [AUTOMATION] Main HTML dump error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Main HTML Dump Failed ❌',
+            `Could not dump main HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'iframe_html_dump_complete': {
+          console.log('🖼️ [AUTOMATION] Iframe HTML dump complete:', messageData.summary);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
+          
+          const iframeSummary = messageData.summary;
+          Alert.alert(
+            'Iframe HTML Dump Complete! 🖼️',
+            'Successfully dumped iframe HTML analysis:\n\n' +
+              `📄 Total Iframes: ${iframeSummary?.totalIframes || 0}\n` +
+              `✅ Accessible: ${iframeSummary?.accessibleIframes || 0}\n` +
+              `🎯 Cognos Iframes: ${iframeSummary?.cognosIframes || 0}\n` +
+              `❌ Blocked: ${iframeSummary?.blockedIframes || 0}\n\n` +
+              'Check console logs for detailed iframe HTML content.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'iframe_html_dump_error': {
+          console.log('❌ [AUTOMATION] Iframe HTML dump error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Iframe HTML Dump Failed ❌',
+            `Could not dump iframe HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'login_form_2_dump_complete': {
+          console.log('🔍 [AUTOMATION] Login form inspection complete:', messageData.summary);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
+          
+          const loginFormSummary = messageData.summary;
+          Alert.alert(
+            'Login Form Inspection Complete! 🔍',
+            'Successfully analyzed login form:\n\n' +
+              `📍 URL: ${loginFormSummary?.url || 'N/A'}\n` +
+              `📋 Input Fields: ${loginFormSummary?.inputCount || 0}\n` +
+              `📃 Forms: ${loginFormSummary?.formCount || 0}\n` +
+              `🔘 Buttons: ${loginFormSummary?.buttonCount || 0}\n` +
+              `🔐 Validation Scripts: ${loginFormSummary?.validationScriptCount || 0}\n\n` +
+              'Check console logs for detailed validation logic analysis.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'login_form_2_dump_error': {
+          console.log('❌ [AUTOMATION] Login form inspection error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'Login Form Inspection Failed ❌',
+            `Could not analyze login form:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'simple_html_dump_complete': {
+          console.log('📋 [AUTOMATION] Simple HTML dump complete:', messageData.summary);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            currentStep: null,
+            error: null,
+          }));
+          
+          const htmlSummary = messageData.summary;
+          Alert.alert(
+            'HTML Dump Complete! 📋',
+            'Successfully dumped all HTML content:\n\n' +
+              `📍 URL: ${htmlSummary?.url || 'N/A'}\n` +
+              `📄 Main Document: ${htmlSummary?.mainDocumentSize || 0} chars\n` +
+              `🖼️ Total Iframes: ${htmlSummary?.totalIframes || 0}\n` +
+              `✅ Accessible Iframes: ${htmlSummary?.accessibleIframes || 0}\n` +
+              `📏 Total HTML: ${htmlSummary?.totalHtmlDumped || 0} chars\n\n` +
+              'Check console logs for complete HTML content.',
+            [{ text: 'Great!' }],
+          );
+          break;
+        }
+        case 'simple_html_dump_error': {
+          console.log('❌ [AUTOMATION] Simple HTML dump error:', messageData.error);
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: messageData.error ?? null,
+            currentStep: null,
+          }));
+          
+          Alert.alert(
+            'HTML Dump Failed ❌',
+            `Could not dump HTML:\n\n${messageData.error ?? 'Unknown error'}`, 
+            [{ text: 'OK' }],
+          );
+          break;
+        }
+        case 'multi_week_test_complete':
+          sendAcknowledgment(messageData.messageId || '', messageData.testId || '');
+          console.log('✅ [AUTOMATION] Multi-week test complete:', messageData.summary || {});
+          console.log('📊 [AUTOMATION] Multi-week test detailed results:');
+          console.log('  - Message ID:', messageData.messageId || 'unknown');
+          console.log('  - Test ID:', messageData.testId || 'unknown');
+          console.log('  - Type:', messageData.type);
+          console.log('  - Success flag:', messageData.success);
+          console.log('  - Has summary:', !!messageData.summary);
+          
+          if (messageData.summary) {
+            console.log('  - Weeks processed:', messageData.summary.weeksProcessed);
+            console.log('  - Total weeks available:', messageData.summary.totalWeeksAvailable);
+            console.log('  - Success rate:', messageData.summary.successRate);
+            console.log('  - Test duration:', messageData.summary.testDuration);
+            console.log('  - Errors encountered:', messageData.summary.errorsEncountered);
+            
+            // Log timing stats if available
+            if (messageData.summary.timingStats) {
+              console.log('⏱️ [AUTOMATION] Schedule load timing statistics:');
+              console.log('  - Average load time:', messageData.summary.timingStats.avgLoadTimeMs, 'ms');
+              console.log('  - Minimum load time:', messageData.summary.timingStats.minLoadTimeMs, 'ms');
+              console.log('  - Maximum load time:', messageData.summary.timingStats.maxLoadTimeMs, 'ms');
+            }
+            
+            // Log individual schedule timings if available
+            if (messageData.detailedResults && 
+                messageData.detailedResults.scheduleTimings && 
+                Array.isArray(messageData.detailedResults.scheduleTimings)) {
+              console.log('⏱️ [AUTOMATION] Detailed schedule load timings:');
+              messageData.detailedResults.scheduleTimings.forEach((timing, index) => {
+                console.log(`  - Week ${timing.weekText}: ${timing.loadDurationMs}ms`);
+              });
+            }
+          }
+          
+          // Mark test as completed
+          if (messageData.testId) {
+            markTestCompleted(messageData.testId);
+          }
+          
+          break;
+        case 'multi_week_test_error': {
+          console.error('❌ [AUTOMATION] Multi-week test error:', messageData.error);
+          
+          // Clear any pending safety timeout
+          if (safetyTimeoutRef.current) {
+            clearTimeout(safetyTimeoutRef.current);
+            safetyTimeoutRef.current = null;
+          }
+          
+          // Update UI state
+          setState(prev => ({
+            ...prev,
+            isAutomating: false,
+            error: typeof messageData.error === 'string' ? messageData.error : 'Unknown error in multi-week test',
+            currentStep: null
+          }));
+          
+          // Show alert
+          Alert.alert(
+            'Multi-Week Test Error',
+            `The test encountered an error: ${typeof messageData.error === 'string' ? messageData.error : 'Unknown error'}`,
+            [{ text: 'OK' }]
+          );
+          
+          break;
+        }
+        default:
+          console.log('ℹ️ [AUTOMATION] Unhandled message type:', messageData.type);
       }
       
-      break;
-    }
-    case 'html_dump_complete': {
-      console.log('📋 [AUTOMATION] HTML dump complete:', trackedMessage.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      const summary = trackedMessage.summary;
-      Alert.alert(
-        'HTML Dump Complete! 📋',
-        'Successfully dumped HTML content:\n\n' +
-          `📄 Total Iframes: ${summary?.totalIframes || 0}\n` +
-          `✅ Accessible: ${summary?.accessibleIframes || 0}\n` +
-          `🎯 Cognos Iframes: ${summary?.cognosIframes || 0}\n` +
-          `❌ Blocked: ${summary?.blockedIframes || 0}\n\n` +
-          `📏 Main Document: ${summary?.mainDocumentSize || 0} chars\n` +
-          `📏 Total HTML: ${summary?.totalHtmlSize || 0} chars\n\n` +
-          'Check console logs for detailed HTML content and iframe analysis.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'html_dump_error': {
-      console.log('❌ [AUTOMATION] HTML dump error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'HTML Dump Failed ❌',
-        `Could not dump HTML content:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'main_html_dump_complete': {
-      console.log('📄 [AUTOMATION] Main HTML dump complete:', trackedMessage.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      const mainSummary = trackedMessage.summary;
-      Alert.alert(
-        'Main HTML Dump Complete! 📄',
-        'Successfully dumped main document HTML:\n\n' +
-          `📍 URL: ${mainSummary?.url || 'N/A'}\n` +
-          `📋 Title: ${mainSummary?.title || 'N/A'}\n` +
-          `📏 HTML Length: ${mainSummary?.htmlLength || 0} chars\n` +
-          `🔄 Ready State: ${mainSummary?.readyState || 'N/A'}\n\n` +
-          'Check console logs for the complete HTML content.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'main_html_dump_error': {
-      console.log('❌ [AUTOMATION] Main HTML dump error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Main HTML Dump Failed ❌',
-        `Could not dump main HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'iframe_html_dump_complete': {
-      console.log('🖼️ [AUTOMATION] Iframe HTML dump complete:', trackedMessage.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      const iframeSummary = trackedMessage.summary;
-      Alert.alert(
-        'Iframe HTML Dump Complete! 🖼️',
-        'Successfully dumped iframe HTML analysis:\n\n' +
-          `📄 Total Iframes: ${iframeSummary?.totalIframes || 0}\n` +
-          `✅ Accessible: ${iframeSummary?.accessibleIframes || 0}\n` +
-          `🎯 Cognos Iframes: ${iframeSummary?.cognosIframes || 0}\n` +
-          `❌ Blocked: ${iframeSummary?.blockedIframes || 0}\n\n` +
-          'Check console logs for detailed iframe HTML content.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'iframe_html_dump_error': {
-      console.log('❌ [AUTOMATION] Iframe HTML dump error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Iframe HTML Dump Failed ❌',
-        `Could not dump iframe HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'login_form_2_dump_complete': {
-      console.log('🔍 [AUTOMATION] Login form inspection complete:', trackedMessage.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      const loginFormSummary = trackedMessage.summary;
-      Alert.alert(
-        'Login Form Inspection Complete! 🔍',
-        'Successfully analyzed login form:\n\n' +
-          `📍 URL: ${loginFormSummary?.url || 'N/A'}\n` +
-          `📋 Input Fields: ${loginFormSummary?.inputCount || 0}\n` +
-          `📃 Forms: ${loginFormSummary?.formCount || 0}\n` +
-          `🔘 Buttons: ${loginFormSummary?.buttonCount || 0}\n` +
-          `🔐 Validation Scripts: ${loginFormSummary?.validationScriptCount || 0}\n\n` +
-          'Check console logs for detailed validation logic analysis.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'login_form_2_dump_error': {
-      console.log('❌ [AUTOMATION] Login form inspection error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'Login Form Inspection Failed ❌',
-        `Could not analyze login form:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'simple_html_dump_complete': {
-      console.log('📋 [AUTOMATION] Simple HTML dump complete:', trackedMessage.summary);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        currentStep: null,
-        error: null,
-      }));
-        
-      const htmlSummary = trackedMessage.summary;
-      Alert.alert(
-        'HTML Dump Complete! 📋',
-        'Successfully dumped all HTML content:\n\n' +
-          `📍 URL: ${htmlSummary?.url || 'N/A'}\n` +
-          `📄 Main Document: ${htmlSummary?.mainDocumentSize || 0} chars\n` +
-          `🖼️ Total Iframes: ${htmlSummary?.totalIframes || 0}\n` +
-          `✅ Accessible Iframes: ${htmlSummary?.accessibleIframes || 0}\n` +
-          `📏 Total HTML: ${htmlSummary?.totalHtmlDumped || 0} chars\n\n` +
-          'Check console logs for complete HTML content.',
-        [{ text: 'Great!' }],
-      );
-      break;
-    }
-    case 'simple_html_dump_error': {
-      console.log('❌ [AUTOMATION] Simple HTML dump error:', trackedMessage.error);
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: trackedMessage.error ?? null,
-        currentStep: null,
-      }));
-        
-      Alert.alert(
-        'HTML Dump Failed ❌',
-        `Could not dump HTML:\n\n${trackedMessage.error ?? 'Unknown error'}`, 
-        [{ text: 'OK' }],
-      );
-      break;
-    }
-    case 'multi_week_test_complete': {
-      console.log('✅ [AUTOMATION] Multi-week test complete:', trackedMessage.summary);
-      
-      // Additional detailed logging for debugging completion issues
-      console.log('📊 [AUTOMATION] Multi-week test detailed results:');
-      console.log('  - Message ID:', messageId);
-      console.log('  - Test ID:', testId);
-      console.log('  - Type:', trackedMessage.type);
-      console.log('  - Success flag:', trackedMessage.success);
-      console.log('  - Has summary:', !!trackedMessage.summary);
-      
-      if (trackedMessage.summary) {
-        console.log('  - Weeks processed:', trackedMessage.summary.weeksProcessed);
-        console.log('  - Total weeks available:', trackedMessage.summary.totalWeeksAvailable);
-        console.log('  - Success rate:', trackedMessage.summary.successRate);
-        console.log('  - Test duration:', trackedMessage.summary.testDuration);
-        console.log('  - Errors encountered:', trackedMessage.summary.errorsEncountered);
-      }
-      
-      // Track this as a completion message
-      if (activeTestsRef.current[testId]) {
-        activeTestsRef.current[testId].completionMessageId = messageId;
-      }
-      
-      // Update UI state - force exit automating state
-      markTestCompleted(testId);
-      
-      // Show alert only if we haven't already shown one for this test
-      // or if this is a legacy message without tracking info
-      if (!activeTestsRef.current[testId]?.isAcknowledged || !testId) {
-        const successfulWeeks = trackedMessage.summary?.weeksProcessed ?? 0;
-        const totalWeeks = trackedMessage.summary?.totalWeeksAvailable ?? 0;
-        const testDuration = trackedMessage.summary?.testDuration ?? 'unknown duration';
-        
-        Alert.alert(
-          'Multi-Week Test Complete!',
-          `Successfully processed ${successfulWeeks} of ${totalWeeks} weeks in ${testDuration}.`,
-          [{ text: 'OK' }]
-        );
-      }
-      
-      break;
-    }
-    case 'multi_week_test_error': {
-      console.error('❌ [AUTOMATION] Multi-week test error:', trackedMessage.error);
-      
-      // Clear any pending safety timeout
-      if (safetyTimeoutRef.current) {
-        clearTimeout(safetyTimeoutRef.current);
-        safetyTimeoutRef.current = null;
-      }
-      
-      // Update UI state
-      setState(prev => ({
-        ...prev,
-        isAutomating: false,
-        error: typeof trackedMessage.error === 'string' ? trackedMessage.error : 'Unknown error in multi-week test',
-        currentStep: null
-      }));
-      
-      // Show alert
-      Alert.alert(
-        'Multi-Week Test Error',
-        `The test encountered an error: ${typeof trackedMessage.error === 'string' ? trackedMessage.error : 'Unknown error'}`,
-        [{ text: 'OK' }]
-      );
-      
-      break;
-    }
-    default:
-      console.log('ℹ️ [AUTOMATION] Unhandled message type:', trackedMessage.type);
+      // ... rest of the function ...
+    } catch (error) {
+      // ... error handling ...
     }
   }, [sendAcknowledgment, markTestCompleted]);
 

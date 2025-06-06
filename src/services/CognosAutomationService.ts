@@ -766,7 +766,8 @@ export class CognosAutomationService {
             errors: [],
             startTime: new Date().toISOString(),
             currentStep: 'initialization',
-            lastProgressUpdate: Date.now()
+            lastProgressUpdate: Date.now(),
+            scheduleTimings: [] // Add array to track timing for each schedule
           };
           
           // Report progress periodically to ensure UI is updated
@@ -784,7 +785,8 @@ export class CognosAutomationService {
                 errorsEncountered: testState.errors.length,
                 currentWeekIndex: testState.currentWeekIndex,
                 progress: Math.round((testState.currentWeekIndex / testState.totalWeeks) * 100) + '%',
-                status: 'in_progress'
+                status: 'in_progress',
+                scheduleTimings: testState.scheduleTimings // Include timings in progress updates
               };
               
               sendMessageWithTracking('multi_week_test_progress', {
@@ -985,32 +987,79 @@ export class CognosAutomationService {
               const selectionResult = selectWeek(cognosInfo.doc, testState.currentWeekIndex);
               weekData.selectedWeek = selectionResult;
               
+              // Create timing data
+              const timingData = {
+                weekIndex: testState.currentWeekIndex,
+                weekText: selectionResult.weekText,
+                startTime: Date.now(),
+                endTime: null,
+                loadDurationMs: null
+              };
+              
               // Wait a moment for dropdown changes to settle
               setTimeout(() => {
                 try {
+                  // Record start time for schedule loading
+                  console.log('⏱️ [MULTI-WEEK-TEST] Starting timer for week:', selectionResult.weekText);
+                  
                   // Click run button to load the schedule
                   const clickResult = clickRunButton(cognosInfo.doc);
                   weekData.runButtonClick = clickResult;
                   
-                  // Record this week as processed
-                  testState.processedWeeks.push(weekData);
+                  // Setup a listener to detect when the page has fully loaded
+                  const checkPageLoaded = () => {
+                    const newCognosInfo = findCognosIframe();
+                    if (newCognosInfo) {
+                      try {
+                        // Check if we have elements in the new state
+                        const newElements = findElements(newCognosInfo.doc);
+                        if (newElements.dropdown && newElements.runButton) {
+                          // Calculate load time
+                          timingData.endTime = Date.now();
+                          timingData.loadDurationMs = timingData.endTime - timingData.startTime;
+                          
+                          // Log the timing information
+                          console.log('⏱️ [MULTI-WEEK-TEST] Schedule loaded in', timingData.loadDurationMs, 'ms for week:', selectionResult.weekText);
+                          
+                          // Store timing data
+                          testState.scheduleTimings.push(timingData);
+                          
+                          // Add timing to the week data
+                          weekData.timing = timingData;
+                          
+                          // Record this week as processed
+                          testState.processedWeeks.push(weekData);
+                          
+                          console.log('✅ [MULTI-WEEK-TEST] Week ' + (testState.currentWeekIndex + 1) + ' processing completed');
+                          
+                          // Move to next week
+                          testState.currentWeekIndex++;
+                          reportProgress();
+                          
+                          if (testState.currentWeekIndex < testState.totalWeeks) {
+                            // Process next week
+                            testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
+                            setTimeout(() => processNextWeek(), 1000);
+                          } else {
+                            // All weeks processed
+                            completeTest();
+                          }
+                        } else {
+                          // Elements not found yet, try again
+                          setTimeout(checkPageLoaded, 100);
+                        }
+                      } catch (e) {
+                        // Error checking page, try again
+                        setTimeout(checkPageLoaded, 100);
+                      }
+                    } else {
+                      // Iframe not found yet, try again
+                      setTimeout(checkPageLoaded, 100);
+                    }
+                  };
                   
-                  console.log('✅ [MULTI-WEEK-TEST] Week ' + (testState.currentWeekIndex + 1) + ' processing initiated');
-                  
-                  // Move to next week
-                  testState.currentWeekIndex++;
-                  reportProgress();
-                  
-                  if (testState.currentWeekIndex < testState.totalWeeks) {
-                    // Wait for page to reload/update, then process next week
-                    setTimeout(() => {
-                      testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
-                      processNextWeek();
-                    }, 3000); // 3 second delay for page reload
-                  } else {
-                    // All weeks processed
-                    completeTest();
-                  }
+                  // Start checking for page load
+                  setTimeout(checkPageLoaded, 500);
                   
                 } catch (error) {
                   console.error('❌ [MULTI-WEEK-TEST] Error in run button click:', error);
@@ -1052,6 +1101,25 @@ export class CognosAutomationService {
             const endTime = new Date().toISOString();
             const duration = new Date(endTime) - new Date(testState.startTime);
             
+            // Calculate timing statistics if we have timings
+            let avgLoadTimeMs = 0;
+            let minLoadTimeMs = 0;
+            let maxLoadTimeMs = 0;
+            
+            if (testState.scheduleTimings.length > 0) {
+              // Calculate average load time
+              const totalTime = testState.scheduleTimings.reduce((sum, timing) => 
+                sum + (timing.loadDurationMs || 0), 0);
+              avgLoadTimeMs = Math.round(totalTime / testState.scheduleTimings.length);
+              
+              // Calculate min and max load times
+              const validTimings = testState.scheduleTimings.filter(t => t.loadDurationMs);
+              if (validTimings.length > 0) {
+                minLoadTimeMs = Math.min(...validTimings.map(t => t.loadDurationMs));
+                maxLoadTimeMs = Math.max(...validTimings.map(t => t.loadDurationMs));
+              }
+            }
+            
             return {
               testDuration: Math.round(duration / 1000) + ' seconds',
               totalWeeksAvailable: testState.totalWeeks,
@@ -1063,7 +1131,13 @@ export class CognosAutomationService {
               conclusiveResult: testState.processedWeeks.length >= 2 ? 
                 'SUCCESS: Automation can handle multiple weeks with ID changes' :
                 'PARTIAL: Limited week processing, needs investigation',
-              status: 'completed'
+              status: 'completed',
+              scheduleTimings: testState.scheduleTimings,
+              timingStats: {
+                avgLoadTimeMs,
+                minLoadTimeMs,
+                maxLoadTimeMs
+              }
             };
           }
           
@@ -1072,6 +1146,16 @@ export class CognosAutomationService {
             testState.currentStep = 'completed';
             
             const summary = createSummary();
+            
+            // Log timing statistics
+            console.log('⏱️ [MULTI-WEEK-TEST] Schedule loading timing statistics:');
+            console.log('  - Average load time:', summary.timingStats.avgLoadTimeMs, 'ms');
+            console.log('  - Minimum load time:', summary.timingStats.minLoadTimeMs, 'ms');
+            console.log('  - Maximum load time:', summary.timingStats.maxLoadTimeMs, 'ms');
+            console.log('  - Detailed timings:');
+            testState.scheduleTimings.forEach((timing, index) => {
+              console.log('    Week', timing.weekText + ':', timing.loadDurationMs, 'ms');
+            });
             
             console.log('📊 [MULTI-WEEK-TEST] Final Summary:', summary);
             
@@ -1088,7 +1172,9 @@ export class CognosAutomationService {
               detailedResults: {
                 processedWeeks: testState.processedWeeks,
                 errors: testState.errors,
-                testState: testState
+                testState: testState,
+                scheduleTimings: testState.scheduleTimings,
+                timingStats: summary.timingStats
               },
               message: summary.conclusiveResult
             }, true); // Mark as completion message
@@ -1110,6 +1196,7 @@ export class CognosAutomationService {
                 testState.errors = parsedState.errors;
                 testState.startTime = parsedState.startTime;
                 testState.currentStep = parsedState.currentStep;
+                testState.scheduleTimings = parsedState.scheduleTimings || [];
                 
                 console.log('✅ [MULTI-WEEK-TEST] State restored - current week:', testState.currentWeekIndex, 'of', testState.totalWeeks);
                 console.log('✅ [MULTI-WEEK-TEST] State restored - processed weeks:', testState.processedWeeks.length);
