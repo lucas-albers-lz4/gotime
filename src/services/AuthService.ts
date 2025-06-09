@@ -53,13 +53,10 @@ export class AuthService {
       console.log('🎯 [LOGIN] Starting corporate portal authentication');
       console.log('👤 [LOGIN] Employee ID:', credentials.employeeId.substring(0, 3) + '***');
       
-      // Check platform limitations
+      // Web platform troubleshooting mode
       if (Platform.OS === 'web') {
-        console.log('🌐 [LOGIN] Web platform detected - CORS limitations');
-        return {
-          success: false,
-          error: 'Web platform authentication not supported due to CORS restrictions. Please use the mobile app.',
-        };
+        console.log('🌐 [LOGIN] Web platform detected - entering troubleshooting mode');
+        return await this.webDebugLogin(credentials);
       }
 
       // Validate credentials
@@ -106,6 +103,135 @@ export class AuthService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown authentication error',
+      };
+    }
+  }
+
+  /**
+   * Web platform debug login - provides detailed troubleshooting info
+   * Since web runs in browser, no WebView available, but user can inspect network directly
+   */
+  private async webDebugLogin(credentials: UserCredentials): Promise<AuthResult> {
+    console.log('🌐 [WEB DEBUG] Starting web platform authentication troubleshooting');
+    console.log('👤 [WEB DEBUG] Employee ID:', credentials.employeeId.substring(0, 3) + '***');
+    
+    // Validate credentials
+    if (!credentials.employeeId || !credentials.password) {
+      return {
+        success: false,
+        error: 'Employee ID and password are required',
+      };
+    }
+
+    try {
+      // On web, we can't use WebView, but we can try direct API calls with detailed logging
+      const loginUrl = APP_CONFIG.PORTAL_URLS.LOGIN;
+      
+      console.log('🔍 [WEB DEBUG] Testing connectivity to:', loginUrl);
+      console.log('🛠️ [WEB DEBUG] CORS may block this request - check browser console for details');
+      console.log('💡 [WEB DEBUG] Open browser dev tools (F12) -> Network tab to see actual requests');
+      
+      // Try a simple fetch to test connectivity and CORS
+      const response = await fetch(loginUrl, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'include',
+        headers: {
+          'User-Agent': this.currentUserAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+
+      console.log('✅ [WEB DEBUG] Initial connectivity test successful');
+      console.log('📊 [WEB DEBUG] Response status:', response.status);
+      console.log('🔗 [WEB DEBUG] Response URL:', response.url);
+      
+      const responseText = await response.text();
+      console.log('📄 [WEB DEBUG] Response length:', responseText.length);
+      
+      // Check if login form is present
+      const hasLoginForm = responseText.toLowerCase().includes('<form') && 
+                          (responseText.toLowerCase().includes('password') || 
+                           responseText.toLowerCase().includes('username'));
+      
+      console.log('🔍 [WEB DEBUG] Has login form:', hasLoginForm);
+      
+      if (hasLoginForm) {
+        return {
+          success: false,
+          error: `Web Troubleshooting Mode Active 🌐
+
+DIAGNOSIS:
+✅ Connection to ${APP_CONFIG.PORTAL_URLS.BASE} successful
+✅ Login page loaded (${responseText.length} chars)
+✅ Login form detected
+
+NEXT STEPS:
+1. Open browser dev tools (F12)
+2. Go to Network tab
+3. Try manual login at ${loginUrl}
+4. Watch for failed requests or CORS errors
+5. Check if username/password validation occurs client-side or server-side
+
+RECOMMENDATION:
+For production use, deploy mobile app where WebView authentication works properly.`,
+          sessionData: { 
+            hasForm: hasLoginForm,
+            responseLength: responseText.length,
+            responseUrl: response.url,
+            troubleshootingMode: true, 
+          },
+        };
+      } else {
+        return {
+          success: false,
+          error: `Web Troubleshooting Mode Active 🌐
+
+DIAGNOSIS:
+✅ Connection successful 
+❌ No login form detected
+
+This might indicate:
+- Already authenticated session
+- Redirect to different login page
+- Page structure changed
+
+Check browser dev tools for more details.`,
+        };
+      }
+
+    } catch (error) {
+      console.error('❌ [WEB DEBUG] Connection failed:', error);
+      
+      const isNetworkError = error instanceof TypeError && error.message.includes('Failed to fetch');
+      const isCORSError = error instanceof TypeError && 
+                         (error.message.includes('CORS') || error.message.includes('cross-origin'));
+      
+      let errorMessage = `Web Troubleshooting Mode Active 🌐
+
+DIAGNOSIS:
+❌ Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}
+
+`;
+
+      if (isCORSError || isNetworkError) {
+        errorMessage += `
+LIKELY CAUSE: CORS (Cross-Origin Resource Sharing) restriction
+
+SOLUTIONS:
+1. Use mobile app (recommended)
+2. Disable CORS in browser (DEV ONLY):
+   - Chrome: --disable-web-security --user-data-dir=/tmp/chrome
+   - Firefox: about:config -> security.tls.insecure_fallback_hosts
+3. Use browser extension to disable CORS
+4. Access from company network that allows CORS
+
+TECHNICAL: Corporate portals often block cross-origin requests for security.`;
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
       };
     }
   }

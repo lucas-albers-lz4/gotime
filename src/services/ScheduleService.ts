@@ -885,7 +885,7 @@ export class ScheduleService {
               startTime,
               endTime,
               shiftHours,
-              changedOn
+              changedOn,
             });
             console.log('✅ [SCHEDULE] Added shift:', { startTime, endTime, shiftHours, changedOn });
           }
@@ -1191,8 +1191,8 @@ export class ScheduleService {
         weekEnd: '6/8/2025',
         dataAsOf: '5/29/2025 7:24:02 AM',
         employee: {
-          name: 'LUCAS ALBERS',
-          employeeId: '6570527',
+          name: 'EXAMPLE EMPLOYEE',
+          employeeId: '0000000',
           location: '00096-Bozeman, MT',
           department: '080-Front End',
           jobTitle: 'Cashier Asst',
@@ -1290,8 +1290,8 @@ export class ScheduleService {
         weekEnd: '6/1/2025',
         dataAsOf: '5/22/2025 8:15:30 AM',
         employee: {
-          name: 'LUCAS ALBERS',
-          employeeId: '6570527',
+          name: 'EXAMPLE EMPLOYEE',
+          employeeId: '0000000',
           location: '00096-Bozeman, MT',
           department: '080-Front End',
           jobTitle: 'Cashier Asst',
@@ -1379,8 +1379,8 @@ export class ScheduleService {
         weekEnd: '6/15/2025',
         dataAsOf: '6/5/2025 9:45:15 AM',
         employee: {
-          name: 'LUCAS ALBERS',
-          employeeId: '6570527',
+          name: 'EXAMPLE EMPLOYEE',
+          employeeId: '0000000',
           location: '00096-Bozeman, MT',
           department: '080-Front End',
           jobTitle: 'Cashier Asst',

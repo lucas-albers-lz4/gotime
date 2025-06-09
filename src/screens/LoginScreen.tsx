@@ -1193,12 +1193,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   parsedMessage.type.startsWith('cognos_') || 
                   parsedMessage.type.startsWith('multi_week_test_') ||
                   ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
-                   'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
-                   'html_dump_complete', 'html_dump_error', 'main_html_dump_complete', 
-                   'main_html_dump_error', 'iframe_html_dump_complete', 'iframe_html_dump_error',
-                   'login_form_2_dump_complete', 'login_form_2_dump_error', 
-                   'simple_html_dump_complete', 'simple_html_dump_error',
-                   'initial_schedule_load_complete', 'initial_schedule_load_error'].includes(parsedMessage.type)
+                    'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
+                    'html_dump_complete', 'html_dump_error', 'main_html_dump_complete', 
+                    'main_html_dump_error', 'iframe_html_dump_complete', 'iframe_html_dump_error',
+                    'login_form_2_dump_complete', 'login_form_2_dump_error', 
+                    'simple_html_dump_complete', 'simple_html_dump_error',
+                    'initial_schedule_load_complete', 'initial_schedule_load_error'].includes(parsedMessage.type)
                 )) {
                   console.log('🤖 [WEBVIEW] Routing message to Cognos automation handler:', parsedMessage.type);
                   automation.handleWebViewMessage(parsedMessage);
@@ -2312,20 +2312,7 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.body.fontSize,
     fontWeight: '500',
   },
-  resetButton: {
-    borderWidth: 1,
-    borderColor: COLORS.error,
-    borderRadius: 8,
-    padding: SPACING.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: SPACING.md,
-  },
-  resetButtonText: {
-    color: COLORS.error,
-    fontSize: TYPOGRAPHY.body.fontSize,
-    fontWeight: '500',
-  },
+
   multiWeekTestButton: {
     borderColor: COLORS.primary,
     marginTop: SPACING.md,

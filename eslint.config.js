@@ -33,6 +33,14 @@ module.exports = [
         FormData: 'readonly',
         fetch: 'readonly',
         URLSearchParams: 'readonly',
+        // Browser/Timer globals
+        window: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        // Node.js types
+        NodeJS: 'readonly',
       },
     },
     plugins: {

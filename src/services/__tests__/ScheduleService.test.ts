@@ -632,9 +632,9 @@ describe('ScheduleService', () => {
       // Get the middle schedule (Week 6/2/2025 - 6/8/2025) which contains the Thursday data we corrected
       const scheduleWithThursday = demoSchedules[1]; // Now at index 1 due to chronological sorting
       
-      // Verify employee info matches actual HTML
-      expect(scheduleWithThursday.employee.name).toBe('LUCAS ALBERS');
-      expect(scheduleWithThursday.employee.employeeId).toBe('6570527');
+      // Verify employee info uses demo values
+      expect(scheduleWithThursday.employee.name).toBe('EXAMPLE EMPLOYEE');
+      expect(scheduleWithThursday.employee.employeeId).toBe('0000000');
       expect(scheduleWithThursday.employee.location).toBe('00096-Bozeman, MT');
       expect(scheduleWithThursday.employee.department).toBe('080-Front End');
       expect(scheduleWithThursday.employee.jobTitle).toBe('Cashier Asst');

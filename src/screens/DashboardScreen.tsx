@@ -410,7 +410,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         }
         
         return false;
-      } catch (_) {
+      } catch {
         // If date parsing fails, don't highlight
         return false;
       }

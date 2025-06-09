@@ -21,8 +21,8 @@ export const createTestSchedule = (weekOffset: number = 0): WeeklySchedule => {
   };
 
   const employee: EmployeeInfo = {
-    name: 'Test Employee',
-    employeeId: '1234567',
+    name: 'EXAMPLE EMPLOYEE',
+    employeeId: '0000000',
     location: '00096-Test Location',
     department: '080-Front End',
     jobTitle: 'Test Position',
