@@ -1082,49 +1082,51 @@ export class CognosAutomationService {
                         return false;
                       }
                       
-                      console.log('🔍 [MULTI-WEEK-TEST] Week verification (exact date matching):');
-                      console.log('  - Dropdown selection raw:', selectedWeekValue);
-                      console.log('  - Expected end date (converted):', expectedEndDate);
-                      
-                      // Extract week range from loaded schedule
-                      const weekRange = extractWeekRange(scheduleContent);
-                      if (!weekRange) {
-                        console.log('⚠️ [MULTI-WEEK-TEST] Could not extract week range from schedule content');
-                        
-                        // Fallback to basic content check if regex fails
-                        const hasBasicContent = scheduleContent.includes('Employee #') && 
-                                              (scheduleContent.includes('table class="ls"') || scheduleContent.includes('Monday'));
-                        if (hasBasicContent) {
-                          console.log('🔄 [MULTI-WEEK-TEST] Falling back to basic content check - PASSED');
-                          return true;
-                        }
-                        return false;
-                      }
-                      
-                      // Compare end dates for exact match
-                      const weekMatches = weekRange.endDate === expectedEndDate;
-                      
-                      console.log('🔍 [MULTI-WEEK-TEST] Date comparison results:');
-                      console.log('  - Schedule shows week:', weekRange.startDate, '-', weekRange.endDate);
+                      console.log('🔍 [MULTI-WEEK-TEST] Fast week verification (exact end date matching):');
                       console.log('  - Expected end date:', expectedEndDate);
-                      console.log('  - End dates match exactly:', weekMatches);
                       
-                      if (weekMatches) {
-                        console.log('✅ [MULTI-WEEK-TEST] EXACT date match verified - correct week loaded!');
+                      // OPTIMIZED: Direct string search for the expected end date instead of regex
+                      // We know the end date appears after a dash, so look for "- 6/22/2025" pattern
+                      const endDatePattern = '- ' + expectedEndDate;
+                      const containsExpectedEndDate = scheduleContent.includes(endDatePattern);
+                      
+                      console.log('🔍 [MULTI-WEEK-TEST] Fast pattern search:');
+                      console.log('  - Searching for pattern:', endDatePattern);
+                      console.log('  - Pattern found:', containsExpectedEndDate);
+                      
+                      if (containsExpectedEndDate) {
+                        console.log('✅ [MULTI-WEEK-TEST] FAST MATCH - correct week end date found!');
                         return true;
-                      } else {
-                        console.log('❌ [MULTI-WEEK-TEST] Date mismatch - wrong week loaded');
+                      }
+                      
+                      // Fallback: Try regex extraction for detailed verification (slower but more thorough)
+                      console.log('🔄 [MULTI-WEEK-TEST] Fast match failed, trying detailed regex extraction...');
+                      const weekPattern = /Week[:\\s]+(\\d{1,2}\\/\\d{1,2}\\/\\d{4})\\s*-\\s*(\\d{1,2}\\/\\d{1,2}\\/\\d{4})/i;
+                      const match = scheduleContent.match(weekPattern);
+                      
+                      if (match) {
+                        const weekMatches = match[2] === expectedEndDate; // match[2] is the end date
+                        console.log('🔍 [MULTI-WEEK-TEST] Regex fallback results:');
+                        console.log('  - Schedule shows week:', match[1], '-', match[2]);
+                        console.log('  - Expected end date:', expectedEndDate);
+                        console.log('  - End dates match exactly:', weekMatches);
                         
-                        // Double-check with basic content as fallback
-                        const hasBasicContent = scheduleContent.includes('Employee #') && 
-                                              (scheduleContent.includes('table class="ls"') || scheduleContent.includes('Monday'));
-                        if (hasBasicContent) {
-                          console.log('🔄 [MULTI-WEEK-TEST] Date mismatch but basic content present - may still be valid');
-                          // For now, be lenient and accept if basic content is there
+                        if (weekMatches) {
+                          console.log('✅ [MULTI-WEEK-TEST] REGEX MATCH - correct week loaded!');
                           return true;
                         }
-                        return false;
                       }
+                      
+                      // Final fallback: Basic content check (most lenient)
+                      const hasBasicContent = scheduleContent.includes('Employee #') && 
+                                            (scheduleContent.includes('table class="ls"') || scheduleContent.includes('Monday'));
+                      if (hasBasicContent) {
+                        console.log('🔄 [MULTI-WEEK-TEST] Date verification failed but basic schedule content present - accepting');
+                        return true;
+                      }
+                      
+                      console.log('❌ [MULTI-WEEK-TEST] All verification methods failed');
+                      return false;
                       
                     } catch (e) {
                       console.log('⚠️ [MULTI-WEEK-TEST] Error verifying week match:', e.message);
