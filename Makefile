@@ -67,6 +67,7 @@ audit: ## Fix security vulnerabilities automatically
 
 # Development Commands (these work reliably)
 start: ## Start Expo development server
+	npm install --legacy-peer-deps
 	npx expo start
 
 start-clear: ## Start Expo development server with cache cleared
@@ -78,9 +79,42 @@ ios: ## Start iOS simulator (development mode - RECOMMENDED)
 android: ## Start Android emulator (development mode - RECOMMENDED)
 	npx expo start --android
 
-web: ## Start web development server
-	@echo "🌐 Starting web version (Note: Uses AsyncStorage fallback for SQLite)"
+web: ## Start web development server with authentication troubleshooting
+	@echo "🌐 Starting web version with authentication troubleshooting mode"
+	@echo "📋 Web Platform Features:"
+	@echo "  ✅ Authentication troubleshooting & debugging"
+	@echo "  ✅ Network request inspection via browser dev tools"
+	@echo "  ✅ CORS error detection and guidance"
+	@echo "  ✅ Username/password validation testing"
+	@echo "  ⚠️  Uses AsyncStorage fallback (less secure than mobile)"
+	@echo "  ❌ No WebView component (authentication flows differ)"
+	@echo ""
+	@echo "💡 Open browser dev tools (F12) -> Console tab for detailed auth logs"
+	@echo "💡 Use Network tab to inspect actual HTTP requests"
 	npx expo start --web
+
+web-debug: ## Run web with detailed authentication debugging
+	@echo "🛠️  Starting web with maximum authentication debugging..."
+	@echo ""
+	@echo "🔧 DEBUGGING FEATURES ENABLED:"
+	@echo "  • Detailed authentication flow logging"
+	@echo "  • CORS error detection and solutions"
+	@echo "  • Network request/response inspection"
+	@echo "  • Username/password validation troubleshooting"
+	@echo "  • Form detection and analysis"
+	@echo ""
+	@echo "📖 USAGE INSTRUCTIONS:"
+	@echo "  1. Open browser dev tools (F12)"
+	@echo "  2. Go to Console tab for authentication logs"
+	@echo "  3. Go to Network tab to inspect HTTP requests"
+	@echo "  4. Try logging in to see detailed validation info"
+	@echo ""
+	@echo "⚠️  LIMITATIONS:"
+	@echo "  • CORS may block actual authentication"
+	@echo "  • No WebView component available"
+	@echo "  • Use mobile app for production authentication"
+	@echo ""
+	EXPO_DEBUG=true npx expo start --web --dev
 
 # Local Build Commands (for testing production builds)
 build-ios-local: ## Build and run iOS app locally on simulator
