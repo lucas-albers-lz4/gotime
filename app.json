@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "description": "Secure employee schedule viewer with offline support for corporate portals",
     "privacy": "unlisted",
-    "platforms": ["ios", "android", "web"],
+    "platforms": ["ios", "android"],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
