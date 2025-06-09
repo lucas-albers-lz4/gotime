@@ -1236,7 +1236,7 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
           ? 'Multi-Week Test Complete! ✅' 
           : 'Multi-Week Test Completed with Issues ⚠️';
         
-        const resultMessage = `Test Results:\n\n` +
+        const resultMessage = 'Test Results:\n\n' +
           `📊 Weeks Processed: ${summary.weeksProcessed}/${summary.totalWeeksAvailable}\n` +
           `⏱️ Test Duration: ${summary.testDuration}\n` +
           `📈 Success Rate: ${summary.successRate}\n` +
@@ -1249,8 +1249,8 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
         // Fallback if no summary is provided
         Alert.alert(
           'Multi-Week Test Complete',
-          `The multi-week automation test has finished. Check the console logs for detailed results.`,
-          [{ text: 'OK' }]
+          'The multi-week automation test has finished. Check the console logs for detailed results.',
+          [{ text: 'OK' }],
         );
       }
           

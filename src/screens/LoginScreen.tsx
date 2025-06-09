@@ -18,7 +18,7 @@ import { COLORS, TYPOGRAPHY, SPACING, APP_CONFIG } from '../constants';
 import { AuthService } from '../services/AuthService';
 import { ScheduleService } from '../services/ScheduleService';
 import { useCognosAutomation } from '../services/useCognosAutomation';
-import { CognosAutomationService } from '../services/CognosAutomationService';
+
 
 // eslint-disable-next-line no-undef
 const packageJson = require('../../package.json');
@@ -919,35 +919,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     return '';
   };
 
-  const handleValidationAnalysis = () => {
-    if (!webViewRef.current) {
-      Alert.alert('Error', 'WebView not ready');
-      return;
-    }
 
-    console.log('🔍 Starting comprehensive validation analysis...');
-    
-    const analysisScript = CognosAutomationService.generateValidationAnalysisDumpScript();
-    
-    webViewRef.current.injectJavaScript(analysisScript);
-    
-    setIsLoading(true);
-    
-    // Set a timeout to stop loading after analysis
-    setTimeout(() => {
-      setIsLoading(false);
-      Alert.alert(
-        'Validation Analysis Complete', 
-        'Check the console logs for detailed validation analysis. This includes:\n\n' +
-        '• All JavaScript code and validation functions\n' +
-        '• Form analysis and event handlers\n' +
-        '• Input field validation rules\n' +
-        '• CSS validation styles\n' +
-        '• Global validation functions\n\n' +
-        'Look for 🔍 [VALIDATION-ANALYSIS] tags in the logs.'
-      );
-    }, 3000);
-  };
 
   const renderCredentialsStep = () => (
     <>
@@ -1024,12 +996,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <Text style={styles.demoButtonText}>📱 Demo Mode</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity 
-        style={[styles.demoButton, { backgroundColor: '#e74c3c', marginTop: 10 }]} 
-        onPress={handleValidationAnalysis}
-      >
-        <Text style={styles.demoButtonText}>🔍 Analyze Validation</Text>
-      </TouchableOpacity>
+
 
       <TouchableOpacity 
         style={[styles.demoButton, { borderColor: COLORS.success }]} 
@@ -1052,11 +1019,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         }]} 
         onPress={toggleOfflineStorage}
       >
-                  <Text style={[styles.demoButtonText, { 
-            color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
-          }]}>
-            {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '🧪 Test Offline Storage'}
-          </Text>
+        <Text style={[styles.demoButtonText, { 
+          color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
+        }]}>
+          {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '🧪 Test Offline Storage'}
+        </Text>
       </TouchableOpacity>
 
       <View style={styles.infoContainer}>
@@ -1456,14 +1423,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.demoButton, { backgroundColor: '#e74c3c', borderColor: '#e74c3c', marginBottom: SPACING.md }]} 
-          onPress={handleValidationAnalysis}
-        >
-          <Text style={[styles.demoButtonText, { color: '#ffffff' }]}>
-            🔍 Analyze Validation
-          </Text>
-        </TouchableOpacity>
+
 
         <TouchableOpacity 
           style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
