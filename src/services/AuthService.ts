@@ -480,7 +480,7 @@ TECHNICAL: Corporate portals often block cross-origin requests for security.`;
   /**
    * Save credentials securely
    */
-  private async saveCredentials(credentials: UserCredentials): Promise<void> {
+  public async saveCredentials(credentials: UserCredentials): Promise<void> {
     try {
       // Use the existing storeCredentials method
       await this.storageService.storeCredentials(credentials);

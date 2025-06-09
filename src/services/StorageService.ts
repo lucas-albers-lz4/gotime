@@ -130,13 +130,21 @@ class StorageService {
   // Secure credential storage
   async storeCredentials(credentials: UserCredentials): Promise<void> {
     try {
-      // Hash the password for additional security layer
-      const hashedPassword = await this.hashPassword(credentials.password);
+      // Store password based on savePassword preference
+      let storedPassword = '';
+      if (credentials.savePassword && credentials.password) {
+        // Store unencrypted password for autofill (relies on SecureStore encryption)
+        storedPassword = credentials.password;
+      } else if (credentials.rememberMe && credentials.password) {
+        // Store hashed password for verification only
+        storedPassword = await this.hashPassword(credentials.password);
+      }
       
       const encryptedData = JSON.stringify({
         employeeId: credentials.employeeId,
-        password: hashedPassword,
+        password: storedPassword,
         rememberMe: credentials.rememberMe,
+        savePassword: credentials.savePassword || false,
         lastLogin: Date.now(),
       });
       
@@ -178,6 +186,7 @@ class StorageService {
         employeeId: parsedData.employeeId,
         password: parsedData.password,
         rememberMe: parsedData.rememberMe,
+        savePassword: parsedData.savePassword || false,
         lastLogin: parsedData.lastLogin,
       } as UserCredentials & { lastLogin?: number };
       

@@ -4,6 +4,7 @@ export interface UserCredentials {
   employeeId: string;
   password: string;
   rememberMe: boolean;
+  savePassword?: boolean;
 }
 
 export interface EmployeeInfo {

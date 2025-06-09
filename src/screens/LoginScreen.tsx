@@ -40,7 +40,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMFACode] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+
+  const [savePassword, setSavePassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState<AuthStep>('CREDENTIALS');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -62,6 +63,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   useEffect(() => {
     loadSavedCredentials();
+    // Ensure password field starts masked
+    setShowPassword(false);
   }, []);
 
   // Check for stored schedules on component mount
@@ -165,7 +168,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       const saved = await authService.getSavedCredentials();
       if (saved?.employeeId) {
         setEmployeeId(saved.employeeId);
-        setRememberMe(true);
+        if (saved.savePassword && saved.password) {
+          setPassword(saved.password);
+          setSavePassword(true);
+        }
       }
     } catch (error) {
       console.log('No saved credentials found:', error instanceof Error ? error.message : 'Unknown error');
@@ -215,7 +221,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setCurrentStep('CREDENTIALS');
     setMFACode('');
     setErrorMessage(null);
-    setShowPassword(false);
+    setShowPassword(false); // Always default to masked password
     
     // Reload saved credentials when returning to credentials step
     loadSavedCredentials();
@@ -966,12 +972,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       <TouchableOpacity
         style={styles.checkboxContainer}
-        onPress={() => setRememberMe(!rememberMe)}
+        onPress={() => setSavePassword(!savePassword)}
       >
-        <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-          {rememberMe && <Text style={styles.checkmark}>✓</Text>}
+        <View style={[styles.checkbox, savePassword && styles.checkboxChecked]}>
+          {savePassword && <Text style={styles.checkmark}>✓</Text>}
         </View>
-        <Text style={styles.checkboxLabel}>Remember Employee ID</Text>
+        <Text style={styles.checkboxLabel}>Save Password</Text>
       </TouchableOpacity>
 
       {errorMessage && (
@@ -1250,6 +1256,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       title: parsedMessage.title,
                       timestamp: parsedMessage.timestamp,
                     });
+                    
+                    // Always save Employee ID, optionally save password
+                    try {
+                      await authService.saveCredentials({
+                        employeeId,
+                        password: savePassword ? password : '',
+                        rememberMe: true, // Always remember Employee ID
+                        savePassword,
+                      });
+                      console.log('💾 [AUTH] Credentials saved successfully');
+                    } catch (error) {
+                      console.error('❌ [AUTH] Failed to save credentials:', error);
+                    }
                     
                     Alert.alert(
                       'Session Captured! 🍪',
