@@ -1006,54 +1006,180 @@ export class CognosAutomationService {
                   const clickResult = clickRunButton(cognosInfo.doc);
                   weekData.runButtonClick = clickResult;
                   
-                  // Setup a listener to detect when the page has fully loaded
+                  // Helper function to convert ISO date (YYYY-MM-DD) to US format (M/D/YYYY)
+                  function convertIsoToUsDate(isoDate) {
+                    try {
+                      const [year, month, day] = isoDate.split('-');
+                      return parseInt(month) + '/' + parseInt(day) + '/' + year;
+                    } catch (e) {
+                      console.log('⚠️ [MULTI-WEEK-TEST] Error converting ISO date:', isoDate, e.message);
+                      return null;
+                    }
+                  }
+                  
+                  // Helper function to extract week range from schedule content
+                  function extractWeekRange(scheduleContent) {
+                    try {
+                      // Look for patterns like "Week 6/16/2025 - 6/22/2025" or "Weekly Schedule: 6/16/2025 - 6/22/2025"
+                      const weekPattern = /(?:Week|Weekly Schedule)[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})\s*-\s*(\d{1,2}\/\d{1,2}\/\d{4})/i;
+                      const match = scheduleContent.match(weekPattern);
+                      if (match) {
+                        return {
+                          startDate: match[1], // e.g., "6/16/2025"
+                          endDate: match[2]    // e.g., "6/22/2025"
+                        };
+                      }
+                      return null;
+                    } catch (e) {
+                      console.log('⚠️ [MULTI-WEEK-TEST] Error extracting week range:', e.message);
+                      return null;
+                    }
+                  }
+                  
+                  // Helper function to verify that the loaded schedule matches the selected week
+                  function verifyCorrectWeekLoaded(selectedWeekValue, scheduleContent) {
+                    try {
+                      // Convert dropdown value (e.g., "2025-06-22") to US format (e.g., "6/22/2025")
+                      const expectedEndDate = convertIsoToUsDate(selectedWeekValue);
+                      if (!expectedEndDate) {
+                        console.log('⚠️ [MULTI-WEEK-TEST] Could not convert selected week value:', selectedWeekValue);
+                        return false;
+                      }
+                      
+                      // Extract week range from loaded schedule
+                      const weekRange = extractWeekRange(scheduleContent);
+                      if (!weekRange) {
+                        console.log('⚠️ [MULTI-WEEK-TEST] Could not extract week range from schedule content');
+                        return false;
+                      }
+                      
+                      // Compare end dates
+                      const weekMatches = weekRange.endDate === expectedEndDate;
+                      
+                      console.log('🔍 [MULTI-WEEK-TEST] Week verification:');
+                      console.log('  - Dropdown selection:', selectedWeekValue, '→', expectedEndDate);
+                      console.log('  - Schedule shows:', weekRange.startDate, '-', weekRange.endDate);
+                      console.log('  - End dates match:', weekMatches);
+                      
+                      return weekMatches;
+                    } catch (e) {
+                      console.log('⚠️ [MULTI-WEEK-TEST] Error verifying week match:', e.message);
+                      return false;
+                    }
+                  }
+
+                  // Setup a listener to detect when the correct schedule has fully loaded
+                  let checkAttempts = 0;
+                  const maxCheckAttempts = 300; // 30 seconds timeout (100ms * 300)
+                  
                   const checkPageLoaded = () => {
+                    checkAttempts++;
+                    
+                    if (checkAttempts > maxCheckAttempts) {
+                      console.log('❌ [MULTI-WEEK-TEST] Timeout waiting for correct schedule to load for week:', selectionResult.weekText);
+                      testState.errors.push({
+                        weekIndex: testState.currentWeekIndex,
+                        step: 'schedule_load_timeout',
+                        error: 'Timeout waiting for correct schedule to load after ' + (maxCheckAttempts * 100) + 'ms',
+                        expectedWeek: selectionResult.weekValue,
+                        expectedWeekText: selectionResult.weekText
+                      });
+                      
+                      // Move to next week anyway
+                      testState.currentWeekIndex++;
+                      if (testState.currentWeekIndex < testState.totalWeeks) {
+                        setTimeout(() => processNextWeek(), 1000);
+                      } else {
+                        completeTest();
+                      }
+                      return;
+                    }
+                    
                     const newCognosInfo = findCognosIframe();
                     if (newCognosInfo) {
                       try {
-                        // Check if we have elements in the new state
+                        // Check if we have form elements in the new state
                         const newElements = findElements(newCognosInfo.doc);
                         if (newElements.dropdown && newElements.runButton) {
-                          // Calculate load time
-                          timingData.endTime = Date.now();
-                          timingData.loadDurationMs = timingData.endTime - timingData.startTime;
                           
-                          // Log the timing information
-                          console.log('⏱️ [MULTI-WEEK-TEST] Schedule loaded in', timingData.loadDurationMs, 'ms for week:', selectionResult.weekText);
+                          const scheduleContent = newCognosInfo.doc.body.innerHTML;
                           
-                          // Store timing data
-                          testState.scheduleTimings.push(timingData);
+                          // Check for basic schedule content presence
+                          const hasBasicScheduleContent = scheduleContent.includes('Employee #') || 
+                                                         scheduleContent.includes('Name:') ||
+                                                         scheduleContent.includes('Total Hours') ||
+                                                         scheduleContent.includes('Schedule Detail') ||
+                                                         scheduleContent.includes('Weekly Schedule') ||
+                                                         scheduleContent.includes('Monday') ||
+                                                         scheduleContent.includes('Tuesday') ||
+                                                         scheduleContent.includes('table class="ls"');
                           
-                          // Add timing to the week data
-                          weekData.timing = timingData;
+                          const hasLoadingIndicator = scheduleContent.includes('Loading') || 
+                                                    scheduleContent.includes('Please wait') ||
+                                                    scheduleContent.includes('Processing');
                           
-                          // Record this week as processed
-                          testState.processedWeeks.push(weekData);
+                          // CRITICAL VERIFICATION: Check that the correct week actually loaded
+                          const correctWeekLoaded = hasBasicScheduleContent && 
+                                                   verifyCorrectWeekLoaded(selectionResult.weekValue, scheduleContent);
                           
-                          console.log('✅ [MULTI-WEEK-TEST] Week ' + (testState.currentWeekIndex + 1) + ' processing completed');
-                          
-                          // Move to next week
-                          testState.currentWeekIndex++;
-                          reportProgress();
-                          
-                          if (testState.currentWeekIndex < testState.totalWeeks) {
-                            // Process next week
-                            testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
-                            setTimeout(() => processNextWeek(), 1000);
+                          // Only proceed if we have the correct schedule data and no loading indicators
+                          if (correctWeekLoaded && !hasLoadingIndicator) {
+                            // Calculate load time
+                            timingData.endTime = Date.now();
+                            timingData.loadDurationMs = timingData.endTime - timingData.startTime;
+                            
+                            // Log the timing information
+                            console.log('⏱️ [MULTI-WEEK-TEST] CORRECT schedule loaded in', timingData.loadDurationMs, 'ms for week:', selectionResult.weekText);
+                            console.log('✅ [MULTI-WEEK-TEST] Verified correct week loaded:', selectionResult.weekValue, '→', selectionResult.weekText);
+                            
+                            // Store timing data
+                            testState.scheduleTimings.push(timingData);
+                            
+                            // Add timing to the week data
+                            weekData.timing = timingData;
+                            
+                            // Record this week as processed
+                            testState.processedWeeks.push(weekData);
+                            
+                            console.log('✅ [MULTI-WEEK-TEST] Week ' + (testState.currentWeekIndex + 1) + ' processing completed with verified correct schedule');
+                            
+                            // Move to next week
+                            testState.currentWeekIndex++;
+                            reportProgress();
+                            
+                            if (testState.currentWeekIndex < testState.totalWeeks) {
+                              // Process next week
+                              testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
+                              setTimeout(() => processNextWeek(), 1000);
+                            } else {
+                              // All weeks processed
+                              completeTest();
+                            }
                           } else {
-                            // All weeks processed
-                            completeTest();
+                            // Schedule content not correct or still loading, try again
+                            if (!hasBasicScheduleContent) {
+                              console.log('⏳ [MULTI-WEEK-TEST] Waiting for basic schedule data for week:', selectionResult.weekText, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
+                            } else if (!correctWeekLoaded) {
+                              console.log('⏳ [MULTI-WEEK-TEST] Waiting for CORRECT week to load (expected:', selectionResult.weekValue, ') for week:', selectionResult.weekText, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
+                            }
+                            if (hasLoadingIndicator) {
+                              console.log('⏳ [MULTI-WEEK-TEST] Schedule still loading for week:', selectionResult.weekText, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
+                            }
+                            setTimeout(checkPageLoaded, 100);
                           }
                         } else {
-                          // Elements not found yet, try again
+                          // Form elements not found yet, try again
+                          console.log('⏳ [MULTI-WEEK-TEST] Waiting for form elements to appear for week:', selectionResult.weekText, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
                           setTimeout(checkPageLoaded, 100);
                         }
                       } catch (e) {
                         // Error checking page, try again
+                        console.log('⚠️ [MULTI-WEEK-TEST] Error checking page load status:', e.message, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
                         setTimeout(checkPageLoaded, 100);
                       }
                     } else {
                       // Iframe not found yet, try again
+                      console.log('⏳ [MULTI-WEEK-TEST] Waiting for iframe to appear for week:', selectionResult.weekText, '(attempt ' + checkAttempts + '/' + maxCheckAttempts + ')');
                       setTimeout(checkPageLoaded, 100);
                     }
                   };
@@ -2094,6 +2220,317 @@ export class CognosAutomationService {
           console.error('🔐 [LOGIN-FORM-2-DUMP] Error:', error);
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'login_form_2_dump_error',
+            success: false,
+            error: error.message
+          }));
+        }
+      })();
+    `;
+  }
+
+  /**
+   * Generates script to dump complete page content for validation analysis
+   * This captures everything needed to understand client-side validation
+   */
+  static generateValidationAnalysisDumpScript(): string {
+    return `
+      (function() {
+        try {
+          console.log('🔍 [VALIDATION-ANALYSIS] Starting comprehensive page dump for validation analysis...');
+          
+          const timestamp = new Date().toISOString();
+          const currentUrl = window.location.href;
+          const pageTitle = document.title;
+          
+          // 1. COMPLETE HTML DOCUMENT
+          const fullHtml = document.documentElement.outerHTML;
+          console.log('🔍 [VALIDATION-ANALYSIS] Full HTML length:', fullHtml.length);
+          
+          // 2. ALL JAVASCRIPT CONTENT
+          const scripts = [];
+          const scriptElements = document.querySelectorAll('script');
+          
+          console.log('🔍 [VALIDATION-ANALYSIS] Found', scriptElements.length, 'script elements');
+          
+          for (let i = 0; i < scriptElements.length; i++) {
+            const script = scriptElements[i];
+            const scriptInfo = {
+              index: i,
+              src: script.src || '',
+              type: script.type || 'text/javascript',
+              async: script.async,
+              defer: script.defer,
+              content: script.textContent || script.innerHTML || '',
+              contentLength: (script.textContent || script.innerHTML || '').length,
+              hasValidationKeywords: false,
+              validationKeywords: []
+            };
+            
+            // Check for validation-related keywords
+            const validationKeywords = [
+              'valid', 'validate', 'validation', 'check', 'verify', 'submit',
+              'form', 'input', 'field', 'error', 'invalid', 'required',
+              'onchange', 'oninput', 'onblur', 'onfocus', 'onsubmit',
+              'addEventListener', 'dispatchEvent', 'preventDefault',
+              'checkValidity', 'setCustomValidity', 'reportValidity'
+            ];
+            
+            const content = scriptInfo.content.toLowerCase();
+            scriptInfo.validationKeywords = validationKeywords.filter(keyword => 
+              content.includes(keyword.toLowerCase())
+            );
+            scriptInfo.hasValidationKeywords = scriptInfo.validationKeywords.length > 0;
+            
+            if (scriptInfo.hasValidationKeywords || scriptInfo.contentLength > 0) {
+              console.log('🔍 [SCRIPT-' + i + '] ===========================');
+              console.log('🔍 [SCRIPT-' + i + '] Source:', scriptInfo.src);
+              console.log('🔍 [SCRIPT-' + i + '] Type:', scriptInfo.type);
+              console.log('🔍 [SCRIPT-' + i + '] Content length:', scriptInfo.contentLength);
+              console.log('🔍 [SCRIPT-' + i + '] Has validation keywords:', scriptInfo.hasValidationKeywords);
+              if (scriptInfo.hasValidationKeywords) {
+                console.log('🔍 [SCRIPT-' + i + '] Validation keywords:', scriptInfo.validationKeywords.join(', '));
+              }
+              
+              // Log content for analysis (truncate if too long)
+              if (scriptInfo.contentLength > 0) {
+                if (scriptInfo.contentLength < 2000) {
+                  console.log('🔍 [SCRIPT-' + i + '] === CONTENT START ===');
+                  console.log(scriptInfo.content);
+                  console.log('🔍 [SCRIPT-' + i + '] === CONTENT END ===');
+                } else {
+                  console.log('🔍 [SCRIPT-' + i + '] === CONTENT START (first 1000 chars) ===');
+                  console.log(scriptInfo.content.substring(0, 1000));
+                  console.log('🔍 [SCRIPT-' + i + '] === CONTENT TRUNCATED ===');
+                }
+              }
+            }
+            
+            scripts.push(scriptInfo);
+          }
+          
+          // 3. FORM ANALYSIS
+          const forms = [];
+          const formElements = document.querySelectorAll('form');
+          
+          console.log('🔍 [VALIDATION-ANALYSIS] === FORM ANALYSIS ===');
+          for (let i = 0; i < formElements.length; i++) {
+            const form = formElements[i];
+            
+            const formInfo = {
+              index: i,
+              id: form.id || '',
+              name: form.name || '',
+              action: form.action || '',
+              method: form.method || 'GET',
+              enctype: form.enctype || '',
+              noValidate: form.noValidate,
+              autocomplete: form.autocomplete || '',
+              onsubmit: form.getAttribute('onsubmit') || '',
+              innerHTML: form.innerHTML,
+              eventListeners: [],
+              validationFunctions: []
+            };
+            
+            // Check for validation event listeners
+            const events = ['submit', 'change', 'input', 'invalid', 'reset'];
+            for (const eventType of events) {
+              if (form['on' + eventType]) {
+                formInfo.eventListeners.push({
+                  type: eventType,
+                  handler: form['on' + eventType].toString()
+                });
+              }
+            }
+            
+            console.log('🔍 [FORM-' + i + '] ID:', formInfo.id);
+            console.log('🔍 [FORM-' + i + '] Action:', formInfo.action);
+            console.log('🔍 [FORM-' + i + '] Method:', formInfo.method);
+            console.log('🔍 [FORM-' + i + '] No Validate:', formInfo.noValidate);
+            console.log('🔍 [FORM-' + i + '] OnSubmit:', formInfo.onsubmit);
+            console.log('🔍 [FORM-' + i + '] Event Listeners:', formInfo.eventListeners.length);
+            
+            if (formInfo.eventListeners.length > 0) {
+              formInfo.eventListeners.forEach((listener, idx) => {
+                console.log('🔍 [FORM-' + i + '] Listener ' + idx + ':', listener.type);
+                console.log('🔍 [FORM-' + i + '] Handler ' + idx + ':', listener.handler);
+              });
+            }
+            
+            forms.push(formInfo);
+          }
+          
+          // 4. INPUT FIELD ANALYSIS
+          const inputs = [];
+          const inputElements = document.querySelectorAll('input, textarea, select');
+          
+          console.log('🔍 [VALIDATION-ANALYSIS] === INPUT FIELD ANALYSIS ===');
+          for (let i = 0; i < inputElements.length; i++) {
+            const input = inputElements[i];
+            
+            const inputInfo = {
+              index: i,
+              tagName: input.tagName,
+              type: input.type || '',
+              id: input.id || '',
+              name: input.name || '',
+              className: input.className || '',
+              placeholder: input.placeholder || '',
+              value: input.value || '',
+              required: input.required,
+              pattern: input.pattern || '',
+              minLength: input.minLength || '',
+              maxLength: input.maxLength || '',
+              autocomplete: input.autocomplete || '',
+              validationMessage: input.validationMessage || '',
+              validity: input.validity ? {
+                valid: input.validity.valid,
+                valueMissing: input.validity.valueMissing,
+                typeMismatch: input.validity.typeMismatch,
+                patternMismatch: input.validity.patternMismatch,
+                customError: input.validity.customError
+              } : null,
+              eventHandlers: {},
+              ariaAttributes: {},
+              dataAttributes: {}
+            };
+            
+            // Capture event handlers
+            const inputEvents = ['change', 'input', 'blur', 'focus', 'keydown', 'keyup', 'click'];
+            for (const eventType of inputEvents) {
+              if (input['on' + eventType]) {
+                inputInfo.eventHandlers[eventType] = input['on' + eventType].toString();
+              }
+            }
+            
+            // Capture aria attributes
+            for (const attr of input.attributes) {
+              if (attr.name.startsWith('aria-')) {
+                inputInfo.ariaAttributes[attr.name] = attr.value;
+              }
+              if (attr.name.startsWith('data-')) {
+                inputInfo.dataAttributes[attr.name] = attr.value;
+              }
+            }
+            
+            // Only log if it's a visible input field
+            if (input.offsetParent !== null) {
+              console.log('🔍 [INPUT-' + i + '] ===========================');
+              console.log('🔍 [INPUT-' + i + '] Tag:', inputInfo.tagName);
+              console.log('🔍 [INPUT-' + i + '] Type:', inputInfo.type);
+              console.log('🔍 [INPUT-' + i + '] ID:', inputInfo.id);
+              console.log('🔍 [INPUT-' + i + '] Name:', inputInfo.name);
+              console.log('🔍 [INPUT-' + i + '] Classes:', inputInfo.className);
+              console.log('🔍 [INPUT-' + i + '] Required:', inputInfo.required);
+              console.log('🔍 [INPUT-' + i + '] Pattern:', inputInfo.pattern);
+              console.log('🔍 [INPUT-' + i + '] Validation Message:', inputInfo.validationMessage);
+              console.log('🔍 [INPUT-' + i + '] Validity:', inputInfo.validity);
+              console.log('🔍 [INPUT-' + i + '] Event Handlers:', Object.keys(inputInfo.eventHandlers));
+              console.log('🔍 [INPUT-' + i + '] ARIA Attributes:', inputInfo.ariaAttributes);
+              console.log('🔍 [INPUT-' + i + '] Data Attributes:', inputInfo.dataAttributes);
+              
+              // Log event handler code
+              Object.entries(inputInfo.eventHandlers).forEach(([event, handler]) => {
+                console.log('🔍 [INPUT-' + i + '] ' + event.toUpperCase() + ' Handler:');
+                console.log(handler);
+              });
+            }
+            
+            inputs.push(inputInfo);
+          }
+          
+          // 5. GLOBAL VALIDATION FUNCTIONS
+          console.log('🔍 [VALIDATION-ANALYSIS] === GLOBAL VALIDATION FUNCTIONS ===');
+          const globalValidationFunctions = [];
+          const commonValidationFunctions = [
+            'validate', 'validateForm', 'checkForm', 'submitForm', 'onSubmit',
+            'validateInput', 'checkInput', 'validateField', 'checkField',
+            'isValid', 'checkValidity', 'validateCredentials', 'validateLogin'
+          ];
+          
+          for (const funcName of commonValidationFunctions) {
+            if (typeof window[funcName] === 'function') {
+              const funcCode = window[funcName].toString();
+              globalValidationFunctions.push({
+                name: funcName,
+                code: funcCode
+              });
+              
+              console.log('🔍 [GLOBAL-FUNC] Found function:', funcName);
+              console.log('🔍 [GLOBAL-FUNC] Code:');
+              console.log(funcCode);
+            }
+          }
+          
+          // 6. EVENT LISTENERS ON DOCUMENT/WINDOW
+          console.log('🔍 [VALIDATION-ANALYSIS] === DOCUMENT/WINDOW EVENT LISTENERS ===');
+          // Note: We can't easily enumerate all event listeners, but we can check for common ones
+          const documentEvents = ['DOMContentLoaded', 'load', 'submit', 'change', 'input'];
+          documentEvents.forEach(eventType => {
+            console.log('🔍 [DOC-EVENTS] Checking for', eventType, 'listeners...');
+            // This is just a placeholder - actual listener detection would require more complex code
+          });
+          
+          // 7. CSS VALIDATION STYLES
+          console.log('🔍 [VALIDATION-ANALYSIS] === CSS VALIDATION ANALYSIS ===');
+          const styles = document.querySelectorAll('style, link[rel="stylesheet"]');
+          let cssContent = '';
+          
+          for (let i = 0; i < styles.length; i++) {
+            const style = styles[i];
+            if (style.tagName === 'STYLE') {
+              cssContent += style.textContent || '';
+            } else if (style.href) {
+              console.log('🔍 [CSS] External stylesheet:', style.href);
+            }
+          }
+          
+          // Look for validation-related CSS classes
+          const validationCssKeywords = [
+            'invalid', 'valid', 'error', 'success', 'required', 'optional',
+            'form-control', 'form-group', 'has-error', 'has-success'
+          ];
+          
+          const foundCssValidation = validationCssKeywords.filter(keyword => 
+            cssContent.toLowerCase().includes(keyword)
+          );
+          
+          console.log('🔍 [CSS] Found validation-related CSS keywords:', foundCssValidation);
+          
+          // 8. SUMMARY FOR REACT NATIVE
+          const summary = {
+            url: currentUrl,
+            title: pageTitle,
+            timestamp: timestamp,
+            htmlLength: fullHtml.length,
+            scriptCount: scripts.length,
+            scriptsWithValidation: scripts.filter(s => s.hasValidationKeywords).length,
+            formCount: forms.length,
+            inputCount: inputs.length,
+            visibleInputs: inputs.filter(inp => document.getElementById(inp.id) && document.getElementById(inp.id).offsetParent !== null).length,
+            globalValidationFunctions: globalValidationFunctions.length,
+            validationCssKeywords: foundCssValidation.length
+          };
+          
+          console.log('🔍 [VALIDATION-ANALYSIS] === SUMMARY ===');
+          console.log('🔍 [SUMMARY] URL:', summary.url);
+          console.log('🔍 [SUMMARY] Scripts with validation:', summary.scriptsWithValidation, '/', summary.scriptCount);
+          console.log('🔍 [SUMMARY] Forms:', summary.formCount);
+          console.log('🔍 [SUMMARY] Visible inputs:', summary.visibleInputs, '/', summary.inputCount);
+          console.log('🔍 [SUMMARY] Global validation functions:', summary.globalValidationFunctions);
+          console.log('🔍 [SUMMARY] CSS validation keywords:', summary.validationCssKeywords);
+          
+          // Send summary to React Native
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'validation_analysis_complete',
+            success: true,
+            summary: summary,
+            message: 'Complete validation analysis logged to console. Check browser dev tools for full details.'
+          }));
+          
+        } catch (error) {
+          console.error('🔍 [VALIDATION-ANALYSIS] Error:', error);
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'validation_analysis_error',
             success: false,
             error: error.message
           }));

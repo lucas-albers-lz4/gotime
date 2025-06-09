@@ -1186,6 +1186,20 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
       console.log('  - Success flag:', messageData.success);
       console.log('  - Has summary:', !!messageData.summary);
           
+      // Clear any pending safety timeout
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+      
+      // Update UI state to show test completed
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: null,
+        currentStep: null,
+      }));
+          
       if (messageData.summary) {
         console.log('  - Weeks processed:', messageData.summary.weeksProcessed);
         console.log('  - Total weeks available:', messageData.summary.totalWeeksAvailable);
@@ -1210,6 +1224,34 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
             console.log(`  - Week ${timing.weekText}: ${timing.loadDurationMs}ms`);
           });
         }
+        
+        // Show user-friendly results dialog
+        const summary = messageData.summary;
+        const timingsList = messageData.detailedResults?.scheduleTimings || [];
+        const timingsText = timingsList.length > 0 
+          ? timingsList.map(t => `  • Week ${t.weekText}: ${t.loadDurationMs}ms`).join('\n')
+          : '  • No timing data available';
+        
+        const resultTitle = messageData.success 
+          ? 'Multi-Week Test Complete! ✅' 
+          : 'Multi-Week Test Completed with Issues ⚠️';
+        
+        const resultMessage = `Test Results:\n\n` +
+          `📊 Weeks Processed: ${summary.weeksProcessed}/${summary.totalWeeksAvailable}\n` +
+          `⏱️ Test Duration: ${summary.testDuration}\n` +
+          `📈 Success Rate: ${summary.successRate}\n` +
+          `❌ Errors: ${summary.errorsEncountered}\n\n` +
+          `⏱️ Schedule Load Times:\n${timingsText}\n\n` +
+          `📝 Result: ${summary.conclusiveResult || messageData.message || 'Test completed'}`;
+        
+        Alert.alert(resultTitle, resultMessage, [{ text: 'OK' }]);
+      } else {
+        // Fallback if no summary is provided
+        Alert.alert(
+          'Multi-Week Test Complete',
+          `The multi-week automation test has finished. Check the console logs for detailed results.`,
+          [{ text: 'OK' }]
+        );
       }
           
       // Mark test as completed
