@@ -18,6 +18,7 @@ import { COLORS, TYPOGRAPHY, SPACING, APP_CONFIG } from '../constants';
 import { AuthService } from '../services/AuthService';
 import { ScheduleService } from '../services/ScheduleService';
 import { useCognosAutomation } from '../services/useCognosAutomation';
+import { CognosAutomationService } from '../services/CognosAutomationService';
 
 // eslint-disable-next-line no-undef
 const packageJson = require('../../package.json');
@@ -45,6 +46,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [hasStoredSchedules, setHasStoredSchedules] = useState(false);
+  const [storageStats, setStorageStats] = useState<{
+    totalSchedules: number;
+    employeeCount: number;
+    oldestWeek: string | null;
+    newestWeek: string | null;
+  }>({ totalSchedules: 0, employeeCount: 0, oldestWeek: null, newestWeek: null });
 
   const authService = AuthService.getInstance();
   const scheduleService = ScheduleService.getInstance();
@@ -99,6 +106,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       setLastCheckTime(now);
       
       const stats = await scheduleService.getStorageStats();
+      setStorageStats(stats);
       setHasStoredSchedules(stats.totalSchedules > 0);
       console.log('📊 [LOGIN] Storage check complete:', 
         stats.totalSchedules > 0 ? `Found ${stats.totalSchedules} schedules` : 'No stored schedules');
@@ -126,6 +134,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         );
         
         setHasStoredSchedules(false);
+        setStorageStats({ totalSchedules: 0, employeeCount: 0, oldestWeek: null, newestWeek: null });
       } else {
         // Test offline storage
         console.log('🧪 [UI] Testing offline storage...');
@@ -893,6 +902,53 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     webViewRef.current.injectJavaScript(fillCredentialsScript);
   };
 
+  // Validation Analysis Debug Function
+  // Helper function to calculate the number of weeks from storage stats
+  const getWeekCountText = () => {
+    if (!hasStoredSchedules || storageStats.totalSchedules === 0) {
+      return '';
+    }
+
+    // For this app, each schedule represents one week, so totalSchedules = number of weeks
+    const weekCount = storageStats.totalSchedules;
+    
+    if (weekCount > 0) {
+      return ` (${weekCount} week${weekCount === 1 ? '' : 's'})`;
+    }
+
+    return '';
+  };
+
+  const handleValidationAnalysis = () => {
+    if (!webViewRef.current) {
+      Alert.alert('Error', 'WebView not ready');
+      return;
+    }
+
+    console.log('🔍 Starting comprehensive validation analysis...');
+    
+    const analysisScript = CognosAutomationService.generateValidationAnalysisDumpScript();
+    
+    webViewRef.current.injectJavaScript(analysisScript);
+    
+    setIsLoading(true);
+    
+    // Set a timeout to stop loading after analysis
+    setTimeout(() => {
+      setIsLoading(false);
+      Alert.alert(
+        'Validation Analysis Complete', 
+        'Check the console logs for detailed validation analysis. This includes:\n\n' +
+        '• All JavaScript code and validation functions\n' +
+        '• Form analysis and event handlers\n' +
+        '• Input field validation rules\n' +
+        '• CSS validation styles\n' +
+        '• Global validation functions\n\n' +
+        'Look for 🔍 [VALIDATION-ANALYSIS] tags in the logs.'
+      );
+    }, 3000);
+  };
+
   const renderCredentialsStep = () => (
     <>
       <Text style={styles.title}>Corporate Schedule Login</Text>
@@ -969,6 +1025,13 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       </TouchableOpacity>
 
       <TouchableOpacity 
+        style={[styles.demoButton, { backgroundColor: '#e74c3c', marginTop: 10 }]} 
+        onPress={handleValidationAnalysis}
+      >
+        <Text style={styles.demoButtonText}>🔍 Analyze Validation</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
         style={[styles.demoButton, { borderColor: COLORS.success }]} 
         onPress={() => {
           // Set NOT in demo mode
@@ -989,11 +1052,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         }]} 
         onPress={toggleOfflineStorage}
       >
-        <Text style={[styles.demoButtonText, { 
-          color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
-        }]}>
-          {hasStoredSchedules ? '🗑️ Wipe Schedule Data' : '🧪 Test Offline Storage'}
-        </Text>
+                  <Text style={[styles.demoButtonText, { 
+            color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
+          }]}>
+            {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '🧪 Test Offline Storage'}
+          </Text>
       </TouchableOpacity>
 
       <View style={styles.infoContainer}>
@@ -1390,6 +1453,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         >
           <Text style={[styles.demoButtonText, { color: COLORS.info }]}>
             🔑 Fill Login Credentials
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.demoButton, { backgroundColor: '#e74c3c', borderColor: '#e74c3c', marginBottom: SPACING.md }]} 
+          onPress={handleValidationAnalysis}
+        >
+          <Text style={[styles.demoButtonText, { color: '#ffffff' }]}>
+            🔍 Analyze Validation
           </Text>
         </TouchableOpacity>
 
@@ -1960,7 +2032,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <Text style={[styles.demoButtonText, { 
             color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
           }]}>
-            {hasStoredSchedules ? '🗑️ Wipe Schedule Data' : '🧪 Test Offline Storage'}
+            {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '🧪 Test Offline Storage'}
           </Text>
         </TouchableOpacity>
 
