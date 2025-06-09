@@ -49,6 +49,7 @@ export interface WeeklySchedule {
   entries: ScheduleEntry[];
   totalHours: number;
   straightTimeEarnings: number;
+  disclaimerText?: string; // Boilerplate text from schedule report
 }
 
 export interface ScheduleWeekOption {

@@ -90,6 +90,7 @@ export interface CognosAutomationHook {
   extractData: () => Promise<void>;
   automateSchedule: (scheduleValue: string) => Promise<void>;
   testMultiWeekAutomation: () => Promise<void>;
+  importAllSchedules: () => Promise<void>;
   importSchedule: () => Promise<void>;
   exportSchedule: () => Promise<void>;
   resetState: () => void;
@@ -1260,6 +1261,108 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
       }
           
       break;
+    case 'multi_week_import_progress':
+      sendAcknowledgment(messageData.messageId || '', messageData.testId || '');
+      console.log('📊 [AUTOMATION] Multi-week import progress:', messageData.summary);
+      setState(prev => ({
+        ...prev,
+        currentStep: `Importing schedules: ${messageData.summary?.progressPercentage || 0}%`,
+      }));
+      break;
+    case 'multi_week_import_complete':
+      sendAcknowledgment(messageData.messageId || '', messageData.testId || '');
+      console.log('✅ [AUTOMATION] Multi-week import complete:', messageData.summary || {});
+      
+      // Clear any pending safety timeout
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+      
+      // Update UI state to show import completed
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: null,
+        currentStep: null,
+        importCompleted: true, // This triggers the Test Offline Storage button update
+      }));
+      
+      if (messageData.summary) {
+        const summary = messageData.summary;
+        const resultTitle = messageData.success 
+          ? 'Multi-Week Import Complete! ✅' 
+          : 'Multi-Week Import Completed with Issues ⚠️';
+        
+        const resultMessage = 'Import Results:\n\n' +
+          `📊 Weeks Processed: ${summary.weeksProcessed}/${summary.totalWeeksAvailable}\n` +
+          `📥 Weeks Imported: ${summary.weeksImported}/${summary.totalWeeksAvailable}\n` +
+          `⏱️ Duration: ${summary.testDuration}\n` +
+          `📈 Success Rate: ${summary.successRate}\n` +
+          `📥 Import Rate: ${summary.importRate}\n` +
+          `❌ Errors: ${summary.errorsEncountered}\n\n` +
+          `📝 Result: ${summary.conclusiveResult || messageData.message || 'Import completed'}`;
+        
+        Alert.alert(resultTitle, resultMessage, [{ text: 'OK' }]);
+      } else {
+        Alert.alert(
+          'Multi-Week Import Complete',
+          'The multi-week import automation has finished. Check the console logs for detailed results.',
+          [{ text: 'OK' }],
+        );
+      }
+      
+      // Mark import as completed
+      if (messageData.testId) {
+        markTestCompleted(messageData.testId);
+      }
+      break;
+    case 'multi_week_import_error':
+      console.error('❌ [AUTOMATION] Multi-week import error:', messageData.error);
+      
+      // Clear any pending safety timeout
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+      
+      // Update UI state
+      setState(prev => ({
+        ...prev,
+        isAutomating: false,
+        error: typeof messageData.error === 'string' ? messageData.error : 'Unknown error in multi-week import',
+        currentStep: null,
+      }));
+      
+      // Show alert
+      Alert.alert(
+        'Multi-Week Import Error',
+        `The import encountered an error: ${typeof messageData.error === 'string' ? messageData.error : 'Unknown error'}`,
+        [{ text: 'OK' }],
+      );
+      break;
+    case 'schedule_extraction_complete_for_import':
+      console.log('📥 [AUTOMATION] Schedule extraction for import:', messageData.weekText);
+      
+      // Process the import using the ScheduleService
+      try {
+        const extractedHtml = messageData.extractedHtml;
+        if (typeof extractedHtml === 'string') {
+          const scheduleService = ScheduleService.getInstance();
+          const schedule = await scheduleService.parseAndSaveRealSchedule(extractedHtml);
+          
+          if (schedule) {
+            console.log('✅ [AUTOMATION] Schedule imported successfully for week:', messageData.weekText);
+          } else {
+            console.log('❌ [AUTOMATION] Failed to import schedule for week:', messageData.weekText);
+          }
+        } else {
+          console.log('❌ [AUTOMATION] Invalid HTML data for import:', messageData.weekText);
+        }
+      } catch (error) {
+        console.error('❌ [AUTOMATION] Error importing schedule for week:', messageData.weekText, error);
+      }
+      break;
     case 'multi_week_test_error': {
       console.error('❌ [AUTOMATION] Multi-week test error:', messageData.error);
           
@@ -1304,6 +1407,66 @@ const resetImportCompletedFlag = useCallback(() => {
   console.log('🔄 [AUTOMATION] Reset import completed flag');
 }, []);
 
+// Function to import all schedules - loads each week and imports it
+const importAllSchedules = useCallback(async () => {
+  if (!webViewRef.current) {
+    Alert.alert('Error', 'WebView not ready');
+    return;
+  }
+
+  console.log('🚀 [AUTOMATION] Starting import all schedules...');
+
+  setState(prev => ({ 
+    ...prev, 
+    isAutomating: true, 
+    error: null,
+    currentStep: 'Starting import all schedules...',
+  }));
+
+  try {
+    // Set a safety timeout
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+    }
+    
+    safetyTimeoutRef.current = setTimeout(() => {
+      console.warn('⚠️ [AUTOMATION] Safety timeout triggered for import all schedules');
+      setState(prev => {
+        if (!prev.isAutomating) return prev;
+        
+        return {
+          ...prev,
+          isAutomating: false,
+          error: 'Import all schedules timed out after 120 seconds',
+          currentStep: null,
+        };
+      });
+      
+      Alert.alert(
+        'Import All Schedules Timeout',
+        'The import process took longer than expected. It may have completed but failed to notify the app.',
+        [{ text: 'OK' }],
+      );
+    }, 120000); // 120 second timeout
+
+    // Generate and inject the import all schedules script
+    const importAllScript = CognosAutomationService.generateMultiWeekImportScript();
+    await webViewRef.current.injectJavaScript(importAllScript);
+    console.log('✅ [AUTOMATION] Import all schedules script injected successfully');
+  } catch (error) {
+    console.error('❌ [AUTOMATION] Error starting import all schedules:', error);
+    
+    setState(prev => ({
+      ...prev,
+      isAutomating: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      currentStep: null,
+    }));
+    
+    Alert.alert('Error', `Failed to start import all schedules: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}, [webViewRef]);
+
 return {
   state,
   analyzeInterface,
@@ -1314,6 +1477,7 @@ return {
   extractData,
   automateSchedule,
   testMultiWeekAutomation,
+  importAllSchedules,
   importSchedule,
   exportSchedule,
   resetState,

@@ -21,6 +21,7 @@ interface WeeklyScheduleRow {
   scheduleData: string;
   totalHours: number;
   straightTimeEarnings: number;
+  disclaimerText?: string; // Boilerplate text from schedule report
 }
 
 class StorageService {
@@ -86,6 +87,7 @@ class StorageService {
           totalHours REAL NOT NULL,
           straightTimeEarnings REAL NOT NULL,
           scheduleData TEXT NOT NULL,
+          disclaimerText TEXT,
           syncedAt INTEGER NOT NULL
         );
         
@@ -104,6 +106,19 @@ class StorageService {
           syncedAt INTEGER NOT NULL
         );
       `);
+      
+      // Add disclaimerText column to existing tables (migration)
+      try {
+        await this.db.execAsync(`ALTER TABLE weekly_schedules ADD COLUMN disclaimerText TEXT;`);
+        console.log('✅ [DATABASE] Added disclaimerText column to existing weekly_schedules table');
+      } catch (error) {
+        // Column might already exist, which is fine
+        if (error && error.toString().includes('duplicate column name')) {
+          console.log('ℹ️ [DATABASE] disclaimerText column already exists');
+        } else {
+          console.log('ℹ️ [DATABASE] Column addition skipped (expected for new databases)');
+        }
+      }
       
       console.log('Database initialized successfully with updated schema');
     } catch (error) {
@@ -264,8 +279,8 @@ class StorageService {
           `INSERT INTO weekly_schedules (
             id, employeeId, weekStart, weekEnd, dataAsOf, 
             employeeName, location, department, jobTitle, status, hireDate,
-            totalHours, straightTimeEarnings, scheduleData, syncedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            totalHours, straightTimeEarnings, scheduleData, disclaimerText, syncedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             scheduleId,
             schedule.employee.employeeId,
@@ -281,6 +296,7 @@ class StorageService {
             schedule.totalHours,
             schedule.straightTimeEarnings,
             JSON.stringify(schedule.entries), // Store the detailed schedule entries as JSON
+            schedule.disclaimerText || null,
             Date.now(),
           ],
         );
@@ -334,6 +350,7 @@ class StorageService {
         entries: JSON.parse(result.scheduleData),
         totalHours: result.totalHours,
         straightTimeEarnings: result.straightTimeEarnings,
+        disclaimerText: result.disclaimerText || undefined,
       };
 
       return schedule;
@@ -390,6 +407,7 @@ class StorageService {
         entries: JSON.parse(result.scheduleData),
         totalHours: result.totalHours,
         straightTimeEarnings: result.straightTimeEarnings,
+        disclaimerText: result.disclaimerText || undefined,
       }));
     } catch (error) {
       console.error('Failed to get all weekly schedules:', error);

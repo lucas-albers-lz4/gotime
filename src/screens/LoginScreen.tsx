@@ -1222,8 +1222,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 if (parsedMessage.type && (
                   parsedMessage.type.startsWith('cognos_') || 
                   parsedMessage.type.startsWith('multi_week_test_') ||
+                  parsedMessage.type.startsWith('multi_week_import_') ||
                   ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
                     'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
+                    'schedule_extraction_complete_for_import',
                     'html_dump_complete', 'html_dump_error', 'main_html_dump_complete', 
                     'main_html_dump_error', 'iframe_html_dump_complete', 'iframe_html_dump_error',
                     'login_form_2_dump_complete', 'login_form_2_dump_error', 
@@ -1535,364 +1537,406 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.primary, marginBottom: SPACING.md }]} 
-          onPress={async () => {
-            console.log('🧪 [UI] Test Run - Selecting first week and clicking run...');
-            if (!webViewRef.current) {
-              Alert.alert('Error', 'WebView not ready'); 
-              return;
-            }
-            try {
-              const testRunScript = `
-              (function() { 
-                try { 
-                  console.log('🧪 [TEST-RUN] Starting test run - first week selection and run...');
-                  
-                  // Find the Cognos iframe
-                  let cognosIframe = null;
-                  let cognosDoc = null;
-                  
-                  const allIframes = document.querySelectorAll('iframe');
-                  console.log('🧪 [TEST-RUN] Found', allIframes.length, 'iframes to check');
-                  
-                  for (let i = 0; i < allIframes.length; i++) {
-                    const iframe = allIframes[i];
-                    try {
-                      if (iframe.contentDocument && iframe.contentWindow) {
-                        const iframeContent = iframe.contentDocument.documentElement.outerHTML;
+        <View style={styles.buttonRowFour}>
+          <TouchableOpacity 
+            style={[styles.rowButtonSmall, { borderColor: COLORS.primary }]} 
+            onPress={async () => {
+              console.log('🧪 [UI] Test Run - Selecting first week and clicking run...');
+              if (!webViewRef.current) {
+                Alert.alert('Error', 'WebView not ready'); 
+                return;
+              }
+              try {
+                const testRunScript = `
+                (function() { 
+                  try { 
+                    console.log('🧪 [TEST-RUN] Starting test run - first week selection and run...');
+                    
+                    // Find the Cognos iframe
+                    let cognosIframe = null;
+                    let cognosDoc = null;
+                    
+                    const allIframes = document.querySelectorAll('iframe');
+                    console.log('🧪 [TEST-RUN] Found', allIframes.length, 'iframes to check');
+                    
+                    for (let i = 0; i < allIframes.length; i++) {
+                      const iframe = allIframes[i];
+                      try {
+                        if (iframe.contentDocument && iframe.contentWindow) {
+                          const iframeContent = iframe.contentDocument.documentElement.outerHTML;
+                          
+                          // Look for Cognos-specific elements
+                          if (iframeContent.includes('Week End Date') && 
+                              iframeContent.includes('IBM Cognos Viewer') &&
+                              iframeContent.includes('PRMT_SV_')) {
+                            console.log('✅ [TEST-RUN] Found Cognos schedule interface in iframe', i);
+                            cognosIframe = iframe;
+                            cognosDoc = iframe.contentDocument;
+                            break;
+                          }
+                        }
+                      } catch (e) {
+                        console.log('❌ [TEST-RUN] Cannot access iframe', i, ':', e.message);
+                      }
+                    }
+                    
+                    if (!cognosIframe || !cognosDoc) {
+                      console.log('❌ [TEST-RUN] Cognos iframe not found!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
+                      }));
+                      return;
+                    }
+                    
+                    // Find the Week End Date dropdown with more specific targeting
+                    console.log('🧪 [TEST-RUN] Searching for Week End Date dropdown...');
+                    
+                    // Look specifically for the Week End Date dropdown by checking for date-like options
+                    let weekDropdown = null;
+                    const allSelects = cognosDoc.querySelectorAll('select');
+                    console.log('🧪 [TEST-RUN] Found', allSelects.length, 'select elements, checking each one...');
+                    
+                    for (let i = 0; i < allSelects.length; i++) {
+                      const select = allSelects[i];
+                      console.log('🧪 [TEST-RUN] Checking select', i, ':', {
+                        id: select.id,
+                        name: select.name,
+                        optionsCount: select.options.length,
+                        firstOptionValue: select.options.length > 0 ? select.options[0].value : 'none',
+                        firstOptionText: select.options.length > 0 ? select.options[0].text : 'none'
+                      });
+                      
+                      // Check if this select has date-like options (Week End Date)
+                      if (select.options.length > 0) {
+                        const firstOption = select.options[0];
+                        const hasDateOptions = firstOption.value.includes('2025-') || 
+                                             firstOption.text.includes('2025-') ||
+                                             firstOption.value.includes('T00:00:00');
                         
-                        // Look for Cognos-specific elements
-                        if (iframeContent.includes('Week End Date') && 
-                            iframeContent.includes('IBM Cognos Viewer') &&
-                            iframeContent.includes('PRMT_SV_')) {
-                          console.log('✅ [TEST-RUN] Found Cognos schedule interface in iframe', i);
-                          cognosIframe = iframe;
-                          cognosDoc = iframe.contentDocument;
+                        // Also check for the associated hidden input with p_EndDate
+                        const hasEndDateInput = cognosDoc.querySelector('input[name="p_EndDate"]') !== null;
+                        
+                        console.log('🧪 [TEST-RUN] Select analysis:', {
+                          hasDateOptions: hasDateOptions,
+                          hasEndDateInput: hasEndDateInput,
+                          selectId: select.id
+                        });
+                        
+                        if (hasDateOptions && hasEndDateInput) {
+                          console.log('✅ [TEST-RUN] Found Week End Date dropdown:', select.id);
+                          weekDropdown = select;
                           break;
                         }
                       }
-                    } catch (e) {
-                      console.log('❌ [TEST-RUN] Cannot access iframe', i, ':', e.message);
                     }
-                  }
-                  
-                  if (!cognosIframe || !cognosDoc) {
-                    console.log('❌ [TEST-RUN] Cognos iframe not found!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'test_run_error',
-                      error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
-                    }));
-                    return;
-                  }
-                  
-                  // Find the Week End Date dropdown with more specific targeting
-                  console.log('🧪 [TEST-RUN] Searching for Week End Date dropdown...');
-                  
-                  // Look specifically for the Week End Date dropdown by checking for date-like options
-                  let weekDropdown = null;
-                  const allSelects = cognosDoc.querySelectorAll('select');
-                  console.log('🧪 [TEST-RUN] Found', allSelects.length, 'select elements, checking each one...');
-                  
-                  for (let i = 0; i < allSelects.length; i++) {
-                    const select = allSelects[i];
-                    console.log('🧪 [TEST-RUN] Checking select', i, ':', {
-                      id: select.id,
-                      name: select.name,
-                      optionsCount: select.options.length,
-                      firstOptionValue: select.options.length > 0 ? select.options[0].value : 'none',
-                      firstOptionText: select.options.length > 0 ? select.options[0].text : 'none'
-                    });
                     
-                    // Check if this select has date-like options (Week End Date)
-                    if (select.options.length > 0) {
-                      const firstOption = select.options[0];
-                      const hasDateOptions = firstOption.value.includes('2025-') || 
-                                           firstOption.text.includes('2025-') ||
-                                           firstOption.value.includes('T00:00:00');
+                    // Fallback to original selectors if specific search didn't work
+                    if (!weekDropdown) {
+                      console.log('🧪 [TEST-RUN] Using fallback selectors for Week dropdown...');
+                      weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]') ||
+                                   cognosDoc.querySelector('select.clsSelectControl') ||
+                                   cognosDoc.querySelector('select[role="listbox"]');
+                    }
+                    
+                    if (!weekDropdown) {
+                      console.log('❌ [TEST-RUN] Week End Date dropdown not found after enhanced search!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Week End Date dropdown not found in Cognos iframe'
+                      }));
+                      return;
+                    }
+                    
+                    // Find the run button with more specific targeting to avoid arrows/icons
+                    console.log('🧪 [TEST-RUN] Searching for Run button...');
+                    const runButtons = cognosDoc.querySelectorAll('button');
+                    let runButton = null;
+                    
+                    // Look for the actual Run button by checking text content and avoiding arrows
+                    for (let btn of runButtons) {
+                      const btnText = (btn.textContent || '').trim().toLowerCase();
+                      const btnId = btn.id || '';
+                      const btnClass = btn.className || '';
                       
-                      // Also check for the associated hidden input with p_EndDate
-                      const hasEndDateInput = cognosDoc.querySelector('input[name="p_EndDate"]') !== null;
-                      
-                      console.log('🧪 [TEST-RUN] Select analysis:', {
-                        hasDateOptions: hasDateOptions,
-                        hasEndDateInput: hasEndDateInput,
-                        selectId: select.id
+                      console.log('🧪 [TEST-RUN] Checking button:', {
+                        text: btnText,
+                        id: btnId,
+                        class: btnClass,
+                        tagName: btn.tagName
                       });
                       
-                      if (hasDateOptions && hasEndDateInput) {
-                        console.log('✅ [TEST-RUN] Found Week End Date dropdown:', select.id);
-                        weekDropdown = select;
+                      // Look for the actual Run button (not arrows or other UI elements)
+                      if (btnText === 'run' || 
+                          btnId.includes('next') && btnId.includes('_NS_') ||
+                          btnClass.includes('bp')) {
+                        console.log('✅ [TEST-RUN] Found potential Run button:', btn.id);
+                        runButton = btn;
                         break;
                       }
                     }
-                  }
-                  
-                  // Fallback to original selectors if specific search didn't work
-                  if (!weekDropdown) {
-                    console.log('🧪 [TEST-RUN] Using fallback selectors for Week dropdown...');
-                    weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]') ||
-                                 cognosDoc.querySelector('select.clsSelectControl') ||
-                                 cognosDoc.querySelector('select[role="listbox"]');
-                  }
-                  
-                  if (!weekDropdown) {
-                    console.log('❌ [TEST-RUN] Week End Date dropdown not found after enhanced search!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'test_run_error',
-                      error: 'Week End Date dropdown not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  // Find the run button with more specific targeting to avoid arrows/icons
-                  console.log('🧪 [TEST-RUN] Searching for Run button...');
-                  const runButtons = cognosDoc.querySelectorAll('button');
-                  let runButton = null;
-                  
-                  // Look for the actual Run button by checking text content and avoiding arrows
-                  for (let btn of runButtons) {
-                    const btnText = (btn.textContent || '').trim().toLowerCase();
-                    const btnId = btn.id || '';
-                    const btnClass = btn.className || '';
                     
-                    console.log('🧪 [TEST-RUN] Checking button:', {
-                      text: btnText,
-                      id: btnId,
-                      class: btnClass,
-                      tagName: btn.tagName
-                    });
-                    
-                    // Look for the actual Run button (not arrows or other UI elements)
-                    if (btnText === 'run' || 
-                        btnId.includes('next') && btnId.includes('_NS_') ||
-                        btnClass.includes('bp')) {
-                      console.log('✅ [TEST-RUN] Found potential Run button:', btn.id);
-                      runButton = btn;
-                      break;
+                    // Fallback to original selectors if specific search didn't work
+                    if (!runButton) {
+                      console.log('🧪 [TEST-RUN] Using fallback selectors for Run button...');
+                      runButton = cognosDoc.querySelector('button[id*="next"][id*="_NS_"]') ||
+                                 cognosDoc.querySelector('button.bp') ||
+                                 cognosDoc.querySelector('button[onclick*="promptAction"]') ||
+                                 cognosDoc.querySelector('input[type="submit"]');
                     }
-                  }
-                  
-                  // Fallback to original selectors if specific search didn't work
-                  if (!runButton) {
-                    console.log('🧪 [TEST-RUN] Using fallback selectors for Run button...');
-                    runButton = cognosDoc.querySelector('button[id*="next"][id*="_NS_"]') ||
-                               cognosDoc.querySelector('button.bp') ||
-                               cognosDoc.querySelector('button[onclick*="promptAction"]') ||
-                               cognosDoc.querySelector('input[type="submit"]');
-                  }
-                                   
-                  if (!runButton) {
-                    console.log('❌ [TEST-RUN] Run button not found!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'test_run_error',
-                      error: 'Run button not found in Cognos iframe'
-                    }));
-                    return;
-                  }
-                  
-                  console.log('🧪 [TEST-RUN] Found elements:');
-                  console.log('  - Week dropdown ID:', weekDropdown.id);
-                  console.log('  - Week dropdown tagName:', weekDropdown.tagName);
-                  console.log('  - Week dropdown options:', weekDropdown.options.length);
-                  console.log('  - Run button ID:', runButton.id);
-                  console.log('  - Run button text:', (runButton.textContent || '').trim());
-                  console.log('  - Run button tagName:', runButton.tagName);
-                  console.log('  - Run button class:', runButton.className);
-                  
-                  if (weekDropdown.options.length === 0) {
-                    console.log('❌ [TEST-RUN] No week options available!');
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'test_run_error',
-                      error: 'No week options available in dropdown'
-                    }));
-                    return;
-                  }
-                  
-                  // Check if dropdown is in an invalid state and try to clear it
-                  const isInvalid = weekDropdown.getAttribute('aria-invalid') === 'true';
-                  console.log('🧪 [TEST-RUN] Dropdown validation state - invalid:', isInvalid);
-                  
-                  if (isInvalid) {
-                    console.log('🧪 [TEST-RUN] Dropdown is in invalid state, attempting to clear validation...');
-                    weekDropdown.setAttribute('aria-invalid', 'false');
-                    
-                    // Also try to clear any error styling
-                    const container = weekDropdown.closest('.clsTextWidgetParseError');
-                    if (container) {
-                      container.classList.remove('clsTextWidgetParseError');
-                      console.log('🧪 [TEST-RUN] Removed error styling from container');
+                                     
+                    if (!runButton) {
+                      console.log('❌ [TEST-RUN] Run button not found!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Run button not found in Cognos iframe'
+                      }));
+                      return;
                     }
-                  }
-                  
-                  // Select the first week (index 0) - this should NOT trigger clicking
-                  const firstOption = weekDropdown.options[0];
-                  const weekText = firstOption.text;
-                  const weekValue = firstOption.value;
-                  
-                  console.log('🧪 [TEST-RUN] Selecting first week (programmatically, no click):', weekText);
-                  console.log('🧪 [TEST-RUN] Week value:', weekValue);
-                  
-                  // Actually interact with the dropdown UI instead of just setting values
-                  console.log('🧪 [TEST-RUN] Opening dropdown for interactive selection...');
-                  
-                  // First, focus the dropdown to ensure it's active
-                  weekDropdown.focus();
-                  
-                  // Click the dropdown to open it (this should open the options list)
-                  console.log('🧪 [TEST-RUN] Clicking dropdown to open options...');
-                  weekDropdown.click();
-                  
-                  // Also try mouse events in case click alone doesn't work
-                  weekDropdown.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                  weekDropdown.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                  
-                  // Wait a moment for dropdown to open, then select first option
-                  setTimeout(() => {
-                    console.log('🧪 [TEST-RUN] Dropdown should be open, now selecting first option...');
                     
-                    // Method 1: Try selecting the first option directly
-                    if (weekDropdown.options.length > 0) {
-                      const firstOption = weekDropdown.options[0];
-                      console.log('🧪 [TEST-RUN] Selecting option:', firstOption.text, 'with value:', firstOption.value);
+                    console.log('🧪 [TEST-RUN] Found elements:');
+                    console.log('  - Week dropdown ID:', weekDropdown.id);
+                    console.log('  - Week dropdown tagName:', weekDropdown.tagName);
+                    console.log('  - Week dropdown options:', weekDropdown.options.length);
+                    console.log('  - Run button ID:', runButton.id);
+                    console.log('  - Run button text:', (runButton.textContent || '').trim());
+                    console.log('  - Run button tagName:', runButton.tagName);
+                    console.log('  - Run button class:', runButton.className);
+                    
+                    if (weekDropdown.options.length === 0) {
+                      console.log('❌ [TEST-RUN] No week options available!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'No week options available in dropdown'
+                      }));
+                      return;
+                    }
+                    
+                    // Check if dropdown is in an invalid state and try to clear it
+                    const isInvalid = weekDropdown.getAttribute('aria-invalid') === 'true';
+                    console.log('🧪 [TEST-RUN] Dropdown validation state - invalid:', isInvalid);
+                    
+                    if (isInvalid) {
+                      console.log('🧪 [TEST-RUN] Dropdown is in invalid state, attempting to clear validation...');
+                      weekDropdown.setAttribute('aria-invalid', 'false');
                       
-                      // Select the option
-                      weekDropdown.selectedIndex = 0;
-                      weekDropdown.value = firstOption.value;
-                      
-                      // Mark the option as selected in the DOM
-                      firstOption.selected = true;
-                      
-                      // Trigger all the events that a real user interaction would
-                      weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
-                      weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-                      weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
-                      
-                      // Use Enter key to commit the selection and close dropdown
-                      weekDropdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                      weekDropdown.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                      
-                      // Blur to close dropdown
-                      weekDropdown.blur();
-                      weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
-                      
-                      // Click away from dropdown to ensure it closes
-                      const body = cognosDoc.body;
-                      if (body) {
-                        body.click();
+                      // Also try to clear any error styling
+                      const container = weekDropdown.closest('.clsTextWidgetParseError');
+                      if (container) {
+                        container.classList.remove('clsTextWidgetParseError');
+                        console.log('🧪 [TEST-RUN] Removed error styling from container');
                       }
-                      
-                      console.log('🧪 [TEST-RUN] Interactive selection complete, dropdown value now:', weekDropdown.value);
-                      console.log('🧪 [TEST-RUN] Selected index:', weekDropdown.selectedIndex);
-                      console.log('🧪 [TEST-RUN] First option selected status:', firstOption.selected);
-                      
-                      // Verify the selection actually took
-                      setTimeout(() => {
-                        console.log('🧪 [TEST-RUN] Verification - dropdown value after delay:', weekDropdown.value);
-                        console.log('🧪 [TEST-RUN] Verification - selected index after delay:', weekDropdown.selectedIndex);
-                        console.log('🧪 [TEST-RUN] Verification - dropdown appears closed:', !weekDropdown.matches(':focus'));
-                      }, 200);
                     }
                     
-                    console.log('🧪 [TEST-RUN] Week selected, now enabling run button if needed...');
+                    // Select the first week (index 0) - this should NOT trigger clicking
+                    const firstOption = weekDropdown.options[0];
+                    const weekText = firstOption.text;
+                    const weekValue = firstOption.value;
                     
-                    // Enable the run button if disabled
-                    if (runButton.disabled) {
-                      runButton.disabled = false;
-                      console.log('🧪 [TEST-RUN] Enabled run button');
-                    }
+                    console.log('🧪 [TEST-RUN] Selecting first week (programmatically, no click):', weekText);
+                    console.log('🧪 [TEST-RUN] Week value:', weekValue);
                     
-                    // Wait a moment longer, then click ONLY the run button
+                    // Actually interact with the dropdown UI instead of just setting values
+                    console.log('🧪 [TEST-RUN] Opening dropdown for interactive selection...');
+                    
+                    // First, focus the dropdown to ensure it's active
+                    weekDropdown.focus();
+                    
+                    // Click the dropdown to open it (this should open the options list)
+                    console.log('🧪 [TEST-RUN] Clicking dropdown to open options...');
+                    weekDropdown.click();
+                    
+                    // Also try mouse events in case click alone doesn't work
+                    weekDropdown.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    weekDropdown.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                    
+                    // Wait a moment for dropdown to open, then select first option
                     setTimeout(() => {
-                      console.log('🧪 [TEST-RUN] About to click the Run button...');
-                      console.log('🧪 [TEST-RUN] Run button details before click:');
-                      console.log('  - ID:', runButton.id);
-                      console.log('  - Text:', (runButton.textContent || '').trim());
-                      console.log('  - Tag:', runButton.tagName);
-                      console.log('  - Disabled:', runButton.disabled);
-                      console.log('  - Visible:', runButton.offsetParent !== null);
-                      console.log('  - Button rect:', runButton.getBoundingClientRect());
+                      console.log('🧪 [TEST-RUN] Dropdown should be open, now selecting first option...');
                       
-                      try {
-                        // Multiple approaches to ensure the Run button actually gets clicked
-                        console.log('🧪 [TEST-RUN] Method 1: Direct click...');
-                        runButton.click();
+                      // Method 1: Try selecting the first option directly
+                      if (weekDropdown.options.length > 0) {
+                        const firstOption = weekDropdown.options[0];
+                        console.log('🧪 [TEST-RUN] Selecting option:', firstOption.text, 'with value:', firstOption.value);
                         
-                        console.log('🧪 [TEST-RUN] Method 2: Mouse events...');
-                        runButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                        runButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                        runButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        // Select the option
+                        weekDropdown.selectedIndex = 0;
+                        weekDropdown.value = firstOption.value;
                         
-                        console.log('🧪 [TEST-RUN] Method 3: Focus and keyboard...');
-                        runButton.focus();
-                        runButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                        runButton.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        // Mark the option as selected in the DOM
+                        firstOption.selected = true;
                         
-                        console.log('✅ [TEST-RUN] All run button click methods attempted!');
+                        // Trigger all the events that a real user interaction would
+                        weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
+                        weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+                        weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
                         
-                        // Verify something happened (page might change, button might become disabled, etc.)
+                        // Use Enter key to commit the selection and close dropdown
+                        weekDropdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        weekDropdown.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        
+                        // Blur to close dropdown
+                        weekDropdown.blur();
+                        weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
+                        
+                        // Click away from dropdown to ensure it closes
+                        const body = cognosDoc.body;
+                        if (body) {
+                          body.click();
+                        }
+                        
+                        console.log('🧪 [TEST-RUN] Interactive selection complete, dropdown value now:', weekDropdown.value);
+                        console.log('🧪 [TEST-RUN] Selected index:', weekDropdown.selectedIndex);
+                        console.log('🧪 [TEST-RUN] First option selected status:', firstOption.selected);
+                        
+                        // Verify the selection actually took
                         setTimeout(() => {
-                          console.log('🧪 [TEST-RUN] Post-click verification:');
-                          console.log('  - Button still exists:', !!cognosDoc.getElementById(runButton.id));
-                          console.log('  - Button still enabled:', !runButton.disabled);
-                          console.log('  - Page title:', cognosDoc.title);
-                          console.log('  - Current URL:', cognosDoc.location ? cognosDoc.location.href : 'unknown');
-                        }, 1000);
-                        
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'test_run_success',
-                          selectedWeek: weekText,
-                          weekValue: weekValue,
-                          runButtonId: runButton.id,
-                          runButtonText: (runButton.textContent || '').trim(),
-                          message: 'Successfully selected first week interactively and attempted multiple run button click methods'
-                        }));
-                        
-                      } catch (clickError) {
-                        console.log('❌ [TEST-RUN] Error clicking run button:', clickError);
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'test_run_error',
-                          error: 'Failed to click run button: ' + clickError.message,
-                          selectedWeek: weekText,
-                          runButtonId: runButton.id,
-                          runButtonText: (runButton.textContent || '').trim()
-                        }));
+                          console.log('🧪 [TEST-RUN] Verification - dropdown value after delay:', weekDropdown.value);
+                          console.log('🧪 [TEST-RUN] Verification - selected index after delay:', weekDropdown.selectedIndex);
+                          console.log('🧪 [TEST-RUN] Verification - dropdown appears closed:', !weekDropdown.matches(':focus'));
+                        }, 200);
                       }
-                    }, 2000); // 2 second delay after dropdown selection
+                      
+                      console.log('🧪 [TEST-RUN] Week selected, now enabling run button if needed...');
+                      
+                      // Enable the run button if disabled
+                      if (runButton.disabled) {
+                        runButton.disabled = false;
+                        console.log('🧪 [TEST-RUN] Enabled run button');
+                      }
+                      
+                      // Wait a moment longer, then click ONLY the run button
+                      setTimeout(() => {
+                        console.log('🧪 [TEST-RUN] About to click the Run button...');
+                        console.log('🧪 [TEST-RUN] Run button details before click:');
+                        console.log('  - ID:', runButton.id);
+                        console.log('  - Text:', (runButton.textContent || '').trim());
+                        console.log('  - Tag:', runButton.tagName);
+                        console.log('  - Disabled:', runButton.disabled);
+                        console.log('  - Visible:', runButton.offsetParent !== null);
+                        console.log('  - Button rect:', runButton.getBoundingClientRect());
+                        
+                        try {
+                          // Multiple approaches to ensure the Run button actually gets clicked
+                          console.log('🧪 [TEST-RUN] Method 1: Direct click...');
+                          runButton.click();
+                          
+                          console.log('🧪 [TEST-RUN] Method 2: Mouse events...');
+                          runButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                          runButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                          runButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                          
+                          console.log('🧪 [TEST-RUN] Method 3: Focus and keyboard...');
+                          runButton.focus();
+                          runButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                          runButton.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                          
+                          console.log('✅ [TEST-RUN] All run button click methods attempted!');
+                          
+                          // Verify something happened (page might change, button might become disabled, etc.)
+                          setTimeout(() => {
+                            console.log('🧪 [TEST-RUN] Post-click verification:');
+                            console.log('  - Button still exists:', !!cognosDoc.getElementById(runButton.id));
+                            console.log('  - Button still enabled:', !runButton.disabled);
+                            console.log('  - Page title:', cognosDoc.title);
+                            console.log('  - Current URL:', cognosDoc.location ? cognosDoc.location.href : 'unknown');
+                          }, 1000);
+                          
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'test_run_success',
+                            selectedWeek: weekText,
+                            weekValue: weekValue,
+                            runButtonId: runButton.id,
+                            runButtonText: (runButton.textContent || '').trim(),
+                            message: 'Successfully selected first week interactively and attempted multiple run button click methods'
+                          }));
+                          
+                        } catch (clickError) {
+                          console.log('❌ [TEST-RUN] Error clicking run button:', clickError);
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'test_run_error',
+                            error: 'Failed to click run button: ' + clickError.message,
+                            selectedWeek: weekText,
+                            runButtonId: runButton.id,
+                            runButtonText: (runButton.textContent || '').trim()
+                          }));
+                        }
+                      }, 2000); // 2 second delay after dropdown selection
+                      
+                    }, 500); // 0.5 second delay to let dropdown open
                     
-                  }, 500); // 0.5 second delay to let dropdown open
-                  
-                } catch (error) {
-                  console.log('❌ [TEST-RUN] Script error:', error);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'test_run_error',
-                    error: error.message,
-                    stack: error.stack
-                  }));
-                }
-              })();`;
-              
-              webViewRef.current.injectJavaScript(testRunScript);
-            } catch (error) {
-              console.error('❌ [UI] Test run error:', error);
-              Alert.alert('Test Run Error', 'Error running test: ' + (error as Error).message);
-            }
-          }}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.primary }]}>
-            🧪 Test Run
-          </Text>
-        </TouchableOpacity>
+                  } catch (error) {
+                    console.log('❌ [TEST-RUN] Script error:', error);
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'test_run_error',
+                      error: error.message,
+                      stack: error.stack
+                    }));
+                  }
+                })();`;
+                
+                webViewRef.current.injectJavaScript(testRunScript);
+              } catch (error) {
+                console.error('❌ [UI] Test run error:', error);
+                Alert.alert('Test Run Error', 'Error running test: ' + (error as Error).message);
+              }
+            }}
+          >
+            <Text style={[styles.rowButtonText, { color: COLORS.primary }]}>
+              🧪 Test Run
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.rowButtonSmall, { borderColor: COLORS.success }]}
+            onPress={automation.exportSchedule}
+            disabled={automation.state.isAutomating}
+          >
+            <Text style={[
+              styles.rowButtonText,
+              { color: COLORS.success },
+              automation.state.isAutomating && { color: COLORS.white },
+            ]}>
+              {automation.state.isAutomating ? '🔄 Exporting...' : '📤 Export Schedule'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.rowButtonSmall,
+              { borderColor: COLORS.primary },
+              automation.state.isAutomating && styles.rowButtonAutomating,
+            ]}
+            onPress={automation.testMultiWeekAutomation}
+            disabled={automation.state.isAutomating}
+          >
+            <Text style={[
+              styles.rowButtonText,
+              { color: COLORS.primary },
+              automation.state.isAutomating && { color: COLORS.white },
+            ]}>
+              {automation.state.isAutomating ? '🔄 Loading...' : '📄 Load All Schedules'}
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.success, marginBottom: SPACING.md }]} 
-          onPress={automation.analyzeInterface}
-          disabled={automation.state.isAnalyzing}
-        >
-          <Text style={[styles.demoButtonText, { color: COLORS.success }]}>
-            {automation.state.isAnalyzing ? '🔄 Analyzing...' : '🧪 Analyze Cognos Interface'}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.rowButtonSmall,
+              { borderColor: COLORS.warning },
+              automation.state.isAutomating && styles.rowButtonAutomating,
+            ]}
+            onPress={automation.importAllSchedules}
+            disabled={automation.state.isAutomating}
+          >
+            <Text style={[
+              styles.rowButtonText,
+              { color: COLORS.warning },
+              automation.state.isAutomating && { color: COLORS.white },
+            ]}>
+              {automation.state.isAutomating ? '🔄 Importing...' : '📥 Import All Schedules'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {automation.state.analysis && automation.state.availableSchedules.length > 0 && (
           <View style={[styles.automationSection, { marginBottom: SPACING.md }]}>
@@ -1934,50 +1978,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 </Text>
               </View>
             )}
-            
-            <View style={styles.manualControlsContainer}>
-              <Text style={styles.manualControlsTitle}>Manual Controls:</Text>
-              <View style={styles.manualButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.manualButton, { borderColor: COLORS.warning }]}
-                  onPress={automation.runReport}
-                  disabled={automation.state.isAutomating}
-                >
-                  <Text style={[styles.manualButtonText, { color: COLORS.warning }]}>
-                    ▶️ Run Report
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[styles.manualButton, { borderColor: COLORS.primary }]}
-                  onPress={automation.exportSchedule}
-                  disabled={automation.state.isAutomating}
-                >
-                  <Text style={[styles.manualButtonText, { color: COLORS.primary }]}>
-                    📤 Export Schedule
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            
-            <TouchableOpacity
-              style={[
-                styles.demoButton,
-                styles.multiWeekTestButton,
-                automation.state.isAutomating && styles.multiWeekTestButtonAutomating,
-              ]}
-              onPress={automation.testMultiWeekAutomation}
-              disabled={automation.state.isAutomating}
-            >
-              <Text style={[
-                styles.demoButtonText,
-                styles.multiWeekTestButtonText,
-                styles.boldText, // Added for fontWeight: 'bold'
-                automation.state.isAutomating && styles.multiWeekTestButtonTextAutomating,
-              ]}>
-                {automation.state.isAutomating ? '🔄 Testing...' : '🧪 Multi-Week Automation Test'}
-              </Text>
-            </TouchableOpacity> 
           </View>
         )}
 
@@ -2311,55 +2311,30 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.body.fontSize,
     fontWeight: '500',
   },
-  manualControlsContainer: {
-    backgroundColor: COLORS.white,
-    padding: SPACING.lg,
-    borderRadius: 8,
-    marginBottom: SPACING.lg,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  manualControlsTitle: {
-    fontSize: TYPOGRAPHY.h5.fontSize,
-    fontWeight: TYPOGRAPHY.h5.fontWeight,
-    color: COLORS.primary,
-    marginBottom: SPACING.sm,
-  },
-  manualButtonsRow: {
+  buttonRowFour: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.xs,
+    flexWrap: 'wrap',
   },
-  manualButton: {
+  rowButtonSmall: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    width: '48%',
+    flex: 1,
+    marginHorizontal: 2,
+    minWidth: '22%',
   },
-  manualButtonText: {
-    color: COLORS.text,
-    fontSize: TYPOGRAPHY.body.fontSize,
-    fontWeight: '500',
-  },
-
-  multiWeekTestButton: {
-    borderColor: COLORS.primary,
-    marginTop: SPACING.md,
-    // Default background is transparent (from demoButton or inherent)
-  },
-  multiWeekTestButtonAutomating: {
+  rowButtonAutomating: {
     backgroundColor: COLORS.textSecondary,
   },
-  multiWeekTestButtonText: {
-    // Default color is COLORS.primary (from demoButtonText)
-  },
-  multiWeekTestButtonTextAutomating: {
-    color: COLORS.white,
-  },
-  boldText: {
-    fontWeight: 'bold',
+  rowButtonText: {
+    fontSize: TYPOGRAPHY.caption.fontSize,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 }); 

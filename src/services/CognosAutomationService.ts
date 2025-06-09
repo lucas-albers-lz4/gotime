@@ -1483,6 +1483,701 @@ export class CognosAutomationService {
   }
 
   /**
+   * Generate a script to run multi-week automation and import each schedule
+   * Similar to generateMultiWeekAutomationTest but also imports each week's data
+   */
+  static generateMultiWeekImportScript(): string {
+    return `
+      (function() {
+        try {
+          console.log('🧪 [MULTI-WEEK-IMPORT] Starting multi-week import automation...');
+          
+          // MESSAGE RELIABILITY SYSTEM (same as multi-week test)
+          // Generate a unique test ID for this import run
+          let testId = localStorage.getItem('multiWeekImportId');
+          if (!testId) {
+            testId = 'mwi_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+            localStorage.setItem('multiWeekImportId', testId);
+            console.log('🧪 [MULTI-WEEK-IMPORT] Created new import ID:', testId);
+          } else {
+            console.log('🧪 [MULTI-WEEK-IMPORT] Resuming import with ID:', testId);
+          }
+          
+          // Message tracking for acknowledgments
+          let messageLog = JSON.parse(localStorage.getItem('multiWeekImportLog') || '{}');
+          if (!messageLog[testId]) {
+            messageLog[testId] = {
+              sentMessages: {},
+              acknowledgedMessages: {},
+              completionSent: false,
+              completionAcknowledged: false,
+              lastProgressUpdate: 0
+            };
+          }
+          
+          // Function to save message log to localStorage
+          function saveMessageLog() {
+            localStorage.setItem('multiWeekImportLog', JSON.stringify(messageLog));
+          }
+          
+          // Message sending with retry and acknowledgment tracking
+          function sendMessageWithTracking(messageType, messageData, isCompletion = false) {
+            const messageId = messageType + '_' + Date.now();
+            
+            // Add tracking metadata to message
+            const message = {
+              ...messageData,
+              type: messageType,
+              messageId: messageId,
+              testId: testId,
+              timestamp: Date.now()
+            };
+            
+            // Log this message as sent
+            messageLog[testId].sentMessages[messageId] = {
+              type: messageType,
+              timestamp: Date.now(),
+              retries: 0,
+              acknowledged: false,
+              isCompletion: isCompletion
+            };
+            
+            // If this is a completion message, mark completion as sent
+            if (isCompletion) {
+              messageLog[testId].completionSent = true;
+            }
+            
+            // Save state
+            saveMessageLog();
+            
+            // Send the message
+            console.log('📨 [MULTI-WEEK-IMPORT] Sending message:', messageType, messageId);
+            window.ReactNativeWebView.postMessage(JSON.stringify(message));
+            
+            // Set up retry logic for important messages only
+            if (isCompletion) {
+              setupRetry(messageId);
+            }
+          }
+          
+          // Setup retry for unacknowledged messages
+          function setupRetry(messageId) {
+            const maxRetries = 3;
+            const retryDelays = [2000, 5000, 10000]; // Increasing backoff
+            
+            function retry() {
+              // Check if message still needs retrying
+              if (!messageLog[testId] || 
+                  !messageLog[testId].sentMessages[messageId] ||
+                  messageLog[testId].sentMessages[messageId].acknowledged ||
+                  messageLog[testId].completionAcknowledged) {
+                console.log('📨 [MULTI-WEEK-IMPORT] No need to retry message:', messageId);
+                return;
+              }
+              
+              const msgInfo = messageLog[testId].sentMessages[messageId];
+              
+              // Check if we've hit max retries
+              if (msgInfo.retries >= maxRetries) {
+                console.log('⚠️ [MULTI-WEEK-IMPORT] Max retries reached for message:', messageId);
+                return;
+              }
+              
+              // Increment retry count
+              msgInfo.retries++;
+              saveMessageLog();
+              
+              // Resend the message
+              console.log('🔄 [MULTI-WEEK-IMPORT] Retrying message:', messageId, '(Attempt', msgInfo.retries, 'of', maxRetries, ')');
+              
+              // For completion messages, rebuild with latest state
+              if (msgInfo.isCompletion) {
+                const summary = createSummary();
+                const retryMessage = {
+                  type: msgInfo.type,
+                  messageId: messageId + '_retry' + msgInfo.retries,
+                  originalMessageId: messageId,
+                  testId: testId,
+                  timestamp: Date.now(),
+                  success: testState.importedWeeks.length >= 2,
+                  summary: summary,
+                  detailedResults: {
+                    processedWeeks: testState.processedWeeks,
+                    importedWeeks: testState.importedWeeks,
+                    errors: testState.errors,
+                    testState: testState
+                  },
+                  message: summary.conclusiveResult,
+                  isRetry: true,
+                  retryCount: msgInfo.retries
+                };
+                
+                // Send the retry message
+                window.ReactNativeWebView.postMessage(JSON.stringify(retryMessage));
+              }
+              
+              // Schedule next retry if needed
+              if (msgInfo.retries < maxRetries) {
+                setTimeout(() => retry(), retryDelays[msgInfo.retries]);
+              }
+            }
+            
+            // Schedule first retry
+            setTimeout(retry, retryDelays[0]);
+          }
+          
+          // Handle acknowledgment messages from React Native
+          function setupMessageListener() {
+            try {
+              window.document.addEventListener('message', function(event) {
+                try {
+                  const data = JSON.parse(event.data);
+                  
+                  // Check if this is an acknowledgment message
+                  if (data.type === 'ack' && data.testId === testId) {
+                    console.log('✅ [MULTI-WEEK-IMPORT] Received acknowledgment for message:', data.messageId);
+                    
+                    // Mark the message as acknowledged
+                    if (messageLog[testId].sentMessages[data.messageId]) {
+                      messageLog[testId].sentMessages[data.messageId].acknowledged = true;
+                      messageLog[testId].acknowledgedMessages[data.messageId] = Date.now();
+                      
+                      // If this is a completion ack, mark completion as acknowledged
+                      if (messageLog[testId].sentMessages[data.messageId].isCompletion) {
+                        messageLog[testId].completionAcknowledged = true;
+                        
+                        // If import is complete and acknowledged, clean up localStorage
+                        if (testState.currentStep === 'completed') {
+                          console.log('🧹 [MULTI-WEEK-IMPORT] Import complete and acknowledged, cleaning up localStorage');
+                          setTimeout(() => {
+                            localStorage.removeItem('multiWeekImportId');
+                            delete messageLog[testId];
+                            saveMessageLog();
+                          }, 2000);
+                        }
+                      }
+                      
+                      saveMessageLog();
+                    }
+                  }
+                } catch (e) {
+                  console.error('❌ [MULTI-WEEK-IMPORT] Error processing acknowledgment:', e);
+                }
+              });
+              console.log('👂 [MULTI-WEEK-IMPORT] Set up message listener for acknowledgments');
+            } catch (e) {
+              console.log('⚠️ [MULTI-WEEK-IMPORT] Could not set up message listener:', e);
+            }
+          }
+          
+          // Try to set up the message listener
+          setupMessageListener();
+          
+          let testState = {
+            totalWeeks: 0,
+            currentWeekIndex: 0,
+            processedWeeks: [],
+            importedWeeks: [],
+            errors: [],
+            startTime: new Date().toISOString(),
+            currentStep: 'initialization',
+            lastProgressUpdate: Date.now()
+          };
+          
+          // Report progress periodically to ensure UI is updated
+          function reportProgress(forceUpdate = false) {
+            const now = Date.now();
+            // Only send updates every 2 seconds (unless force update is requested)
+            if (forceUpdate || (now - testState.lastProgressUpdate) > 2000) {
+              console.log('📊 [MULTI-WEEK-IMPORT] Progress update: Processing week ' + 
+                (testState.currentWeekIndex + 1) + ' of ' + testState.totalWeeks);
+              
+              const progressSummary = {
+                testDuration: Math.round((now - new Date(testState.startTime).getTime()) / 1000) + ' seconds',
+                totalWeeksAvailable: testState.totalWeeks,
+                weeksProcessed: testState.processedWeeks.length,
+                weeksImported: testState.importedWeeks.length,
+                errorsEncountered: testState.errors.length,
+                currentWeekIndex: testState.currentWeekIndex,
+                progressPercentage: Math.round((testState.currentWeekIndex / testState.totalWeeks) * 100),
+                status: 'in_progress'
+              };
+              
+              sendMessageWithTracking('multi_week_import_progress', {
+                summary: progressSummary,
+                currentStep: testState.currentStep
+              });
+              
+              testState.lastProgressUpdate = now;
+              
+              // Also update the message log's last progress update
+              if (messageLog[testId]) {
+                messageLog[testId].lastProgressUpdate = now;
+                saveMessageLog();
+              }
+            }
+          }
+          
+          // Function to create final summary
+          function createSummary() {
+            const endTime = Date.now();
+            const duration = Math.round((endTime - new Date(testState.startTime).getTime()) / 1000);
+            
+            return {
+              weeksProcessed: testState.processedWeeks.length,
+              weeksImported: testState.importedWeeks.length,
+              totalWeeksAvailable: testState.totalWeeks,
+              successRate: Math.round((testState.processedWeeks.length / testState.totalWeeks) * 100) + '%',
+              importRate: Math.round((testState.importedWeeks.length / testState.totalWeeks) * 100) + '%',
+              testDuration: duration + ' seconds',
+              errorsEncountered: testState.errors.length,
+              conclusiveResult: testState.importedWeeks.length >= 2 ? 
+                'SUCCESS: Multi-week import completed with ' + testState.importedWeeks.length + ' schedules imported' :
+                'PARTIAL: Import completed but only ' + testState.importedWeeks.length + ' schedules were imported',
+              status: 'completed'
+            };
+          }
+          
+          // Function to send progress messages
+          function sendImportProgress(summary) {
+            sendMessageWithTracking('multi_week_import_progress', {
+              summary: summary,
+              detailedResults: {
+                processedWeeks: testState.processedWeeks,
+                importedWeeks: testState.importedWeeks,
+                errors: testState.errors,
+                testState: testState
+              }
+            });
+          }
+          
+          // Function to send completion message
+          function sendImportComplete(success, finalSummary) {
+            sendMessageWithTracking('multi_week_import_complete', {
+              success: success,
+              summary: finalSummary,
+              detailedResults: {
+                processedWeeks: testState.processedWeeks,
+                importedWeeks: testState.importedWeeks,
+                errors: testState.errors,
+                testState: testState
+              },
+              message: finalSummary.conclusiveResult
+            }, true); // isCompletion = true
+          }
+          
+          // Find the Cognos iframe using robust detection logic
+          function findCognosIframe() {
+            console.log('🔍 [MULTI-WEEK-IMPORT] Searching for Cognos iframe...');
+            const iframes = document.querySelectorAll('iframe');
+            
+            for (let i = 0; i < iframes.length; i++) {
+              const iframe = iframes[i];
+              try {
+                if (iframe.contentDocument && iframe.contentWindow) {
+                  const iframeDoc = iframe.contentDocument;
+                  const selects = iframeDoc.querySelectorAll('select');
+                  const buttons = iframeDoc.querySelectorAll('button, input[type="button"], input[type="submit"]');
+                  
+                  // Look for Cognos-specific patterns
+                  const hasCognosElements = iframeDoc.querySelector('select[class*="clsSelectControl"]') ||
+                                          iframeDoc.querySelector('button[class*="bp"]') ||
+                                          iframeDoc.documentElement.outerHTML.includes('Week End Date');
+                  
+                  if ((selects.length > 0 && buttons.length > 0) || hasCognosElements) {
+                    console.log('✅ [MULTI-WEEK-IMPORT] Found Cognos iframe with ' + selects.length + ' selects and ' + buttons.length + ' buttons');
+                    return { iframe, doc: iframeDoc };
+                  }
+                }
+              } catch (e) {
+                console.log('❌ [MULTI-WEEK-IMPORT] Iframe ' + i + ' blocked: ' + e.message);
+              }
+            }
+            return null;
+          }
+          
+          // Add robust helper functions (same as Load All Schedules)
+          function findElements(cognosDoc) {
+            console.log('🔍 [MULTI-WEEK-IMPORT] Finding elements with stable selectors...');
+            
+            // Find dropdown using stable selectors
+            const dropdown = cognosDoc.querySelector('select.clsSelectControl') ||
+                            cognosDoc.querySelector('select[id*="PRMT_SV_"]') ||
+                            cognosDoc.querySelector('select');
+            
+            // Find run button using stable selectors
+            const runButton = cognosDoc.querySelector('button.bp') ||
+                             Array.from(cognosDoc.querySelectorAll('button')).find(btn => 
+                               btn.textContent && btn.textContent.trim().toLowerCase() === 'run'
+                             ) ||
+                             cognosDoc.querySelector('input[type="submit"]') ||
+                             cognosDoc.querySelector('button');
+            
+            console.log('🔍 [MULTI-WEEK-IMPORT] Elements found:');
+            console.log('  - Dropdown:', !!dropdown, dropdown ? '(ID: ' + dropdown.id + ')' : '');
+            console.log('  - Run Button:', !!runButton, runButton ? '(ID: ' + runButton.id + ')' : '');
+            
+            return { dropdown, runButton };
+          }
+          
+          function analyzeCurrentState(cognosDoc) {
+            const elements = findElements(cognosDoc);
+            if (!elements.dropdown || !elements.runButton) {
+              throw new Error('Required elements not found');
+            }
+            
+            const dropdown = elements.dropdown;
+            const runButton = elements.runButton;
+            
+            const analysis = {
+              dropdownId: dropdown.id,
+              dropdownClass: dropdown.className,
+              runButtonId: runButton.id,
+              runButtonClass: runButton.className,
+              runButtonText: runButton.textContent.trim(),
+              totalOptions: dropdown.options.length,
+              selectedIndex: dropdown.selectedIndex,
+              selectedValue: dropdown.value,
+              selectedText: dropdown.options[dropdown.selectedIndex] ? dropdown.options[dropdown.selectedIndex].text : 'None',
+              allOptions: Array.from(dropdown.options).map((opt, idx) => ({
+                index: idx,
+                value: opt.value,
+                text: opt.text,
+                selected: opt.selected
+              }))
+            };
+            
+            console.log('📊 [MULTI-WEEK-IMPORT] Current state analysis:');
+            console.log('  - Dropdown ID changed to:', analysis.dropdownId);
+            console.log('  - Run Button ID changed to:', analysis.runButtonId);
+            console.log('  - Total weeks available:', analysis.totalOptions);
+            console.log('  - Currently selected:', analysis.selectedText);
+            
+            return analysis;
+          }
+          
+          function selectWeek(cognosDoc, weekIndex) {
+            console.log('🔄 [MULTI-WEEK-IMPORT] Selecting week ' + weekIndex + '...');
+            
+            const elements = findElements(cognosDoc);
+            if (!elements.dropdown) {
+              throw new Error('Dropdown not found for week selection');
+            }
+            
+            const dropdown = elements.dropdown;
+            if (weekIndex >= dropdown.options.length) {
+              throw new Error('Week index ' + weekIndex + ' exceeds available options (' + dropdown.options.length + ')');
+            }
+            
+            const targetOption = dropdown.options[weekIndex];
+            const weekText = targetOption.text;
+            const weekValue = targetOption.value;
+            
+            console.log('🔄 [MULTI-WEEK-IMPORT] Selecting: ' + weekText + ' (value: ' + weekValue + ')');
+            
+            // Select the option
+            dropdown.selectedIndex = weekIndex;
+            dropdown.value = weekValue;
+            targetOption.selected = true;
+            
+            // Trigger change events
+            dropdown.dispatchEvent(new Event('focus', { bubbles: true }));
+            dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+            dropdown.dispatchEvent(new Event('input', { bubbles: true }));
+            dropdown.dispatchEvent(new Event('blur', { bubbles: true }));
+            
+            console.log('✅ [MULTI-WEEK-IMPORT] Week selection completed');
+            return { weekText, weekValue, weekIndex };
+          }
+          
+          function clickRunButton(cognosDoc) {
+            console.log('▶️ [MULTI-WEEK-IMPORT] Clicking run button...');
+            
+            const elements = findElements(cognosDoc);
+            if (!elements.runButton) {
+              throw new Error('Run button not found');
+            }
+            
+            const runButton = elements.runButton;
+            console.log('▶️ [MULTI-WEEK-IMPORT] Clicking button: ' + runButton.id + ' (' + runButton.textContent.trim() + ')');
+            
+            // Click the button
+            runButton.click();
+            runButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            
+            console.log('✅ [MULTI-WEEK-IMPORT] Run button clicked');
+            return { buttonId: runButton.id, buttonText: runButton.textContent.trim() };
+          }
+          
+          const cognosInfo = findCognosIframe();
+          if (!cognosInfo) {
+            throw new Error('Cognos iframe not found');
+          }
+          
+          // Get initial analysis to set up totalWeeks
+          const initialAnalysis = analyzeCurrentState(cognosInfo.doc);
+          testState.totalWeeks = initialAnalysis.totalOptions;
+          console.log('✅ [MULTI-WEEK-IMPORT] Found dropdown with', testState.totalWeeks, 'options');
+          
+          // Function to extract and send data for import
+          function extractAndImportSchedule(weekText, cognosDoc, callback) {
+            console.log('📥 [MULTI-WEEK-IMPORT] Extracting schedule for import:', weekText);
+            
+            try {
+              // Get all the HTML content
+              const fullHtml = cognosDoc.documentElement.outerHTML;
+              
+              // Find schedule tables
+              const allTables = cognosDoc.querySelectorAll('table');
+              
+              // Send the data for import processing
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'schedule_extraction_complete_for_import',
+                testId: testId,
+                weekText: weekText,
+                extractedHtml: fullHtml,
+                scheduleData: {
+                  totalRows: allTables.length > 0 ? allTables[0].rows.length : 0,
+                  tableCount: allTables.length
+                }
+              }));
+              
+              console.log('✅ [MULTI-WEEK-IMPORT] Data sent for import processing');
+              
+              // Mark as imported
+              testState.importedWeeks.push({
+                weekText: weekText,
+                timestamp: Date.now(),
+                status: 'extracted_for_import'
+              });
+              
+            } catch (error) {
+              console.error('❌ [MULTI-WEEK-IMPORT] Error during extraction:', error);
+              testState.errors.push({
+                weekText: weekText,
+                error: 'Extraction failed: ' + error.message,
+                timestamp: Date.now()
+              });
+            }
+            
+            // Continue with callback
+            setTimeout(callback, 1000);
+          }
+          
+          // Robust processing function that re-finds iframe and elements (same pattern as Load All Schedules)
+          function processNextWeek() {
+            console.log('🔄 [MULTI-WEEK-IMPORT] Processing week ' + (testState.currentWeekIndex + 1) + ' of ' + testState.totalWeeks + '...');
+            testState.currentStep = 'processing_week_' + (testState.currentWeekIndex + 1);
+            reportProgress(true); // Force a progress update when starting a new week
+            
+            const cognosInfo = findCognosIframe();
+            if (!cognosInfo) {
+              const error = new Error('Cognos iframe lost during processing');
+              testState.errors.push({
+                weekIndex: testState.currentWeekIndex,
+                step: 'find_cognos_iframe',
+                error: error.message
+              });
+              
+              // Try to continue with next week
+              testState.currentWeekIndex++;
+              if (testState.currentWeekIndex < testState.totalWeeks) {
+                setTimeout(() => processNextWeek(), 2000);
+              } else {
+                completeImport();
+              }
+              return;
+            }
+            
+            try {
+              // Analyze current state (this will show us the new IDs after page reload)
+              const analysis = analyzeCurrentState(cognosInfo.doc);
+              
+              // Record the state changes
+              const weekData = {
+                weekIndex: testState.currentWeekIndex,
+                beforeSelection: {
+                  dropdownId: analysis.dropdownId,
+                  runButtonId: analysis.runButtonId,
+                  selectedWeek: analysis.selectedText
+                }
+              };
+              
+              // Select the target week
+              const selectionResult = selectWeek(cognosInfo.doc, testState.currentWeekIndex);
+              weekData.selectedWeek = selectionResult;
+              
+              // Wait a moment for dropdown changes to settle
+              setTimeout(() => {
+                try {
+                  // Record start time for schedule loading
+                  console.log('⏱️ [MULTI-WEEK-IMPORT] Starting timer for week:', selectionResult.weekText);
+                  
+                  // Click run button to load the schedule
+                  const clickResult = clickRunButton(cognosInfo.doc);
+                  weekData.runButtonClick = clickResult;
+                  
+                  // Setup a listener to detect when the schedule has loaded and then extract it
+                  let checkAttempts = 0;
+                  const maxCheckAttempts = 100; // 10 seconds timeout (100ms * 100)
+                  const startTime = Date.now();
+                  
+                  const checkPageLoaded = () => {
+                    checkAttempts++;
+                    
+                    if (checkAttempts > maxCheckAttempts) {
+                      console.log('❌ [MULTI-WEEK-IMPORT] Timeout waiting for schedule to load for week:', selectionResult.weekText);
+                      testState.errors.push({
+                        weekIndex: testState.currentWeekIndex,
+                        step: 'schedule_load_timeout',
+                        error: 'Timeout waiting for schedule to load after ' + (maxCheckAttempts * 100) + 'ms',
+                        expectedWeek: selectionResult.weekValue,
+                        expectedWeekText: selectionResult.weekText
+                      });
+                      
+                      // Move to next week anyway
+                      testState.currentWeekIndex++;
+                      if (testState.currentWeekIndex < testState.totalWeeks) {
+                        setTimeout(() => processNextWeek(), 1000);
+                      } else {
+                        completeImport();
+                      }
+                      return;
+                    }
+                    
+                    const newCognosInfo = findCognosIframe();
+                    if (newCognosInfo) {
+                      try {
+                        const scheduleContent = newCognosInfo.doc.body.innerHTML;
+                        
+                        // Check for basic schedule content presence
+                        const hasBasicScheduleContent = scheduleContent.includes('Employee #') || 
+                                                       scheduleContent.includes('Name:') ||
+                                                       scheduleContent.includes('Total Hours') ||
+                                                       scheduleContent.includes('Schedule Detail') ||
+                                                       scheduleContent.includes('Weekly Schedule') ||
+                                                       scheduleContent.includes('Monday') ||
+                                                       scheduleContent.includes('Tuesday') ||
+                                                       scheduleContent.includes('table class="ls"');
+                        
+                        const hasLoadingIndicator = scheduleContent.includes('Loading') || 
+                                                  scheduleContent.includes('Please wait') ||
+                                                  scheduleContent.includes('Processing');
+                        
+                        // Only proceed if we have schedule data and no loading indicators
+                        if (hasBasicScheduleContent && !hasLoadingIndicator) {
+                          const loadTime = Date.now() - startTime;
+                          
+                          console.log('✅ [MULTI-WEEK-IMPORT] Schedule loaded in', loadTime, 'ms for week:', selectionResult.weekText);
+                          
+                          // Record as processed
+                          testState.processedWeeks.push({
+                            weekIndex: testState.currentWeekIndex,
+                            weekText: selectionResult.weekText,
+                            weekValue: selectionResult.weekValue,
+                            loadTime: loadTime,
+                            status: 'loaded',
+                            beforeSelection: weekData.beforeSelection,
+                            runButtonClick: weekData.runButtonClick
+                          });
+                          
+                          // Extract and import the schedule
+                          extractAndImportSchedule(selectionResult.weekText, newCognosInfo.doc, () => {
+                            console.log('🔄 [MULTI-WEEK-IMPORT] Import complete for week:', selectionResult.weekText);
+                            
+                            // Send progress update
+                            reportProgress(true);
+                            
+                            // Move to next week
+                            testState.currentWeekIndex++;
+                            if (testState.currentWeekIndex < testState.totalWeeks) {
+                              setTimeout(() => processNextWeek(), 2000);
+                            } else {
+                              completeImport();
+                            }
+                          });
+                          
+                          return; // Exit the polling loop
+                        }
+                        
+                        // Schedule still loading, continue polling
+                        setTimeout(checkPageLoaded, 100);
+                        
+                      } catch (e) {
+                        console.log('❌ [MULTI-WEEK-IMPORT] Error checking page load:', e);
+                        setTimeout(checkPageLoaded, 100);
+                      }
+                    } else {
+                      // Iframe not found, continue polling
+                      setTimeout(checkPageLoaded, 100);
+                    }
+                  };
+                  
+                  // Start checking for page load
+                  setTimeout(checkPageLoaded, 500);
+                  
+                } catch (error) {
+                  console.error('❌ [MULTI-WEEK-IMPORT] Error in run button click:', error);
+                  testState.errors.push({
+                    weekIndex: testState.currentWeekIndex,
+                    step: 'run_button_click',
+                    error: error.message
+                  });
+                  
+                  // Try to continue with next week
+                  testState.currentWeekIndex++;
+                  if (testState.currentWeekIndex < testState.totalWeeks) {
+                    setTimeout(() => processNextWeek(), 2000);
+                  } else {
+                    completeImport();
+                  }
+                }
+              }, 500);
+              
+            } catch (error) {
+              console.error('❌ [MULTI-WEEK-IMPORT] Error processing week ' + testState.currentWeekIndex + ':', error);
+              testState.errors.push({
+                weekIndex: testState.currentWeekIndex,
+                step: 'week_processing',
+                error: error.message
+              });
+              
+              // Try to continue with next week
+              testState.currentWeekIndex++;
+              if (testState.currentWeekIndex < testState.totalWeeks) {
+                setTimeout(() => processNextWeek(), 2000);
+              } else {
+                completeImport();
+              }
+            }
+          }
+          
+          function completeImport() {
+            console.log('🎉 [MULTI-WEEK-IMPORT] Import completed!');
+            testState.currentStep = 'completed';
+            
+            const finalSummary = createSummary();
+            sendImportComplete(testState.importedWeeks.length >= 2, finalSummary);
+          }
+          
+          // Start processing from first week
+          console.log('🚀 [MULTI-WEEK-IMPORT] Starting week processing...');
+          testState.currentWeekIndex = 0;
+          processNextWeek();
+          
+        } catch (error) {
+          console.error('❌ [MULTI-WEEK-IMPORT] Fatal error:', error);
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'multi_week_import_error',
+            error: error.message,
+            stack: error.stack
+          }));
+        }
+      })();
+    `;
+  }
+
+  /**
    * Comprehensive dropdown discovery script to find ALL select elements
    */
   static generateDropdownDiscoveryScript(): string {

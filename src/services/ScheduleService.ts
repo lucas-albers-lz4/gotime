@@ -286,6 +286,10 @@ export class ScheduleService {
       const straightTimeEarnings = this.extractStraightTimeEarnings(html);
       console.log('💰 [SCHEDULE] Straight time earnings:', straightTimeEarnings);
 
+      // Extract disclaimer text
+      const disclaimerText = this.extractDisclaimerText(html);
+      console.log('📄 [SCHEDULE] Disclaimer text:', disclaimerText);
+
       const schedule = {
         weekStart: weekInfo.start,
         weekEnd: weekInfo.end,
@@ -294,6 +298,7 @@ export class ScheduleService {
         entries,
         totalHours: totalHours || 0,
         straightTimeEarnings: straightTimeEarnings || 0,
+        disclaimerText: disclaimerText || '',
       };
 
       // Apply date format normalization to ensure consistent MM/dd/yyyy format
@@ -1282,6 +1287,7 @@ export class ScheduleService {
         ],
         totalHours: 27.50,
         straightTimeEarnings: 27.50,
+        disclaimerText: 'The information displayed on this schedule report is valid as of 6/9/2025 4:15:29 PM. If the Company needs to change your schedule after it has been posted, a Supervisor or Manager will personally notify you and discuss the change at least 48 hours in advance. This advance notice does not apply to a request that you work overtime at the end of your regular shift.',
       };
 
       // Schedule 2: Previous week (calculated week)
@@ -1371,6 +1377,7 @@ export class ScheduleService {
         ],
         totalHours: 31.50,
         straightTimeEarnings: 31.50,
+        disclaimerText: 'The information displayed on this schedule report is valid as of 5/22/2025 8:15:30 AM. If the Company needs to change your schedule after it has been posted, a Supervisor or Manager will personally notify you and discuss the change at least 48 hours in advance. This advance notice does not apply to a request that you work overtime at the end of your regular shift.',
       };
 
       // Schedule 3: Next week (calculated week)
@@ -1460,6 +1467,7 @@ export class ScheduleService {
         ],
         totalHours: 31.50,
         straightTimeEarnings: 31.50,
+        disclaimerText: 'The information displayed on this schedule report is valid as of 6/5/2025 9:45:15 AM. If the Company needs to change your schedule after it has been posted, a Supervisor or Manager will personally notify you and discuss the change at least 48 hours in advance. This advance notice does not apply to a request that you work overtime at the end of your regular shift.',
       };
       
       const demoSchedules = [schedule1, schedule2, schedule3];
@@ -1737,6 +1745,60 @@ export class ScheduleService {
     } catch (error) {
       console.error('❌ [SCHEDULE] Error creating mock HTML for validation:', error);
       return '';
+    }
+  }
+
+  /**
+   * Extract schedule disclaimer/boilerplate text
+   */
+  private extractDisclaimerText(html: string): string | null {
+    try {
+      // Look for the pattern: "The information displayed on this schedule report is valid as of..."
+      // This text appears in a table cell with multiple spans
+      const disclaimerPattern = /The information displayed on this schedule report is valid as of[^<]*<\/span><span[^>]*>([^<]+)<\/span><span[^>]*>([^<]+)<\/span>/i;
+      
+      const match = html.match(disclaimerPattern);
+      if (match) {
+        const time = match[1].trim();
+        const restOfText = match[2].trim();
+        const fullText = `The information displayed on this schedule report is valid as of ${time}${restOfText}`;
+        console.log('✅ [SCHEDULE] Disclaimer text extracted:', fullText.substring(0, 100) + '...');
+        return fullText;
+      }
+      
+      // Try a broader pattern if the specific one doesn't work
+      const broadPattern = /The information displayed[^<]*schedule report[^<]*valid as of[^<]*<\/span><span[^>]*>([^<]+)<\/span><span[^>]*>([^<]+)<\/span>/i;
+      const broadMatch = html.match(broadPattern);
+      if (broadMatch) {
+        const time = broadMatch[1].trim();
+        const restOfText = broadMatch[2].trim();
+        const fullText = `The information displayed on this schedule report is valid as of ${time}${restOfText}`;
+        console.log('✅ [SCHEDULE] Disclaimer text extracted (broad pattern):', fullText.substring(0, 100) + '...');
+        return fullText;
+      }
+      
+      // Fallback: try to extract just the core text without complex HTML parsing
+      const simplePattern = /The information displayed.*?your regular shift\./is;
+      const simpleMatch = html.match(simplePattern);
+      if (simpleMatch) {
+        // Clean up HTML entities and tags
+        let cleanText = simpleMatch[0]
+          .replace(/<[^>]*>/g, '') // Remove HTML tags
+          .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
+          .replace(/&amp;/g, '&') // Replace &amp; with &
+          .replace(/&quot;/g, '"') // Replace &quot; with "
+          .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+          .trim();
+        
+        console.log('✅ [SCHEDULE] Disclaimer text extracted (simple pattern):', cleanText.substring(0, 100) + '...');
+        return cleanText;
+      }
+      
+      console.log('❌ [SCHEDULE] Could not extract disclaimer text');
+      return null;
+    } catch (error) {
+      console.error('Error extracting disclaimer text:', error);
+      return null;
     }
   }
 

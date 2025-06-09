@@ -543,12 +543,31 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
               {schedule.entries.map((entry, index) => renderScheduleEntry(entry, index))}
             </View>
 
+            {/* Schedule Summary */}
+            <View style={styles.scheduleSummary}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Total Hours:</Text>
+                <Text style={styles.summaryValue}>{(schedule.totalHours || 0).toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Straight Time Earnings:</Text>
+                <Text style={styles.summaryValue}>{(schedule.straightTimeEarnings || 0).toFixed(2)}</Text>
+              </View>
+            </View>
+
             {/* Schedule Change Indicator */}
             <View style={styles.scheduleChangeNotice}>
               <Text style={styles.scheduleChangeText}>
                 <Text style={styles.redAsterisk}>*</Text> = Schedule changed after original posting (date indicates when change was made)
               </Text>
             </View>
+
+            {/* Schedule Disclaimer Text */}
+            {schedule.disclaimerText && (
+              <View style={styles.disclaimerContainer}>
+                <Text style={styles.disclaimerText}>{schedule.disclaimerText}</Text>
+              </View>
+            )}
 
             {/* Mode Indicator - show either Demo Mode or Employee Schedule Data */}
             {scheduleService.getDemoMode() ? (
@@ -830,6 +849,46 @@ const styles = StyleSheet.create({
   redAsterisk: {
     ...TYPOGRAPHY.caption,
     color: '#FF4444',
+    fontWeight: 'bold',
+  },
+  disclaimerContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+  },
+  disclaimerText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  scheduleSummary: {
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderTopWidth: 2,
+    borderTopColor: COLORS.primary,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  summaryLabel: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.text,
+    fontWeight: 'bold',
+  },
+  summaryValue: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.primary,
     fontWeight: 'bold',
   },
   demoNotice: {
