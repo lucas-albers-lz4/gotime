@@ -1759,13 +1759,92 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       }
                     }
                     
-                    // Select the first week (index 0) - this should NOT trigger clicking
-                    const firstOption = weekDropdown.options[0];
-                    const weekText = firstOption.text;
-                    const weekValue = firstOption.value;
+                    // DIAGNOSTIC LOGGING: Analyze all dropdown options before selection
+                    console.log('🧪 [TEST-RUN] DROPDOWN DIAGNOSTIC - Complete option analysis:');
+                    console.log('  - Total options found:', weekDropdown.options.length);
                     
-                    console.log('🧪 [TEST-RUN] Selecting first week (programmatically, no click):', weekText);
-                    console.log('🧪 [TEST-RUN] Week value:', weekValue);
+                    for (let i = 0; i < weekDropdown.options.length; i++) {
+                      const option = weekDropdown.options[i];
+                      console.log('  - Option', i + ':', {
+                        text: option.text,
+                        value: option.value,
+                        selected: option.selected,
+                        disabled: option.disabled
+                      });
+                    }
+                    
+                    // PROBLEM DETECTION: Check if first option is p_employee or similar
+                    const firstOption = weekDropdown.options[0];
+                    const isFirstOptionValidWeek = firstOption.value.includes('2025-') || 
+                                                   firstOption.value.includes('T00:00:00') ||
+                                                   /\d{4}-\d{2}-\d{2}/.test(firstOption.value);
+                    const isFirstOptionPEmployee = firstOption.value === 'p_Employee' || 
+                                                   firstOption.text === 'p_Employee' ||
+                                                   firstOption.value.toLowerCase().includes('employee');
+                    
+                    console.log('🧪 [TEST-RUN] FIRST OPTION ANALYSIS:');
+                    console.log('  - Text:', firstOption.text);
+                    console.log('  - Value:', firstOption.value);
+                    console.log('  - Is valid week date:', isFirstOptionValidWeek);
+                    console.log('  - Is p_employee:', isFirstOptionPEmployee);
+                    console.log('  - Selected status:', firstOption.selected);
+                    
+                    // Find the first actual week date option (skip p_employee or invalid options)
+                    let selectedOptionIndex = 0;
+                    let selectedOption = firstOption;
+                    
+                    if (isFirstOptionPEmployee || !isFirstOptionValidWeek) {
+                      console.log('🧪 [TEST-RUN] PROBLEM DETECTED: First option is not a valid week!');
+                      console.log('🧪 [TEST-RUN] Searching for first valid week option...');
+                      
+                      for (let i = 1; i < weekDropdown.options.length; i++) {
+                        const option = weekDropdown.options[i];
+                        const isValidWeek = option.value.includes('2025-') || 
+                                          option.value.includes('T00:00:00') ||
+                                          /\d{4}-\d{2}-\d{2}/.test(option.value);
+                        const isPEmployee = option.value === 'p_Employee' || 
+                                          option.text === 'p_Employee' ||
+                                          option.value.toLowerCase().includes('employee');
+                        
+                        console.log('🧪 [TEST-RUN] Option', i, 'analysis:', {
+                          text: option.text,
+                          value: option.value,
+                          isValidWeek: isValidWeek,
+                          isPEmployee: isPEmployee
+                        });
+                        
+                        if (isValidWeek && !isPEmployee) {
+                          console.log('✅ [TEST-RUN] Found first valid week option at index', i);
+                          selectedOptionIndex = i;
+                          selectedOption = option;
+                          break;
+                        }
+                      }
+                      
+                      if (selectedOptionIndex === 0 && isFirstOptionPEmployee) {
+                        console.log('❌ [TEST-RUN] CRITICAL: No valid week options found! All options appear to be p_employee or invalid.');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'test_run_error',
+                          error: 'No valid week options found - only p_employee or invalid options available',
+                          allOptions: Array.from(weekDropdown.options).map((opt, idx) => ({
+                            index: idx,
+                            text: opt.text,
+                            value: opt.value,
+                            selected: opt.selected
+                          }))
+                        }));
+                        return;
+                      }
+                    }
+                    
+                    const weekText = selectedOption.text;
+                    const weekValue = selectedOption.value;
+                    
+                    console.log('🧪 [TEST-RUN] FINAL SELECTION:');
+                    console.log('  - Selected index:', selectedOptionIndex);
+                    console.log('  - Selected text:', weekText);
+                    console.log('  - Selected value:', weekValue);
+                    console.log('  - Is this a valid week?', !isFirstOptionPEmployee || selectedOptionIndex > 0);
                     
                     // Actually interact with the dropdown UI instead of just setting values
                     console.log('🧪 [TEST-RUN] Opening dropdown for interactive selection...');
@@ -1785,17 +1864,21 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     setTimeout(() => {
                       console.log('🧪 [TEST-RUN] Dropdown should be open, now selecting first option...');
                       
-                      // Method 1: Try selecting the first option directly
+                      // Method 1: Try selecting the correct option (not always first)
                       if (weekDropdown.options.length > 0) {
-                        const firstOption = weekDropdown.options[0];
-                        console.log('🧪 [TEST-RUN] Selecting option:', firstOption.text, 'with value:', firstOption.value);
+                        console.log('🧪 [TEST-RUN] Selecting option at index', selectedOptionIndex + ':', selectedOption.text, 'with value:', selectedOption.value);
                         
-                        // Select the option
-                        weekDropdown.selectedIndex = 0;
-                        weekDropdown.value = firstOption.value;
+                        // Clear all previous selections first
+                        for (let i = 0; i < weekDropdown.options.length; i++) {
+                          weekDropdown.options[i].selected = false;
+                        }
+                        
+                        // Select the correct option
+                        weekDropdown.selectedIndex = selectedOptionIndex;
+                        weekDropdown.value = selectedOption.value;
                         
                         // Mark the option as selected in the DOM
-                        firstOption.selected = true;
+                        selectedOption.selected = true;
                         
                         // Trigger all the events that a real user interaction would
                         weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
@@ -1818,7 +1901,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         
                         console.log('🧪 [TEST-RUN] Interactive selection complete, dropdown value now:', weekDropdown.value);
                         console.log('🧪 [TEST-RUN] Selected index:', weekDropdown.selectedIndex);
-                        console.log('🧪 [TEST-RUN] First option selected status:', firstOption.selected);
+                        console.log('🧪 [TEST-RUN] Selected option status:', selectedOption.selected);
+                        console.log('🧪 [TEST-RUN] Expected index match:', weekDropdown.selectedIndex === selectedOptionIndex);
                         
                         // Verify the selection actually took
                         setTimeout(() => {
