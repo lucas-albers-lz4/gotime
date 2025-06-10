@@ -139,15 +139,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         setHasStoredSchedules(false);
         setStorageStats({ totalSchedules: 0, employeeCount: 0, oldestWeek: null, newestWeek: null });
       } else {
-        // Test offline storage
-        console.log('🧪 [UI] Testing offline storage...');
+        // Create test data
+        console.log('📂 [UI] Creating test schedule data...');
         const { testOfflineStorage } = await import('../test-utils/offlineTest');
         
         await testOfflineStorage();
         
         Alert.alert(
-          'Offline Storage Test ✅',
-          'Offline storage test completed successfully!\n\n• Created 3 test schedules\n• Saved to local storage\n• Retrieved schedules\n• Verified storage stats\n\nTap "My Schedule" to see stored schedules.',
+          'Test Data Created ✅',
+          'Sample schedule data has been created successfully!\n\n• Created 3 test schedules\n• Saved to local storage\n• Retrieved schedules\n• Verified storage stats\n\nTap "My Schedule" to see stored schedules.',
           [{ text: 'Great!' }],
         );
         
@@ -238,6 +238,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           onPress: () => {
             // Set demo mode flag
             scheduleService.setDemoMode(true);
+            console.log('🎯 [LOGIN] Demo mode enabled - app will show demo schedules');
             onLoginSuccess();
           },
         },
@@ -246,6 +247,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   const handleWebViewAuth = () => {
+    // Validate that Employee ID and Password are filled in
+    if (!employeeId.trim() || !password.trim()) {
+      Alert.alert(
+        'Missing Information',
+        'Please enter both Employee ID and Password before signing in.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'In-App Authentication',
       'This will open the login page within the app, allowing us to capture session cookies for automatic schedule sync.',
@@ -1009,6 +1020,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         onPress={() => {
           // Set NOT in demo mode
           scheduleService.setDemoMode(false);
+          console.log('🎯 [LOGIN] Demo mode disabled - app will show real stored schedules');
           onLoginSuccess();
         }}
       >
@@ -1028,7 +1040,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <Text style={[styles.demoButtonText, { 
           color: hasStoredSchedules ? COLORS.error : COLORS.warning, 
         }]}>
-          {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '🧪 Test Offline Storage'}
+          {hasStoredSchedules ? `🗑️ Wipe Schedule Data${getWeekCountText()}` : '📂 No Stored Data'}
         </Text>
       </TouchableOpacity>
 

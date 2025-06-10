@@ -82,6 +82,18 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       console.log('DashboardScreen: Starting to load schedule data...');
       setLoading(true);
       
+      // Check if we're in demo mode
+      const isDemoMode = scheduleService.getDemoMode();
+      console.log('DashboardScreen: Demo mode is:', isDemoMode);
+      
+      if (isDemoMode) {
+        // In demo mode, load demo schedules only
+        console.log('DashboardScreen: Demo mode active - loading demo schedules...');
+        await loadDemoSchedule();
+        setLoading(false);
+        return;
+      }
+      
       // Try to load all available real schedules first
       console.log('DashboardScreen: Loading all stored schedules...');
       const allStoredSchedules = await scheduleService.getAllWeeklySchedules();
@@ -163,9 +175,30 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         return;
       }
       
-      // Fall back to demo schedules if no real data is available in storage
-      console.log('DashboardScreen: No stored schedules found, loading demo schedules...');
-      await loadDemoSchedule();
+      // If we're not in demo mode but have no real data, show an alert instead of falling back to demo
+      console.log('DashboardScreen: No stored schedules found in My Schedule mode');
+      setLoading(false);
+      
+      Alert.alert(
+        'No Schedule Data Available',
+        'You haven\'t imported any real schedule data yet. To view your actual work schedule:\n\n• Use "Sign In" to authenticate and import your data\n• Or use "Demo Mode" to see sample data',
+        [
+          { 
+            text: 'Go to Sign In', 
+            onPress: () => {
+              onLogout(); // This takes us back to the login screen
+            }
+          },
+          { 
+            text: 'Switch to Demo Mode', 
+            onPress: () => {
+              scheduleService.setDemoMode(true);
+              loadScheduleData(); // Reload with demo mode enabled
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
       
     } catch (err) {
       console.error('Error loading schedules:', err);
