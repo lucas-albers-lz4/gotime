@@ -54,12 +54,52 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     newestWeek: string | null;
   }>({ totalSchedules: 0, employeeCount: 0, oldestWeek: null, newestWeek: null });
 
+  // Sync Schedule state management with timing
+  const [syncSchedule, setSyncSchedule] = useState<{
+    isActive: boolean;
+    currentStep: number;
+    stepStates: ('pending' | 'active' | 'success' | 'error')[];
+    error: string | null;
+    retryCount: number;
+    canRetry: boolean;
+    mfaDetected: boolean;
+    mfaCompleted: boolean;
+    // Timing fields
+    startTime: Date | null;
+    stepTimings: Map<number, { stepName: string; startTime: Date; endTime?: Date; duration?: number }>;
+    totalDuration: number | null;
+  }>({
+    isActive: false,
+    currentStep: 0,
+    stepStates: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+    error: null,
+    retryCount: 0,
+    canRetry: false,
+    mfaDetected: false,
+    mfaCompleted: false,
+    // Initialize timing fields
+    startTime: null,
+    stepTimings: new Map(),
+    totalDuration: null,
+  });
+
   const authService = AuthService.getInstance();
   const scheduleService = ScheduleService.getInstance();
   const webViewRef = useRef<WebView>(null);
 
   // Initialize Cognos automation
   const automation = useCognosAutomation(webViewRef);
+
+  // Sync Schedule step names
+  const SYNC_STEPS = [
+    'Validate Credentials',
+    'Fill Login Form',
+    'Handle MFA (if required)',
+    'Navigate to Schedule System',
+    'Execute Schedule Query',
+    'Import Schedule Data',
+    'Complete Synchronization'
+  ];
 
   useEffect(() => {
     loadSavedCredentials();
@@ -863,6 +903,925 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     return '';
   };
 
+  // Sync Schedule helper functions
+  const resetSyncSchedule = () => {
+    setSyncSchedule({
+      isActive: false,
+      currentStep: 0,
+      stepStates: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+      error: null,
+      retryCount: 0,
+      canRetry: false,
+      mfaDetected: false,
+      mfaCompleted: false,
+      // Reset timing fields
+      startTime: null,
+      stepTimings: new Map(),
+      totalDuration: null,
+    });
+  };
+
+  const updateSyncStep = (step: number, state: 'pending' | 'active' | 'success' | 'error', error?: string) => {
+    console.log(`🔍 [DEBUG] updateSyncStep called: step=${step}, state=${state}, error=${error}`);
+    setSyncSchedule(prev => {
+      console.log(`🔍 [DEBUG] Previous sync state: isActive=${prev.isActive}, startTime=${prev.startTime}, stepTimings.size=${prev.stepTimings.size}`);
+      const newStepStates = [...prev.stepStates];
+      newStepStates[step] = state;
+      
+      // Handle timing
+      const newStepTimings = new Map(prev.stepTimings);
+      const now = new Date();
+      const stepName = SYNC_STEPS[step];
+      
+      if (state === 'active') {
+        // Step is starting - record start time
+        newStepTimings.set(step, {
+          stepName,
+          startTime: now,
+        });
+        console.log(`⏱️ [TIMING] Step ${step + 1} "${stepName}" started at ${now.toISOString()}`);
+      } else if (state === 'success' || state === 'error') {
+        // Step is ending - calculate duration
+        const existingTiming = newStepTimings.get(step);
+        if (existingTiming && existingTiming.startTime) {
+          const duration = now.getTime() - existingTiming.startTime.getTime();
+          newStepTimings.set(step, {
+            ...existingTiming,
+            endTime: now,
+            duration,
+          });
+          console.log(`⏱️ [TIMING] Step ${step + 1} "${stepName}" ${state} after ${duration}ms (${(duration/1000).toFixed(1)}s)`);
+        }
+      }
+      
+      return {
+        ...prev,
+        currentStep: step,
+        stepStates: newStepStates,
+        error: error || null,
+        canRetry: state === 'error' && [1, 3, 4, 5].includes(step), // Retryable steps: 2,4,5,6 (0-indexed: 1,3,4,5)
+        stepTimings: newStepTimings,
+      };
+    });
+  };
+
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Timing summary function
+  const showTimingSummary = () => {
+    setSyncSchedule(prev => {
+      if (!prev.startTime) return prev;
+      
+      const endTime = new Date();
+      const totalDuration = endTime.getTime() - prev.startTime.getTime();
+      
+      console.log('\n⏱️ ===== SYNC SCHEDULE TIMING SUMMARY =====');
+      console.log(`🚀 Total Execution Time: ${(totalDuration/1000).toFixed(1)}s (${totalDuration}ms)`);
+      console.log(`📅 Started: ${prev.startTime.toISOString()}`);
+      console.log(`📅 Completed: ${endTime.toISOString()}`);
+      console.log('\n📊 Step-by-Step Breakdown:');
+      
+      let completedSteps = 0;
+      let totalStepTime = 0;
+      
+      // Sort steps by step number for proper order
+      const sortedSteps = Array.from(prev.stepTimings.entries()).sort(([a], [b]) => a - b);
+      
+      for (const [stepIndex, timing] of sortedSteps) {
+        if (timing.duration !== undefined) {
+          completedSteps++;
+          totalStepTime += timing.duration;
+          
+          const percentage = ((timing.duration / totalDuration) * 100).toFixed(1);
+          console.log(`  ${stepIndex + 1}. ${timing.stepName}: ${(timing.duration/1000).toFixed(1)}s (${percentage}%)`);
+        }
+      }
+      
+      // Calculate overhead (total time - sum of step times)
+      const overhead = totalDuration - totalStepTime;
+      const overheadPercentage = ((overhead / totalDuration) * 100).toFixed(1);
+      
+      console.log(`\n📈 Performance Analysis:`);
+      console.log(`  • Completed Steps: ${completedSteps}/${SYNC_STEPS.length}`);
+      console.log(`  • Step Processing Time: ${(totalStepTime/1000).toFixed(1)}s`);
+      console.log(`  • Overhead/Transition Time: ${(overhead/1000).toFixed(1)}s (${overheadPercentage}%)`);
+      
+      // Find slowest step
+      let slowestStep: { name: string; duration: number; index: number } | null = null;
+      for (const [stepIndex, timing] of sortedSteps) {
+        if (timing.duration !== undefined) {
+          if (!slowestStep || timing.duration > slowestStep.duration) {
+            slowestStep = { 
+              name: timing.stepName, 
+              duration: timing.duration, 
+              index: stepIndex + 1 
+            };
+          }
+        }
+      }
+      
+      if (slowestStep) {
+        const slowestPercentage = ((slowestStep.duration / totalDuration) * 100).toFixed(1);
+        console.log(`  • Slowest Step: #${slowestStep.index} "${slowestStep.name}" (${(slowestStep.duration/1000).toFixed(1)}s, ${slowestPercentage}%)`);
+      }
+      
+      console.log('⏱️ ======================================\n');
+      
+      return {
+        ...prev,
+        totalDuration,
+      };
+    });
+  };
+
+  // Main Sync Schedule function
+  const handleSyncSchedule = async () => {
+    console.log('🚀 [AUTOMATION] Starting sync schedule automation...');
+    
+    // Initialize timing
+    const startTime = new Date();
+    setSyncSchedule(prev => ({ ...prev, startTime, isActive: true }));
+    console.log(`⏱️ [TIMING] Automation started at ${startTime.toISOString()}`);
+    
+    // Step 1: Validate Credentials
+    updateSyncStep(0, 'active');
+    
+    if (!employeeId.trim() || !password.trim()) {
+      updateSyncStep(0, 'error', 'Please enter username and password first');
+      Alert.alert('Credentials Required', 'Please enter your username and password before starting the sync.');
+      setSyncSchedule(prev => ({ ...prev, isActive: false }));
+      return;
+    }
+
+    updateSyncStep(0, 'success');
+
+    try {
+      // Step 2: Fill Login Form
+      await delay(1000);
+      updateSyncStep(1, 'active');
+      
+      setCurrentStep('WEBVIEW_AUTH');
+      await delay(2000);
+      
+      // Execute fill credentials and wait for success
+      handleFillCredentials();
+      await delay(5000); // Wait for credentials to be filled
+      
+      updateSyncStep(1, 'success');
+
+      // Step 3: Handle MFA Detection
+      await delay(2000);
+      updateSyncStep(2, 'active');
+      
+      // For now, assume no MFA for initial implementation
+      // In future, we'll add proper MFA detection
+      updateSyncStep(2, 'success');
+
+      // Step 4: Fiori Navigation
+      await delay(1500);
+      updateSyncStep(3, 'active');
+      
+      // Execute Fiori navigation (using the actual working Fiori code)
+      console.log('🎯 [SYNC] Starting Fiori navigation...');
+      
+      if (webViewRef.current) {
+        const fioriScript = `
+          (function() {
+            try {
+              const scriptStartTime = Date.now();
+              const currentUrl = window.location.href;
+              
+              console.log('⏱️ [PERFORMANCE] Fiori script started at:', new Date().toISOString());
+              console.log('📍 [PERFORMANCE] Current URL:', currentUrl);
+              console.log('📄 [PERFORMANCE] Document ready state:', document.readyState);
+              console.log('📊 [PERFORMANCE] Page load timing:', window.performance.timing ? {
+                loadComplete: window.performance.timing.loadEventEnd - window.performance.timing.navigationStart,
+                domReady: window.performance.timing.domContentLoadedEventEnd - window.performance.timing.navigationStart
+              } : 'Not available');
+              
+              // Function to detect and handle login forms during Fiori navigation
+              function detectAndHandleLoginForm() {
+                console.log('🔍 [FIORI-AUTH] Checking for login form...');
+                
+                const pageContent = document.documentElement.outerHTML;
+                const isLoginForm2 = currentUrl.includes('bireport.costco.com/cognos_ext/bi') && 
+                                    (pageContent.includes('Log in with your COSTCOEXT ID') || 
+                                     pageContent.includes('COSTCOEXT') ||
+                                     pageContent.includes('User ID'));
+                
+                if (isLoginForm2) {
+                  console.log('🎯 [FIORI-AUTH] Login Form 2 detected during Fiori navigation!');
+                  console.log('🔑 [FIORI-AUTH] Automatically filling credentials...');
+                  
+                  const employeeId = '${employeeId}';
+                  const password = '${password}';
+                  
+                  if (!employeeId || !password) {
+                    console.error('❌ [FIORI-AUTH] No credentials available for auto-fill');
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'fiori_auth_error',
+                      error: 'No credentials available for automatic authentication'
+                    }));
+                    return false;
+                  }
+                  
+                  const usernameField = document.getElementById('CAMUsername');
+                  const passwordField = document.getElementById('CAMPassword');
+                  const signinButton = document.getElementById('signInBtn');
+                  
+                  if (!usernameField || !passwordField || !signinButton) {
+                    console.error('🎯 [FIORI-AUTH] Could not find all required login fields');
+                    return false;
+                  }
+                  
+                  console.log('🎯 [FIORI-AUTH] Found all fields - filling credentials automatically');
+                  
+                  // React-compatible field filling function
+                  function fillReactInput(element, value, fieldName) {
+                    console.log('🎯 [FIORI-AUTH] Filling', fieldName, 'with React events');
+                    
+                    element.focus();
+                    element.dispatchEvent(new Event('focus', { bubbles: true }));
+                    
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    nativeInputValueSetter.call(element, value);
+
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                    element.dispatchEvent(new Event('blur', { bubbles: true }));
+                  }
+                  
+                  try {
+                    // Fill credentials
+                    fillReactInput(usernameField, employeeId, 'Username');
+                    fillReactInput(passwordField, password, 'Password');
+                    
+                    // Wait for React state to update, then submit
+                    setTimeout(() => {
+                      if (signinButton.disabled) {
+                        console.error('🎯 [FIORI-AUTH] Sign-in button is disabled - validation failed');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'fiori_auth_error',
+                          error: 'Sign-in button is disabled after filling fields'
+                        }));
+                      } else {
+                        console.log('🎯 [FIORI-AUTH] Submitting login form...');
+                        
+                        // Store intent to continue Fiori navigation after login
+                        window.fioriContinueAfterLogin = true;
+                        
+                        signinButton.focus();
+                        signinButton.click();
+                        signinButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                        signinButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                        signinButton.dispatchEvent(new Event('click', { bubbles: true }));
+                        
+                        console.log('✅ [FIORI-AUTH] Login form submitted, will continue Fiori navigation after authentication');
+                        
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'fiori_auth_success',
+                          message: 'Authentication form filled and submitted, continuing Fiori navigation...'
+                        }));
+                      }
+                    }, 500);
+                    
+                    return true;
+                    
+                  } catch (error) {
+                    console.error('🎯 [FIORI-AUTH] Error during credential filling:', error);
+                    return false;
+                  }
+                }
+                
+                return false; // No login form detected
+              }
+              
+              // Function to search and click schedule buttons
+              function searchAndClickScheduleButton(retryCount = 0) {
+                const searchStartTime = Date.now();
+                console.log('🎯 [FIORI] Searching for schedule buttons (attempt ' + (retryCount + 1) + ')...');
+                console.log('⏱️ [PERFORMANCE] Search started at:', new Date().toISOString());
+                
+                // First check if we need to handle a login form
+                if (detectAndHandleLoginForm()) {
+                  console.log('🔑 [FIORI] Login form detected and handled, navigation will continue after authentication');
+                  return true;
+                }
+                
+                // Look for Schedule tile link first (most reliable)
+                const scheduleLinks = document.querySelectorAll('a[href*="ScheduleLine"]');
+                console.log('🔍 [SEARCH] Found', scheduleLinks.length, 'ScheduleLine links');
+                
+                if (scheduleLinks.length > 0) {
+                  const searchDuration = Date.now() - searchStartTime;
+                  console.log('✅ [FIORI] Found ScheduleLine link in', searchDuration, 'ms');
+                  const link = scheduleLinks[0];
+                  const href = link.href;
+                  
+                  // Navigate directly instead of clicking (avoids target="_blank" issues)
+                  console.log('🚀 [FIORI] Navigating to:', href);
+                  console.log('⏱️ [PERFORMANCE] Navigation started at:', new Date().toISOString());
+                  window.location.href = href;
+                  
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'fiori_button_click_success',
+                    buttonText: 'Online Employee Schedules',
+                    success: true,
+                    method: 'direct-navigation',
+                    performanceData: {
+                      searchDuration: searchDuration,
+                      retryCount: retryCount,
+                      totalScriptDuration: Date.now() - scriptStartTime
+                    }
+                  }));
+                  return true;
+                }
+                
+                // Fallback: Look for clickable elements with schedule text
+                const allClickables = document.querySelectorAll('a, button, [role="button"], [role="link"]');
+                console.log('🔍 [SEARCH] Searching through', allClickables.length, 'clickable elements');
+                
+                for (const el of allClickables) {
+                  const text = (el.textContent || el.title || el.getAttribute('aria-label') || '').toLowerCase();
+                  
+                  if (text.includes('online employee schedule')) {
+                    const searchDuration = Date.now() - searchStartTime;
+                    console.log('✅ [FIORI] Found "Online Employee Schedules" element in', searchDuration, 'ms');
+                    
+                    // Try to find parent link if this is an inner element
+                    let clickTarget = el;
+                    if (el.tagName !== 'A') {
+                      const parentLink = el.closest('a');
+                      if (parentLink) {
+                        clickTarget = parentLink;
+                        console.log('✅ [FIORI] Using parent link for navigation');
+                      }
+                    }
+                    
+                    console.log('⏱️ [PERFORMANCE] Clicking element at:', new Date().toISOString());
+                    clickTarget.click();
+                    
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'fiori_button_click_success',
+                      buttonText: 'Online Employee Schedules',
+                      success: true,
+                      method: 'element-click',
+                      performanceData: {
+                        searchDuration: searchDuration,
+                        retryCount: retryCount,
+                        totalScriptDuration: Date.now() - scriptStartTime
+                      }
+                    }));
+                    return true;
+                  }
+                }
+                
+                // Fallback: any schedule element
+                for (const el of allClickables) {
+                  const text = (el.textContent || '').toLowerCase();
+                  if (text.includes('schedule') && text.length < 100) {
+                    const searchDuration = Date.now() - searchStartTime;
+                    console.log('✅ [FIORI] Found schedule element in', searchDuration, 'ms:', text.substring(0, 30));
+                    console.log('⏱️ [PERFORMANCE] Clicking fallback element at:', new Date().toISOString());
+                    el.click();
+                    
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'fiori_button_click_success',
+                      buttonText: text.substring(0, 30) + '...',
+                      success: true,
+                      method: 'fallback-click',
+                      performanceData: {
+                        searchDuration: searchDuration,
+                        retryCount: retryCount,
+                        totalScriptDuration: Date.now() - scriptStartTime
+                      }
+                    }));
+                    return true;
+                  }
+                }
+                
+                const searchDuration = Date.now() - searchStartTime;
+                console.log('⏳ [SEARCH] Search completed in', searchDuration, 'ms - no matches found');
+                
+                // If we're on Fiori but buttons not found, retry up to 3 times with delays
+                if (retryCount < 3) {
+                  console.log('⏳ [FIORI] Buttons not ready, retrying in 2 seconds...');
+                  console.log('⏱️ [PERFORMANCE] Will retry at:', new Date(Date.now() + 2000).toISOString());
+                  setTimeout(() => searchAndClickScheduleButton(retryCount + 1), 2000);
+                  return false;
+                }
+                
+                console.log('❌ [FIORI] No schedule buttons found after ' + (retryCount + 1) + ' attempts');
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'fiori_button_click_error',
+                  error: 'No schedule buttons found after ' + (retryCount + 1) + ' attempts',
+                  success: false,
+                  performanceData: {
+                    totalSearchDuration: Date.now() - scriptStartTime,
+                    retryCount: retryCount + 1,
+                    finalAttemptDuration: searchDuration
+                  }
+                }));
+                return false;
+              }
+              
+              if (currentUrl.includes('hcm.costco.com')) {
+                // Already on Fiori - search for buttons immediately
+                searchAndClickScheduleButton();
+                
+              } else {
+                // Navigate to Fiori first, then auto-search for buttons
+                console.log('🚀 [FIORI] Navigating to Fiori Launchpad...');
+                const contentIframe = document.getElementById('contentAreaFrame');
+                if (contentIframe?.contentDocument) {
+                  const fioriIframe = contentIframe.contentDocument.getElementById('isolatedWorkArea');
+                  if (fioriIframe?.src) {
+                    // Store flag to auto-continue after navigation
+                    window.fioriAutoClick = true;
+                    
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'navigate_to_fiori',
+                      url: fioriIframe.src,
+                      success: true,
+                      autoClick: true
+                    }));
+                    return;
+                  }
+                }
+                
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'fiori_button_click_error',
+                  error: 'Cannot find Fiori URL',
+                  success: false,
+                  performanceData: {
+                    totalScriptDuration: Date.now() - scriptStartTime,
+                    errorType: 'fiori-url-not-found'
+                  }
+                }));
+              }
+              
+            } catch (error) {
+              console.error('❌ [FIORI] Error:', error.message);
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'fiori_button_click_error',
+                error: error.message,
+                success: false,
+                performanceData: {
+                  totalScriptDuration: Date.now() - scriptStartTime,
+                  errorType: 'script-execution-error'
+                }
+              }));
+            }
+          })();
+        `;
+        
+        webViewRef.current.injectJavaScript(fioriScript);
+      }
+      
+      // Wait for navigation
+      await delay(15000); // Increased from 10s to 15s for more reliable navigation
+      updateSyncStep(3, 'success');
+
+      // Step 5: Test Run
+      await delay(1500);
+      updateSyncStep(4, 'active');
+      
+      // Execute test run automation (using the actual working test run code)
+      console.log('🧪 [SYNC] Starting Test Run...');
+      
+      if (webViewRef.current) {
+        const testRunScript = `
+                (function() { 
+                  try { 
+                    console.log('🧪 [TEST-RUN] Starting test run - first week selection and run...');
+                    
+                    // Find the Cognos iframe
+                    let cognosIframe = null;
+                    let cognosDoc = null;
+                    
+                    const allIframes = document.querySelectorAll('iframe');
+                    console.log('🧪 [TEST-RUN] Found', allIframes.length, 'iframes to check');
+                    
+                    for (let i = 0; i < allIframes.length; i++) {
+                      const iframe = allIframes[i];
+                      try {
+                        if (iframe.contentDocument && iframe.contentWindow) {
+                          const iframeContent = iframe.contentDocument.documentElement.outerHTML;
+                          
+                          // Look for Cognos-specific elements
+                          if (iframeContent.includes('Week End Date') && 
+                              iframeContent.includes('IBM Cognos Viewer') &&
+                              iframeContent.includes('PRMT_SV_')) {
+                            console.log('✅ [TEST-RUN] Found Cognos schedule interface in iframe', i);
+                            cognosIframe = iframe;
+                            cognosDoc = iframe.contentDocument;
+                            break;
+                          }
+                        }
+                      } catch (e) {
+                        console.log('❌ [TEST-RUN] Cannot access iframe', i, ':', e.message);
+                      }
+                    }
+                    
+                    if (!cognosIframe || !cognosDoc) {
+                      console.log('❌ [TEST-RUN] Cognos iframe not found!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Cognos iframe not found. Found ' + allIframes.length + ' iframes total.'
+                      }));
+                      return;
+                    }
+                    
+                    // Find the Week End Date dropdown with more specific targeting
+                    console.log('🧪 [TEST-RUN] Searching for Week End Date dropdown...');
+                    
+                    // Look specifically for the Week End Date dropdown by checking for date-like options
+                    let weekDropdown = null;
+                    const allSelects = cognosDoc.querySelectorAll('select');
+                    console.log('🧪 [TEST-RUN] Found', allSelects.length, 'select elements, checking each one...');
+                    
+                    for (let i = 0; i < allSelects.length; i++) {
+                      const select = allSelects[i];
+                      console.log('🧪 [TEST-RUN] Checking select', i, ':', {
+                        id: select.id,
+                        name: select.name,
+                        optionsCount: select.options.length,
+                        firstOptionValue: select.options.length > 0 ? select.options[0].value : 'none',
+                        firstOptionText: select.options.length > 0 ? select.options[0].text : 'none'
+                      });
+                      
+                      // Check if this select has date-like options (Week End Date)
+                      if (select.options.length > 0) {
+                        const firstOption = select.options[0];
+                        const hasDateOptions = firstOption.value.includes('2025-') || 
+                                             firstOption.text.includes('2025-') ||
+                                             firstOption.value.includes('T00:00:00');
+                        
+                        // Also check for the associated hidden input with p_EndDate
+                        const hasEndDateInput = cognosDoc.querySelector('input[name="p_EndDate"]') !== null;
+                        
+                        console.log('🧪 [TEST-RUN] Select analysis:', {
+                          hasDateOptions: hasDateOptions,
+                          hasEndDateInput: hasEndDateInput,
+                          selectId: select.id
+                        });
+                        
+                        if (hasDateOptions && hasEndDateInput) {
+                          console.log('✅ [TEST-RUN] Found Week End Date dropdown:', select.id);
+                          weekDropdown = select;
+                          break;
+                        }
+                      }
+                    }
+                    
+                    // Fallback to original selectors if specific search didn't work
+                    if (!weekDropdown) {
+                      console.log('🧪 [TEST-RUN] Using fallback selectors for Week dropdown...');
+                      weekDropdown = cognosDoc.querySelector('select[id*="PRMT_SV_"][id*="_NS_"]') ||
+                                   cognosDoc.querySelector('select.clsSelectControl') ||
+                                   cognosDoc.querySelector('select[role="listbox"]');
+                    }
+                    
+                    if (!weekDropdown) {
+                      console.log('❌ [TEST-RUN] Week End Date dropdown not found after enhanced search!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Week End Date dropdown not found in Cognos iframe'
+                      }));
+                      return;
+                    }
+                    
+                    // Find the run button with more specific targeting to avoid arrows/icons
+                    console.log('🧪 [TEST-RUN] Searching for Run button...');
+                    const runButtons = cognosDoc.querySelectorAll('button');
+                    let runButton = null;
+                    
+                    // Look for the actual Run button by checking text content and avoiding arrows
+                    for (let btn of runButtons) {
+                      const btnText = (btn.textContent || '').trim().toLowerCase();
+                      const btnId = btn.id || '';
+                      const btnClass = btn.className || '';
+                      
+                      console.log('🧪 [TEST-RUN] Checking button:', {
+                        text: btnText,
+                        id: btnId,
+                        class: btnClass,
+                        tagName: btn.tagName
+                      });
+                      
+                      // Look for the actual Run button (not arrows or other UI elements)
+                      if (btnText === 'run' || 
+                          btnId.includes('next') && btnId.includes('_NS_') ||
+                          btnClass.includes('bp')) {
+                        console.log('✅ [TEST-RUN] Found potential Run button:', btn.id);
+                        runButton = btn;
+                        break;
+                      }
+                    }
+                    
+                    // Fallback to original selectors if specific search didn't work
+                    if (!runButton) {
+                      console.log('🧪 [TEST-RUN] Using fallback selectors for Run button...');
+                      runButton = cognosDoc.querySelector('button[id*="next"][id*="_NS_"]') ||
+                                 cognosDoc.querySelector('button.bp') ||
+                                 cognosDoc.querySelector('button[onclick*="promptAction"]') ||
+                                 cognosDoc.querySelector('input[type="submit"]');
+                    }
+                                     
+                    if (!runButton) {
+                      console.log('❌ [TEST-RUN] Run button not found!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'Run button not found in Cognos iframe'
+                      }));
+                      return;
+                    }
+                    
+                    console.log('🧪 [TEST-RUN] Found elements:');
+                    console.log('  - Week dropdown ID:', weekDropdown.id);
+                    console.log('  - Week dropdown tagName:', weekDropdown.tagName);
+                    console.log('  - Week dropdown options:', weekDropdown.options.length);
+                    console.log('  - Run button ID:', runButton.id);
+                    console.log('  - Run button text:', (runButton.textContent || '').trim());
+                    console.log('  - Run button tagName:', runButton.tagName);
+                    console.log('  - Run button class:', runButton.className);
+                    
+                    if (weekDropdown.options.length === 0) {
+                      console.log('❌ [TEST-RUN] No week options available!');
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'test_run_error',
+                        error: 'No week options available in dropdown'
+                      }));
+                      return;
+                    }
+                    
+                    // Check if dropdown is in an invalid state and try to clear it
+                    const isInvalid = weekDropdown.getAttribute('aria-invalid') === 'true';
+                    console.log('🧪 [TEST-RUN] Dropdown validation state - invalid:', isInvalid);
+                    
+                    if (isInvalid) {
+                      console.log('🧪 [TEST-RUN] Dropdown is in invalid state, attempting to clear validation...');
+                      weekDropdown.setAttribute('aria-invalid', 'false');
+                      
+                      // Also try to clear any error styling
+                      const container = weekDropdown.closest('.clsTextWidgetParseError');
+                      if (container) {
+                        container.classList.remove('clsTextWidgetParseError');
+                        console.log('🧪 [TEST-RUN] Removed error styling from container');
+                      }
+                    }
+                    
+                    // DIAGNOSTIC LOGGING: Analyze all dropdown options before selection
+                    console.log('🧪 [TEST-RUN] DROPDOWN DIAGNOSTIC - Complete option analysis:');
+                    console.log('  - Total options found:', weekDropdown.options.length);
+                    
+                    for (let i = 0; i < weekDropdown.options.length; i++) {
+                      const option = weekDropdown.options[i];
+                      console.log('  - Option', i + ':', {
+                        text: option.text,
+                        value: option.value,
+                        selected: option.selected,
+                        disabled: option.disabled
+                      });
+                    }
+                    
+                    // PROBLEM DETECTION: Check if first option is p_employee or similar
+                    const firstOption = weekDropdown.options[0];
+                    const isFirstOptionValidWeek = firstOption.value.includes('2025-') || 
+                                                   firstOption.value.includes('T00:00:00') ||
+                                                   new RegExp('\\\\d{4}-\\\\d{2}-\\\\d{2}').test(firstOption.value);
+                    const isFirstOptionPEmployee = firstOption.value === 'p_Employee' || 
+                                                   firstOption.text === 'p_Employee' ||
+                                                   firstOption.value.toLowerCase().includes('employee');
+                    
+                    console.log('🧪 [TEST-RUN] FIRST OPTION ANALYSIS:');
+                    console.log('  - Text:', firstOption.text);
+                    console.log('  - Value:', firstOption.value);
+                    console.log('  - Is valid week date:', isFirstOptionValidWeek);
+                    console.log('  - Is p_employee:', isFirstOptionPEmployee);
+                    console.log('  - Selected status:', firstOption.selected);
+                    
+                    // Find the first actual week date option (skip p_employee or invalid options)
+                    let selectedOptionIndex = 0;
+                    let selectedOption = firstOption;
+                    
+                    if (isFirstOptionPEmployee || !isFirstOptionValidWeek) {
+                      console.log('🧪 [TEST-RUN] PROBLEM DETECTED: First option is not a valid week!');
+                      console.log('🧪 [TEST-RUN] Searching for first valid week option...');
+                      
+                      for (let i = 1; i < weekDropdown.options.length; i++) {
+                        const option = weekDropdown.options[i];
+                        const isValidWeek = option.value.includes('2025-') || 
+                                          option.value.includes('T00:00:00') ||
+                                          new RegExp('\\\\d{4}-\\\\d{2}-\\\\d{2}').test(option.value);
+                        const isPEmployee = option.value === 'p_Employee' || 
+                                          option.text === 'p_Employee' ||
+                                          option.value.toLowerCase().includes('employee');
+                        
+                        console.log('🧪 [TEST-RUN] Option', i, 'analysis:', {
+                          text: option.text,
+                          value: option.value,
+                          isValidWeek: isValidWeek,
+                          isPEmployee: isPEmployee
+                        });
+                        
+                        if (isValidWeek && !isPEmployee) {
+                          console.log('✅ [TEST-RUN] Found first valid week option at index', i);
+                          selectedOptionIndex = i;
+                          selectedOption = option;
+                          break;
+                        }
+                      }
+                      
+                      if (selectedOptionIndex === 0 && isFirstOptionPEmployee) {
+                        console.log('❌ [TEST-RUN] CRITICAL: No valid week options found! All options appear to be p_employee or invalid.');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'test_run_error',
+                          error: 'No valid week options found - only p_employee or invalid options available',
+                          allOptions: Array.from(weekDropdown.options).map((opt, idx) => ({
+                            index: idx,
+                            text: opt.text,
+                            value: opt.value,
+                            selected: opt.selected
+                          }))
+                        }));
+                        return;
+                      }
+                    }
+                    
+                    const weekText = selectedOption.text;
+                    const weekValue = selectedOption.value;
+                    
+                    console.log('🧪 [TEST-RUN] FINAL SELECTION:');
+                    console.log('  - Selected index:', selectedOptionIndex);
+                    console.log('  - Selected text:', weekText);
+                    console.log('  - Selected value:', weekValue);
+                    console.log('  - Is this a valid week?', !isFirstOptionPEmployee || selectedOptionIndex > 0);
+                    
+                    // Actually interact with the dropdown UI instead of just setting values
+                    console.log('🧪 [TEST-RUN] Opening dropdown for interactive selection...');
+                    
+                    // First, focus the dropdown to ensure it's active
+                    weekDropdown.focus();
+                    
+                    // Click the dropdown to open it (this should open the options list)
+                    console.log('🧪 [TEST-RUN] Clicking dropdown to open options...');
+                    weekDropdown.click();
+                    
+                    // Also try mouse events in case click alone doesn't work
+                    weekDropdown.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    weekDropdown.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                    
+                    // Wait a moment for dropdown to open, then select first option
+                    setTimeout(() => {
+                      console.log('🧪 [TEST-RUN] Dropdown should be open, now selecting first option...');
+                      
+                      // Method 1: Try selecting the correct option (not always first)
+                      if (weekDropdown.options.length > 0) {
+                        console.log('🧪 [TEST-RUN] Selecting option at index', selectedOptionIndex + ':', selectedOption.text, 'with value:', selectedOption.value);
+                        
+                        // Clear all previous selections first
+                        for (let i = 0; i < weekDropdown.options.length; i++) {
+                          weekDropdown.options[i].selected = false;
+                        }
+                        
+                        // Select the correct option
+                        weekDropdown.selectedIndex = selectedOptionIndex;
+                        weekDropdown.value = selectedOption.value;
+                        
+                        // Mark the option as selected in the DOM
+                        selectedOption.selected = true;
+                        
+                        // Trigger all the events that a real user interaction would
+                        weekDropdown.dispatchEvent(new Event('focus', { bubbles: true }));
+                        weekDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+                        weekDropdown.dispatchEvent(new Event('input', { bubbles: true }));
+                        
+                        // Use Enter key to commit the selection and close dropdown
+                        weekDropdown.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        weekDropdown.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        
+                        // Blur to close dropdown
+                        weekDropdown.blur();
+                        weekDropdown.dispatchEvent(new Event('blur', { bubbles: true }));
+                        
+                        // Click away from dropdown to ensure it closes
+                        const body = cognosDoc.body;
+                        if (body) {
+                          body.click();
+                        }
+                        
+                        console.log('🧪 [TEST-RUN] Interactive selection complete, dropdown value now:', weekDropdown.value);
+                        console.log('🧪 [TEST-RUN] Selected index:', weekDropdown.selectedIndex);
+                        console.log('🧪 [TEST-RUN] Selected option status:', selectedOption.selected);
+                        console.log('🧪 [TEST-RUN] Expected index match:', weekDropdown.selectedIndex === selectedOptionIndex);
+                        
+                        // Verify the selection actually took
+                        setTimeout(() => {
+                          console.log('🧪 [TEST-RUN] Verification - dropdown value after delay:', weekDropdown.value);
+                          console.log('🧪 [TEST-RUN] Verification - selected index after delay:', weekDropdown.selectedIndex);
+                          console.log('🧪 [TEST-RUN] Verification - dropdown appears closed:', !weekDropdown.matches(':focus'));
+                        }, 200);
+                      }
+                      
+                      console.log('🧪 [TEST-RUN] Week selected, now enabling run button if needed...');
+                      
+                      // Enable the run button if disabled
+                      if (runButton.disabled) {
+                        runButton.disabled = false;
+                        console.log('🧪 [TEST-RUN] Enabled run button');
+                      }
+                      
+                      // Wait a moment longer, then click ONLY the run button
+                      setTimeout(() => {
+                        console.log('🧪 [TEST-RUN] About to click the Run button...');
+                        console.log('🧪 [TEST-RUN] Run button details before click:');
+                        console.log('  - ID:', runButton.id);
+                        console.log('  - Text:', (runButton.textContent || '').trim());
+                        console.log('  - Tag:', runButton.tagName);
+                        console.log('  - Disabled:', runButton.disabled);
+                        console.log('  - Visible:', runButton.offsetParent !== null);
+                        console.log('  - Button rect:', runButton.getBoundingClientRect());
+                        
+                        try {
+                          // Multiple approaches to ensure the Run button actually gets clicked
+                          console.log('🧪 [TEST-RUN] Method 1: Direct click...');
+                          runButton.click();
+                          
+                          console.log('🧪 [TEST-RUN] Method 2: Mouse events...');
+                          runButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                          runButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                          runButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                          
+                          console.log('🧪 [TEST-RUN] Method 3: Focus and keyboard...');
+                          runButton.focus();
+                          runButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                          runButton.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                          
+                          console.log('✅ [TEST-RUN] All run button click methods attempted!');
+                          
+                          // Verify something happened (page might change, button might become disabled, etc.)
+                          setTimeout(() => {
+                            console.log('🧪 [TEST-RUN] Post-click verification:');
+                            console.log('  - Button still exists:', !!cognosDoc.getElementById(runButton.id));
+                            console.log('  - Button still enabled:', !runButton.disabled);
+                            console.log('  - Page title:', cognosDoc.title);
+                            console.log('  - Current URL:', cognosDoc.location ? cognosDoc.location.href : 'unknown');
+                          }, 1000);
+                          
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'test_run_success',
+                            selectedWeek: weekText,
+                            weekValue: weekValue,
+                            runButtonId: runButton.id,
+                            runButtonText: (runButton.textContent || '').trim(),
+                            message: 'Successfully selected first week interactively and attempted multiple run button click methods'
+                          }));
+                          
+                        } catch (clickError) {
+                          console.log('❌ [TEST-RUN] Error clicking run button:', clickError);
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'test_run_error',
+                            error: 'Failed to click run button: ' + clickError.message,
+                            selectedWeek: weekText,
+                            runButtonId: runButton.id,
+                            runButtonText: (runButton.textContent || '').trim()
+                          }));
+                        }
+                      }, 2000); // 2 second delay after dropdown selection
+                      
+                    }, 500); // 0.5 second delay to let dropdown open
+                    
+                  } catch (error) {
+                    console.log('❌ [TEST-RUN] Script error:', error);
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'test_run_error',
+                      error: error.message,
+                      stack: error.stack
+                    }));
+                  }
+                })();`;
+        
+        webViewRef.current.injectJavaScript(testRunScript);
+      }
+      
+      // Test run and import are now handled entirely by message listeners
+      // No timeout-based logic needed here
+
+    } catch (error) {
+      console.error('❌ [SYNC] Sync schedule error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      updateSyncStep(syncSchedule.currentStep, 'error', errorMessage);
+      
+      Alert.alert(
+        'Sync Failed',
+        `${errorMessage}\n\nPlease try again or use manual steps.`,
+        [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+      );
+    }
+  };
+
 
 
   const renderCredentialsStep = () => (
@@ -935,6 +1894,57 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <Text style={styles.loginButtonText}>Sign In</Text>
         )}
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.loginButton, { 
+          backgroundColor: syncSchedule.isActive ? COLORS.warning : COLORS.success,
+          marginTop: SPACING.sm,
+        }, (isLoading || syncSchedule.isActive) && styles.disabledButton]}
+        onPress={handleSyncSchedule}
+        disabled={isLoading || syncSchedule.isActive}
+      >
+        {syncSchedule.isActive ? (
+          <ActivityIndicator color={COLORS.white} />
+        ) : (
+          <Text style={styles.loginButtonText}>🔄 Sync Schedule</Text>
+        )}
+      </TouchableOpacity>
+
+      {syncSchedule.isActive && (
+        <View style={styles.syncProgressContainer}>
+          <Text style={styles.syncProgressTitle}>Sync Progress:</Text>
+          {SYNC_STEPS.map((stepName, index) => {
+            const stepState = syncSchedule.stepStates[index];
+            const isCurrentStep = syncSchedule.currentStep === index;
+            const emoji = stepState === 'success' ? '✅' : 
+                         stepState === 'error' ? '❌' : 
+                         stepState === 'active' ? '🔄' : '⭕';
+            
+            return (
+              <View key={index} style={styles.syncProgressStep}>
+                <Text style={[
+                  styles.syncProgressStepText,
+                  stepState === 'success' && { color: COLORS.success },
+                  stepState === 'error' && { color: COLORS.error },
+                  stepState === 'active' && { color: COLORS.warning },
+                ]}>
+                  {emoji} {index + 1}. {stepName}
+                </Text>
+                {stepState === 'error' && syncSchedule.error && isCurrentStep && (
+                  <Text style={styles.syncProgressError}>
+                    Error: {syncSchedule.error}
+                  </Text>
+                )}
+                {stepState === 'active' && syncSchedule.mfaDetected && index === 2 && (
+                  <Text style={styles.syncProgressMfaNote}>
+                    Please enter SMS code in the form below
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       <TouchableOpacity style={styles.demoButton} onPress={handleDemoMode}>
         <Text style={styles.demoButtonText}>📱 Demo Mode</Text>
@@ -1124,6 +2134,132 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 console.log('📊 [WEBVIEW] 🎯 Prompt action detected in URL');
               }
               
+              // CHECK FOR LOGIN FORM 2 - Critical for sync schedule automation
+              if (!navState.loading && navState.url.includes('/cognos_ext/bi')) {
+                console.log('🔍 [LOGIN-FORM-2] Checking for Login Form 2 at Cognos URL...');
+                
+                // Wait longer for page to fully load before checking for login form
+                setTimeout(() => {
+                  if (webViewRef.current) {
+                    const loginForm2Script = `
+                      (function() {
+                        console.log('🔍 [LOGIN-FORM-2] Detecting Login Form 2...');
+                        
+                        const currentUrl = window.location.href;
+                        const pageContent = document.documentElement.outerHTML;
+                        
+                        // Check for Login Form 2 indicators
+                        const hasLoginForm = document.getElementById('CAMUsername') && 
+                                           document.getElementById('CAMPassword') && 
+                                           document.getElementById('signInBtn');
+                        
+                        const hasLoginText = pageContent.includes('Log in with your COSTCOEXT ID') || 
+                                           pageContent.includes('COSTCOEXT') ||
+                                           pageContent.includes('User ID');
+                        
+                        const isLoginForm2 = currentUrl.includes('bireport.costco.com/cognos_ext/bi') && 
+                                           (hasLoginForm || hasLoginText);
+                        
+                        console.log('🔍 [LOGIN-FORM-2] Analysis:', {
+                          url: currentUrl,
+                          hasLoginForm: hasLoginForm,
+                          hasLoginText: hasLoginText,
+                          isLoginForm2: isLoginForm2
+                        });
+                        
+                        if (isLoginForm2) {
+                          console.log('🎯 [LOGIN-FORM-2] LOGIN FORM 2 DETECTED! Auto-filling credentials...');
+                          
+                          const employeeId = '${employeeId}';
+                          const password = '${password}';
+                          
+                          if (!employeeId || !password) {
+                            console.error('❌ [LOGIN-FORM-2] No credentials available');
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'login_form_2_error',
+                              error: 'No credentials available for Login Form 2'
+                            }));
+                            return;
+                          }
+                          
+                          const usernameField = document.getElementById('CAMUsername');
+                          const passwordField = document.getElementById('CAMPassword');
+                          const signinButton = document.getElementById('signInBtn');
+                          
+                          if (!usernameField || !passwordField || !signinButton) {
+                            console.log('ℹ️ [LOGIN-FORM-2] Login fields not found - likely already authenticated');
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'login_form_2_not_needed',
+                              message: 'Login fields not found - likely already authenticated'
+                            }));
+                            return;
+                          }
+                          
+                          console.log('🔑 [LOGIN-FORM-2] Filling credentials...');
+                          
+                          // React-compatible field filling
+                          function fillField(element, value, fieldName) {
+                            element.focus();
+                            element.dispatchEvent(new Event('focus', { bubbles: true }));
+                            
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                            nativeInputValueSetter.call(element, value);
+
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                            element.dispatchEvent(new Event('blur', { bubbles: true }));
+                            
+                            console.log('✅ [LOGIN-FORM-2] Filled', fieldName, 'field');
+                          }
+                          
+                          try {
+                            fillField(usernameField, employeeId, 'username');
+                            fillField(passwordField, password, 'password');
+                            
+                            setTimeout(() => {
+                              if (signinButton.disabled) {
+                                console.error('❌ [LOGIN-FORM-2] Submit button is disabled');
+                                window.ReactNativeWebView.postMessage(JSON.stringify({
+                                  type: 'login_form_2_error',
+                                  error: 'Submit button is disabled after filling fields'
+                                }));
+                              } else {
+                                console.log('🚀 [LOGIN-FORM-2] Submitting form...');
+                                
+                                signinButton.focus();
+                                signinButton.click();
+                                signinButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                                
+                                window.ReactNativeWebView.postMessage(JSON.stringify({
+                                  type: 'login_form_2_success',
+                                  message: 'Login Form 2 filled and submitted successfully'
+                                }));
+                              }
+                            }, 1000);
+                            
+                          } catch (error) {
+                            console.error('❌ [LOGIN-FORM-2] Error:', error);
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'login_form_2_error',
+                              error: 'Error filling Login Form 2: ' + error.message
+                            }));
+                          }
+                        } else {
+                          console.log('ℹ️ [LOGIN-FORM-2] No login form detected - already authenticated');
+                          // Send success message to indicate no action needed
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'login_form_2_not_needed',
+                            message: 'Already authenticated, no login form required'
+                          }));
+                        }
+                      })();
+                    `;
+                    
+                    webViewRef.current.injectJavaScript(loginForm2Script);
+                  }
+                }, 4000); // Wait 4 seconds for page to fully load (increased from 2 seconds)
+              }
+              
               // Check if we've successfully authenticated and landed back on the schedule system
               if (!navState.loading && !navState.url.includes('/bi/v1/disp?b_action=logonAs')) {
                 console.log('🔍 [FIORI-MONITOR] Checking for post-authentication continuation...');
@@ -1216,15 +2352,37 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           onMessage={async (event) => {
             try {
               const messageData = event.nativeEvent.data;
-              console.log('📨 [WEBVIEW] Message received:', messageData);
               
               // Try to parse as JSON for structured messages
               try {
                 const parsedMessage = JSON.parse(messageData);
-                console.log('📨 [WEBVIEW] Parsed message:', parsedMessage);
                 
-                // First check if this is a Cognos automation message
-                if (parsedMessage.type && (
+                // Create a condensed version for logging (without large HTML content)
+                const condensedMessage = { ...parsedMessage };
+                if (condensedMessage.extractedHtml && typeof condensedMessage.extractedHtml === 'string') {
+                  const htmlLength = condensedMessage.extractedHtml.length;
+                  condensedMessage.extractedHtml = `<HTML_CONTENT_${htmlLength}_CHARS>`;
+                }
+                if (condensedMessage.currentHtml && typeof condensedMessage.currentHtml === 'string') {
+                  const htmlLength = condensedMessage.currentHtml.length;
+                  condensedMessage.currentHtml = `<HTML_CONTENT_${htmlLength}_CHARS>`;
+                }
+                
+                console.log('📨 [WEBVIEW] Message received:', condensedMessage);
+                
+                // When sync schedule is active, handle ALL automation messages in sync flow
+                if (syncSchedule.isActive && parsedMessage.type && (
+                  parsedMessage.type.startsWith('cognos_') || 
+                  parsedMessage.type.startsWith('multi_week_') ||
+                  parsedMessage.type.includes('_run_') ||
+                  parsedMessage.type.includes('login_form_2') ||
+                  ['schedule_selected', 'schedule_selection_error', 'run_button_clicked', 
+                    'run_button_error', 'schedule_data_extracted', 'schedule_extraction_error',
+                    'schedule_extraction_complete_for_import'].includes(parsedMessage.type)
+                )) {
+                  console.log('🎯 [SYNC] Sync schedule active - routing ALL automation messages to sync handler:', parsedMessage.type);
+                  // Let all automation messages go to sync handlers when sync is active
+                } else if (parsedMessage.type && (
                   parsedMessage.type.startsWith('cognos_') || 
                   parsedMessage.type.startsWith('multi_week_test_') ||
                   parsedMessage.type.startsWith('multi_week_import_') ||
@@ -1239,6 +2397,99 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 )) {
                   console.log('🤖 [WEBVIEW] Routing message to Cognos automation handler:', parsedMessage.type);
                   automation.handleWebViewMessage(parsedMessage);
+                  return;
+                }
+
+                // Handle sync schedule-specific messages
+                if (parsedMessage.type === 'test_run_error' && syncSchedule.isActive) {
+                  console.log('❌ [SYNC] Test run failed:', parsedMessage.error);
+                  updateSyncStep(4, 'error', parsedMessage.error);
+                  
+                  Alert.alert(
+                    'Test Run Failed',
+                    `The test run step failed: ${parsedMessage.error}\n\nSync schedule has been stopped.`,
+                    [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+                  );
+                  return;
+                } else if (parsedMessage.type === 'multi_week_import_error' && syncSchedule.isActive) {
+                  console.log('❌ [SYNC] Import failed:', parsedMessage.error);
+                  updateSyncStep(5, 'error', parsedMessage.error);
+                  
+                  Alert.alert(
+                    'Import Failed',
+                    `The import step failed: ${parsedMessage.error}\n\nSync schedule has been stopped.`,
+                    [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+                  );
+                  return;
+                } else if (parsedMessage.type === 'login_form_2_success' && syncSchedule.isActive) {
+                  console.log('✅ [SYNC] Login Form 2 handled successfully');
+                  // Update step 4 to indicate login form was handled
+                  updateSyncStep(3, 'success');
+                } else if (parsedMessage.type === 'login_form_2_error' && syncSchedule.isActive) {
+                  console.log('⚠️ [SYNC] Login Form 2 detection failed (non-fatal):', parsedMessage.error);
+                  console.log('🔄 [SYNC] Continuing automation - this may be a timing issue or already authenticated');
+                  // Don't mark as error or stop automation - this could be a race condition
+                  // The automation will continue and if authentication is actually needed, it will fail later
+                } else if (parsedMessage.type === 'login_form_2_not_needed' && syncSchedule.isActive) {
+                  console.log('ℹ️ [SYNC] Login Form 2 not needed - already authenticated');
+                  // Continue automation without error
+                } else if (parsedMessage.type.startsWith('multi_week_import_progress') && syncSchedule.isActive) {
+                  console.log('📊 [SYNC] Import progress update - forwarding to automation handler');
+                  automation.handleWebViewMessage(parsedMessage);
+                  return;
+                } else if (parsedMessage.type === 'schedule_extraction_complete_for_import' && syncSchedule.isActive) {
+                  console.log('📥 [SYNC] Schedule extraction complete - forwarding to automation handler');
+                  automation.handleWebViewMessage(parsedMessage);
+                  return;
+                } else if (parsedMessage.type === 'test_run_success' && syncSchedule.isActive) {
+                  console.log('✅ [SYNC] Test run completed successfully');
+                  console.log('🔍 [DEBUG] Sync schedule active:', syncSchedule.isActive, 'Current step:', syncSchedule.currentStep);
+                  updateSyncStep(4, 'success');
+                  
+                  // Automatically proceed to Import All Schedules
+                  setTimeout(async () => {
+                    console.log('🔄 [SYNC] Starting Import All Schedules...');
+                    updateSyncStep(5, 'active');
+                    
+                    try {
+                      await automation.importAllSchedules();
+                    } catch (error) {
+                      console.error('❌ [SYNC] Import error:', error);
+                      updateSyncStep(5, 'error', error instanceof Error ? error.message : 'Import failed');
+                    }
+                  }, 1500);
+                } else if (parsedMessage.type === 'multi_week_import_complete' && syncSchedule.isActive) {
+                  console.log('✅ [SYNC] Import completed successfully');
+                  console.log('🔍 [DEBUG] Sync schedule active:', syncSchedule.isActive, 'Current step:', syncSchedule.currentStep);
+                  console.log('🔍 [DEBUG] Timing data:', syncSchedule.startTime, 'Step timings count:', syncSchedule.stepTimings.size);
+                  updateSyncStep(5, 'success');
+                  
+                  // Complete the sync schedule successfully
+                  setTimeout(() => {
+                    updateSyncStep(6, 'success');
+                    
+                    // Show timing summary
+                    setTimeout(() => {
+                      console.log('🕐 [DEBUG] About to call showTimingSummary()...');
+                      showTimingSummary();
+                    }, 500);
+                    
+                    Alert.alert(
+                      'Sync Schedule Complete! ✅',
+                      'Your schedule has been successfully synchronized and imported.\n\nYou can now view your schedules in the Dashboard.\n\nCheck console logs for detailed timing analysis.',
+                      [
+                        {
+                          text: 'View Schedules',
+                          onPress: () => {
+                            resetSyncSchedule();
+                            onLoginSuccess();
+                          }
+                        }
+                      ]
+                    );
+                    
+                    setSyncSchedule(prev => ({ ...prev, isActive: false }));
+                  }, 1000);
                   return;
                 }
 
@@ -2982,5 +4233,44 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.caption.fontSize,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  syncProgressContainer: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.lg,
+    borderRadius: 8,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  syncProgressTitle: {
+    fontSize: TYPOGRAPHY.h5.fontSize,
+    fontWeight: TYPOGRAPHY.h5.fontWeight,
+    color: COLORS.primary,
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+  },
+  syncProgressStep: {
+    marginBottom: SPACING.sm,
+  },
+  syncProgressStepText: {
+    fontSize: TYPOGRAPHY.body.fontSize,
+    color: COLORS.text,
+    fontWeight: '500',
+  },
+  syncProgressError: {
+    fontSize: TYPOGRAPHY.caption.fontSize,
+    color: COLORS.error,
+    marginTop: SPACING.xs,
+    paddingLeft: SPACING.lg,
+    fontStyle: 'italic',
+  },
+  syncProgressMfaNote: {
+    fontSize: TYPOGRAPHY.caption.fontSize,
+    color: COLORS.warning,
+    marginTop: SPACING.xs,
+    paddingLeft: SPACING.lg,
+    fontStyle: 'italic',
+    fontWeight: '600',
   },
 }); 

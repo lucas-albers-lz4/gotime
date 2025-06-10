@@ -121,8 +121,6 @@ export class ScheduleService {
         }
       }
       
-      console.log('🔍 [WEEK-VALIDATION] All schedule dates found:', allDates);
-      
       if (!mondayDate) {
         console.log('❌ [WEEK-VALIDATION] No Monday date found in schedule, keeping original week dates');
         return weekInfo;
@@ -139,8 +137,6 @@ export class ScheduleService {
       const sundayDateObj = new Date(mondayDateObj.getTime() + (6 * 24 * 60 * 60 * 1000));
       const correctSunday = `${sundayDateObj.getMonth() + 1}/${sundayDateObj.getDate()}/${sundayDateObj.getFullYear()}`;
       
-      console.log('🔍 [WEEK-VALIDATION] Calculated correct Sunday:', correctSunday);
-      
       // Normalize date formats for comparison (remove leading zeros)
       const normalizeDate = (date: string): string => {
         const parts = date.split('/');
@@ -152,22 +148,16 @@ export class ScheduleService {
       const normalizedMondayDate = normalizeDate(mondayDate);
       const normalizedCorrectSunday = normalizeDate(correctSunday);
       
-      console.log('🔍 [WEEK-VALIDATION] Comparison:');
-      console.log('  Original start (normalized):', normalizedWeekStart);
-      console.log('  Monday date (normalized):', normalizedMondayDate);
-      console.log('  Original end (normalized):', normalizedWeekEnd);
-      console.log('  Correct Sunday (normalized):', normalizedCorrectSunday);
-      
       // Check if correction is needed
       const startNeedsCorrection = normalizedWeekStart !== normalizedMondayDate;
       const endNeedsCorrection = normalizedWeekEnd !== normalizedCorrectSunday;
       
       if (startNeedsCorrection || endNeedsCorrection) {
         console.log('✅ [WEEK-VALIDATION] Week dates need correction!');
-        console.log('  Week start needs correction:', startNeedsCorrection);
-        console.log('  Week end needs correction:', endNeedsCorrection);
-        console.log('  Correcting from:', weekInfo.start, '-', weekInfo.end);
-        console.log('  Correcting to:', mondayDate, '-', correctSunday);
+        console.log('    Week start needs correction:', startNeedsCorrection);
+        console.log('    Week end needs correction:', endNeedsCorrection);
+        console.log('    Correcting from:', weekInfo.start, '-', weekInfo.end);
+        console.log('    Correcting to:', mondayDate, '-', correctSunday);
         
         return {
           start: mondayDate,    // Use actual Monday date
@@ -216,8 +206,8 @@ export class ScheduleService {
   private normalizeScheduleDateFormat(schedule: WeeklySchedule): WeeklySchedule {
     try {
       console.log('🔧 [SCHEDULE] Normalizing date format for schedule...');
-      console.log('  - Input weekStart:', schedule.weekStart);
-      console.log('  - Input weekEnd:', schedule.weekEnd);
+      console.log('    - Input weekStart:', schedule.weekStart);
+      console.log('    - Input weekEnd:', schedule.weekEnd);
       
       // Normalize week start and end dates
       const normalizedWeekStart = this.convertISODateToStandard(schedule.weekStart);
@@ -237,9 +227,9 @@ export class ScheduleService {
       };
       
       console.log('✅ [SCHEDULE] Date format normalized:');
-      console.log('  - Output weekStart:', normalizedSchedule.weekStart);
-      console.log('  - Output weekEnd:', normalizedSchedule.weekEnd);
-      console.log('  - Sample entry date:', normalizedSchedule.entries[0]?.date);
+      console.log('    - Output weekStart:', normalizedSchedule.weekStart);
+      console.log('    - Output weekEnd:', normalizedSchedule.weekEnd);
+      console.log('    - Sample entry date:', normalizedSchedule.entries[0]?.date);
       
       return normalizedSchedule;
     } catch (error) {
@@ -476,20 +466,14 @@ export class ScheduleService {
             const dateA = new Date(yearA, monthA - 1, dayA); // Month is 0-indexed
             const dateB = new Date(yearB, monthB - 1, dayB);
             
-            console.log('🔍 [SCHEDULE] Comparing dates:', a, '(', dateA.toISOString(), ') vs', b, '(', dateB.toISOString(), ')');
-            
             return dateA.getTime() - dateB.getTime();
           });
-          
-          console.log('🔍 [SCHEDULE] Sorted unique dates:', uniqueDates);
           
           if (uniqueDates.length >= 2) {
             // Use first and last dates as week range
             const start = uniqueDates[0];
             const end = uniqueDates[uniqueDates.length - 1];
             console.log('✅ [SCHEDULE] Derived week info from schedule dates:', start, '-', end);
-            console.log('🔍 [SCHEDULE] Week start (first date):', start);
-            console.log('🔍 [SCHEDULE] Week end (last date):', end);
             
             const derivedWeekInfo = { start, end };
             // Validate and correct week dates to ensure alignment with actual schedule dates
@@ -769,26 +753,17 @@ export class ScheduleService {
           continue;
         }
         
-        console.log('🔍 [SCHEDULE] ===== PROCESSING ROW', i, '=====');
-        console.log('🔍 [SCHEDULE] Raw HTML row:', row);
-        
         // Extract day information using more flexible patterns
         const dayMatch = row.match(/<span[^>]*>([A-Za-z]+)<\/span>/);
         const dateMatch = row.match(/<span[^>]*>(\d+\/\d+\/\d+)<\/span>/);
         
-        console.log('🔍 [SCHEDULE] Day regex match:', dayMatch);
-        console.log('🔍 [SCHEDULE] Date regex match:', dateMatch);
-        
         // Extract times - handle both 12-hour and 24-hour formats, more flexible
         const allSpans = row.match(/<span[^>]*>([^<]*)<\/span>/g) || [];
-        console.log('🔍 [SCHEDULE] All span matches (raw):', allSpans);
         
         const spanContents = allSpans.map(span => {
           const match = span.match(/>([^<]*)</);
           return match ? match[1].trim() : '';
         });
-        
-        console.log('🔍 [SCHEDULE] All span contents for row:', spanContents);
         
         // Look for time patterns in span contents
         const timePattern = /(\d{1,2}:\d{2}\s*[AP]M)/;
@@ -799,18 +774,12 @@ export class ScheduleService {
         const hours = spanContents.filter(content => hourPattern.test(content) && parseFloat(content) > 0 && parseFloat(content) <= 24);
         const changedOnDates = spanContents.filter(content => datePattern.test(content) && content !== (dateMatch ? dateMatch[1] : ''));
         
-        console.log('🔍 [SCHEDULE] Extracted times:', times);
-        console.log('🔍 [SCHEDULE] Extracted hours:', hours);
-        console.log('🔍 [SCHEDULE] Possible changed on dates:', changedOnDates);
-        
         // Check if this is a data row (has either day name or date with times)
         const hasDay = dayMatch && dayMatch[1];
         const hasDate = dateMatch && dateMatch[1];
         const hasTimes = times.length >= 2;
         const hasHours = hours.length >= 1;
         const hasChangedOnDate = changedOnDates.length > 0;
-        
-        console.log('🔍 [SCHEDULE] Row analysis - hasDay:', hasDay, 'hasDate:', hasDate, 'hasTimes:', hasTimes, 'hasHours:', hasHours, 'hasChangedOnDate:', hasChangedOnDate);
         
         if ((hasDay && hasDate) || (hasDate && hasTimes && hasHours)) {
           dataRowsFound++;
@@ -826,10 +795,8 @@ export class ScheduleService {
             // This is a continuation row for the same date
             dayName = currentDay;
             date = currentDate;
-            console.log('🔍 [SCHEDULE] Found continuation row for same date:', date);
           } else {
             // Skip this row if we can't determine the day
-            console.log('🔍 [SCHEDULE] Skipping row - cannot determine day/date relationship');
             continue;
           }
           
@@ -857,10 +824,7 @@ export class ScheduleService {
           let changedOn: string | undefined = undefined;
           if (hasChangedOnDate && hasChangedOnColumn) {
             changedOn = changedOnDates[0];
-            console.log('🔍 [SCHEDULE] Found changed on date:', changedOn);
           }
-          
-          console.log('🔍 [SCHEDULE] Parsed values - Day:', dayName, 'Date:', date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours, 'Changed On:', changedOn);
           
           // Check if this is a new day or continuation of current day
           if (dayName && dayName !== currentDay) {
@@ -881,7 +845,6 @@ export class ScheduleService {
             currentDailyHours = dailyHours;
           } else if (dayName === currentDay && date === currentDate) {
             // Same day, same date - this is an additional shift for the same day
-            console.log('🔍 [SCHEDULE] Found additional shift for same day:', dayName, date);
           }
           
           // Add shift if there are times and hours
@@ -892,16 +855,12 @@ export class ScheduleService {
               shiftHours,
               changedOn,
             });
-            console.log('✅ [SCHEDULE] Added shift:', { startTime, endTime, shiftHours, changedOn });
           }
           
           // Update daily hours if provided (use the latest non-zero value)
           if (dailyHours > 0) {
             currentDailyHours = dailyHours;
-            console.log('✅ [SCHEDULE] Updated daily hours to:', dailyHours);
           }
-          
-          console.log('✅ [SCHEDULE] Processed row for day:', dayName, date, 'Start:', startTime, 'End:', endTime, 'Shift Hours:', shiftHours, 'Daily Hours:', dailyHours, 'Changed On:', changedOn);
         }
       }
       
@@ -915,7 +874,28 @@ export class ScheduleService {
         });
       }
       
-      console.log('✅ [SCHEDULE] Extracted', entries.length, 'schedule entries from', dataRowsFound, 'data rows');
+      // Generate a concise summary instead of verbose logs
+      const summary = {
+        totalEntries: entries.length,
+        dataRows: dataRowsFound,
+        days: entries.map(e => ({
+          day: e.day,
+          date: e.date,
+          shifts: e.shifts.length,
+          hours: e.dailyHours
+        }))
+      };
+      
+      // Only show detailed logs if we have unexpected results
+      const hasUnexpectedResults = entries.length === 0 || dataRowsFound < 5 || entries.some(e => e.shifts.length === 0 && e.dailyHours > 0);
+      
+      if (hasUnexpectedResults) {
+        console.log('⚠️ [SCHEDULE] Unexpected parsing results - detailed summary:', JSON.stringify(summary, null, 2));
+        console.log('⚠️ [SCHEDULE] Consider checking HTML structure or parsing logic');
+      } else {
+        console.log('✅ [SCHEDULE] Schedule parsed successfully:', `${entries.length} days, ${entries.reduce((sum, e) => sum + e.shifts.length, 0)} shifts, ${entries.reduce((sum, e) => sum + e.dailyHours, 0)} total hours`);
+      }
+      
       return entries;
       
     } catch (error) {
@@ -943,8 +923,6 @@ export class ScheduleService {
       
       // If no explicit total found, calculate from daily hours in the schedule
       if (!totalMatch) {
-        console.log('🔍 [SCHEDULE] No explicit total hours found, calculating from schedule...');
-        
         // Extract all daily hours from the schedule table
         const dailyHoursMatches = html.match(/<span[^>]*>(\d+\.\d+|\d+)<\/span>/g);
         if (dailyHoursMatches) {
@@ -964,7 +942,7 @@ export class ScheduleService {
           }
           
           if (hoursFound > 0) {
-            console.log('✅ [SCHEDULE] Calculated total hours from schedule:', totalHours);
+            console.log('✅ [SCHEDULE] Calculated total hours:', totalHours);
             return totalHours;
           }
         }
@@ -1762,7 +1740,7 @@ export class ScheduleService {
         const time = match[1].trim();
         const restOfText = match[2].trim();
         const fullText = `The information displayed on this schedule report is valid as of ${time}${restOfText}`;
-        console.log('✅ [SCHEDULE] Disclaimer text extracted:', fullText.substring(0, 100) + '...');
+        console.log('✅ [SCHEDULE] Disclaimer text extracted: The information displayed on this schedule report is valid as of', time + '...');
         return fullText;
       }
       
@@ -1773,7 +1751,7 @@ export class ScheduleService {
         const time = broadMatch[1].trim();
         const restOfText = broadMatch[2].trim();
         const fullText = `The information displayed on this schedule report is valid as of ${time}${restOfText}`;
-        console.log('✅ [SCHEDULE] Disclaimer text extracted (broad pattern):', fullText.substring(0, 100) + '...');
+        console.log('✅ [SCHEDULE] Disclaimer text extracted (broad pattern): The information displayed on this schedule report is valid as of', time + '...');
         return fullText;
       }
       
@@ -1790,7 +1768,7 @@ export class ScheduleService {
           .replace(/\s+/g, ' ') // Replace multiple spaces with single space
           .trim();
         
-        console.log('✅ [SCHEDULE] Disclaimer text extracted (simple pattern):', cleanText.substring(0, 100) + '...');
+        console.log('✅ [SCHEDULE] Disclaimer text extracted (simple pattern): The information displayed on this schedule report...');
         return cleanText;
       }
       
