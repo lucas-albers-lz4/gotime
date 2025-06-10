@@ -1670,7 +1670,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
 
         <TouchableOpacity 
-          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md }]} 
+          style={[styles.demoButton, { borderColor: COLORS.warning, marginBottom: SPACING.md, display: 'none' }]} 
           onPress={async () => {
             console.log('📄 [UI] Dump HTML - Getting complete page content...');
             if (!webViewRef.current) {
@@ -1988,7 +1988,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     const firstOption = weekDropdown.options[0];
                     const isFirstOptionValidWeek = firstOption.value.includes('2025-') || 
                                                    firstOption.value.includes('T00:00:00') ||
-                                                   /\d{4}-\d{2}-\d{2}/.test(firstOption.value);
+                                                   new RegExp('\\\\d{4}-\\\\d{2}-\\\\d{2}').test(firstOption.value);
                     const isFirstOptionPEmployee = firstOption.value === 'p_Employee' || 
                                                    firstOption.text === 'p_Employee' ||
                                                    firstOption.value.toLowerCase().includes('employee');
@@ -2012,7 +2012,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         const option = weekDropdown.options[i];
                         const isValidWeek = option.value.includes('2025-') || 
                                           option.value.includes('T00:00:00') ||
-                                          /\d{4}-\d{2}-\d{2}/.test(option.value);
+                                          new RegExp('\\\\d{4}-\\\\d{2}-\\\\d{2}').test(option.value);
                         const isPEmployee = option.value === 'p_Employee' || 
                                           option.text === 'p_Employee' ||
                                           option.value.toLowerCase().includes('employee');
