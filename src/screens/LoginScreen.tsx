@@ -252,7 +252,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       Alert.alert(
         'Missing Information',
         'Please enter both Employee ID and Password before signing in.',
-        [{ text: 'OK' }]
+        [{ text: 'OK' }],
       );
       return;
     }
@@ -1123,6 +1123,66 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               if (navState.url.includes('promptAction')) {
                 console.log('📊 [WEBVIEW] 🎯 Prompt action detected in URL');
               }
+              
+              // Check if we've successfully authenticated and landed back on the schedule system
+              if (!navState.loading && !navState.url.includes('/bi/v1/disp?b_action=logonAs')) {
+                console.log('🔍 [FIORI-MONITOR] Checking for post-authentication continuation...');
+                
+                // Inject script to check if we need to continue Fiori navigation
+                if (webViewRef.current) {
+                  const continueScript = `
+                    (function() {
+                      console.log('🔍 [FIORI-MONITOR] Checking continuation flag...');
+                      
+                      if (window.fioriContinueAfterLogin) {
+                        console.log('✅ [FIORI-MONITOR] Continuation flag detected - authenticated successfully');
+                        console.log('🚀 [FIORI-MONITOR] Resuming Fiori navigation to schedule...');
+                        
+                        // Clear the flag
+                        window.fioriContinueAfterLogin = false;
+                        
+                        // Look for the schedule interface or continue navigation
+                        const currentUrl = window.location.href;
+                        console.log('📍 [FIORI-MONITOR] Current URL after auth:', currentUrl);
+                        
+                        // Check if we're already at the schedule interface
+                        if (currentUrl.includes('bireport.costco.com') && 
+                            !currentUrl.includes('/bi/v1/disp?b_action=logonAs')) {
+                          console.log('🎯 [FIORI-MONITOR] Already at schedule system - checking for prompts...');
+                          
+                          // Look for parameter prompts or schedule interface
+                          setTimeout(() => {
+                            const hasPrompts = document.querySelector('[id*="prompt"]') || 
+                                             document.querySelector('[class*="prompt"]') ||
+                                             document.querySelector('input[type="text"]') ||
+                                             document.querySelector('select');
+                            
+                            if (hasPrompts) {
+                              console.log('📋 [FIORI-MONITOR] Parameter prompts found - user interaction needed');
+                              window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'fiori_navigation_complete',
+                                message: 'Successfully navigated to schedule system - parameter prompts ready',
+                                requiresUserInput: true,
+                                url: currentUrl
+                              }));
+                            } else {
+                              console.log('✅ [FIORI-MONITOR] Schedule interface loaded successfully');
+                              window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'fiori_navigation_complete',
+                                message: 'Successfully navigated to schedule system',
+                                requiresUserInput: false,
+                                url: currentUrl
+                              }));
+                            }
+                          }, 2000);
+                        }
+                      }
+                    })();
+                  `;
+                  
+                  webViewRef.current.injectJavaScript(continueScript);
+                }
+              }
             } else if (navState.url.includes('ess.costco.com')) {
               console.log('🏢 [WEBVIEW] 🎯 ESS PORTAL detected');
             } else if (navState.url.includes('sso.costco.com') || navState.url.includes('pingone')) {
@@ -1518,6 +1578,34 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   }
                   if (parsedMessage.performanceData) {
                     console.log('⏱️ [PERFORMANCE] Error performance data:', parsedMessage.performanceData);
+                  }
+                } else if (parsedMessage.type === 'fiori_auth_success') {
+                  console.log('✅ [WEBVIEW] Fiori authentication successful:', parsedMessage.message);
+                  console.log('🔑 [AUTH] Login form filled and submitted during Fiori navigation');
+                  console.log('⏳ [AUTH] Waiting for authentication to complete...');
+                  
+                  // The authentication should redirect back to the schedule system automatically
+                  // No user intervention needed - the flow will continue
+                } else if (parsedMessage.type === 'fiori_auth_error') {
+                  console.log('❌ [WEBVIEW] Fiori authentication error:', parsedMessage.error);
+                  console.error('🚫 [AUTH] Authentication failed during Fiori navigation:', parsedMessage.error);
+                  
+                  Alert.alert(
+                    'Authentication Issue',
+                    `Automatic authentication during Fiori navigation failed:\n\n${parsedMessage.error}\n\nYou may need to manually complete the login form.`,
+                    [{ text: 'OK' }],
+                  );
+                } else if (parsedMessage.type === 'fiori_navigation_complete') {
+                  console.log('✅ [WEBVIEW] Fiori navigation completed:', parsedMessage.message);
+                  console.log('🎯 [SUCCESS] Fiori navigation with auto-auth successful');
+                  console.log('📍 [SUCCESS] Final URL:', parsedMessage.url);
+                  console.log('👤 [SUCCESS] Requires user input:', parsedMessage.requiresUserInput);
+                  
+                  if (parsedMessage.requiresUserInput) {
+                    console.log('📋 [INFO] Parameter prompts are ready for user interaction');
+                    // User can now interact with the parameter prompts
+                  } else {
+                    console.log('🎉 [INFO] Schedule interface is fully loaded and ready');
                   }
                 } else if (parsedMessage.type === 'schedule_page_reached') {
                   console.log('🎉 [WEBVIEW] Final destination reached!');
@@ -2142,8 +2230,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <TouchableOpacity
             style={[
               styles.rowButtonSmall,
-              { borderColor: COLORS.primary, display: 'none' }, // Hide but keep around
+              { borderColor: COLORS.primary },
               automation.state.isAutomating && styles.rowButtonAutomating,
+              { display: 'none' }, // Hide but keep around
             ]}
             onPress={automation.testMultiWeekAutomation}
             disabled={automation.state.isAutomating}
@@ -2164,7 +2253,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             ]}
             onPress={() => {
               try {
-                const buttonClickStartTime = Date.now();
                 console.log('🎯 [FIORI] Starting Fiori Button Search and Click...');
                 console.log('⏱️ [PERFORMANCE] Fiori button clicked at:', new Date().toISOString());
                 
@@ -2182,11 +2270,114 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         domReady: window.performance.timing.domContentLoadedEventEnd - window.performance.timing.navigationStart
                       } : 'Not available');
                       
+                      // Function to detect and handle login forms during Fiori navigation
+                      function detectAndHandleLoginForm() {
+                        console.log('🔍 [FIORI-AUTH] Checking for login form...');
+                        
+                        const pageContent = document.documentElement.outerHTML;
+                        const isLoginForm2 = currentUrl.includes('bireport.costco.com/cognos_ext/bi') && 
+                                            (pageContent.includes('Log in with your COSTCOEXT ID') || 
+                                             pageContent.includes('COSTCOEXT') ||
+                                             pageContent.includes('User ID'));
+                        
+                        if (isLoginForm2) {
+                          console.log('🎯 [FIORI-AUTH] Login Form 2 detected during Fiori navigation!');
+                          console.log('🔑 [FIORI-AUTH] Automatically filling credentials...');
+                          
+                          const employeeId = '${employeeId}';
+                          const password = '${password}';
+                          
+                          if (!employeeId || !password) {
+                            console.error('❌ [FIORI-AUTH] No credentials available for auto-fill');
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'fiori_auth_error',
+                              error: 'No credentials available for automatic authentication'
+                            }));
+                            return false;
+                          }
+                          
+                          const usernameField = document.getElementById('CAMUsername');
+                          const passwordField = document.getElementById('CAMPassword');
+                          const signinButton = document.getElementById('signInBtn');
+                          
+                          if (!usernameField || !passwordField || !signinButton) {
+                            console.error('🎯 [FIORI-AUTH] Could not find all required login fields');
+                            return false;
+                          }
+                          
+                          console.log('🎯 [FIORI-AUTH] Found all fields - filling credentials automatically');
+                          
+                          // React-compatible field filling function
+                          function fillReactInput(element, value, fieldName) {
+                            console.log('🎯 [FIORI-AUTH] Filling', fieldName, 'with React events');
+                            
+                            element.focus();
+                            element.dispatchEvent(new Event('focus', { bubbles: true }));
+                            
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                            nativeInputValueSetter.call(element, value);
+
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                            element.dispatchEvent(new Event('blur', { bubbles: true }));
+                          }
+                          
+                          try {
+                            // Fill credentials
+                            fillReactInput(usernameField, employeeId, 'Username');
+                            fillReactInput(passwordField, password, 'Password');
+                            
+                            // Wait for React state to update, then submit
+                            setTimeout(() => {
+                              if (signinButton.disabled) {
+                                console.error('🎯 [FIORI-AUTH] Sign-in button is disabled - validation failed');
+                                window.ReactNativeWebView.postMessage(JSON.stringify({
+                                  type: 'fiori_auth_error',
+                                  error: 'Sign-in button is disabled after filling fields'
+                                }));
+                              } else {
+                                console.log('🎯 [FIORI-AUTH] Submitting login form...');
+                                
+                                // Store intent to continue Fiori navigation after login
+                                window.fioriContinueAfterLogin = true;
+                                
+                                signinButton.focus();
+                                signinButton.click();
+                                signinButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                signinButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                                signinButton.dispatchEvent(new Event('click', { bubbles: true }));
+                                
+                                console.log('✅ [FIORI-AUTH] Login form submitted, will continue Fiori navigation after authentication');
+                                
+                                window.ReactNativeWebView.postMessage(JSON.stringify({
+                                  type: 'fiori_auth_success',
+                                  message: 'Authentication form filled and submitted, continuing Fiori navigation...'
+                                }));
+                              }
+                            }, 500);
+                            
+                            return true;
+                            
+                          } catch (error) {
+                            console.error('🎯 [FIORI-AUTH] Error during credential filling:', error);
+                            return false;
+                          }
+                        }
+                        
+                        return false; // No login form detected
+                      }
+                      
                       // Function to search and click schedule buttons
                       function searchAndClickScheduleButton(retryCount = 0) {
                         const searchStartTime = Date.now();
                         console.log('🎯 [FIORI] Searching for schedule buttons (attempt ' + (retryCount + 1) + ')...');
                         console.log('⏱️ [PERFORMANCE] Search started at:', new Date().toISOString());
+                        
+                        // First check if we need to handle a login form
+                        if (detectAndHandleLoginForm()) {
+                          console.log('🔑 [FIORI] Login form detected and handled, navigation will continue after authentication');
+                          return true;
+                        }
                         
                         // Look for Schedule tile link first (most reliable)
                         const scheduleLinks = document.querySelectorAll('a[href*="ScheduleLine"]');

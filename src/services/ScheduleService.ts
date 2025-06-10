@@ -1782,7 +1782,7 @@ export class ScheduleService {
       const simpleMatch = html.match(simplePattern);
       if (simpleMatch) {
         // Clean up HTML entities and tags
-        let cleanText = simpleMatch[0]
+        const cleanText = simpleMatch[0]
           .replace(/<[^>]*>/g, '') // Remove HTML tags
           .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
           .replace(/&amp;/g, '&') // Replace &amp; with &

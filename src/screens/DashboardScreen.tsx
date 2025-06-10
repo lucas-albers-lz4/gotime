@@ -187,17 +187,17 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
             text: 'Go to Sign In', 
             onPress: () => {
               onLogout(); // This takes us back to the login screen
-            }
+            },
           },
           { 
             text: 'Switch to Demo Mode', 
             onPress: () => {
               scheduleService.setDemoMode(true);
               loadScheduleData(); // Reload with demo mode enabled
-            }
+            },
           },
-          { text: 'Cancel', style: 'cancel' }
-        ]
+          { text: 'Cancel', style: 'cancel' },
+        ],
       );
       
     } catch (err) {

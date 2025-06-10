@@ -109,7 +109,7 @@ class StorageService {
       
       // Add disclaimerText column to existing tables (migration)
       try {
-        await this.db.execAsync(`ALTER TABLE weekly_schedules ADD COLUMN disclaimerText TEXT;`);
+        await this.db.execAsync('ALTER TABLE weekly_schedules ADD COLUMN disclaimerText TEXT;');
         console.log('✅ [DATABASE] Added disclaimerText column to existing weekly_schedules table');
       } catch (error) {
         // Column might already exist, which is fine
