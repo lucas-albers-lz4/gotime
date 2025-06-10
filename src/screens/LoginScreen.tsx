@@ -1333,57 +1333,93 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     [{ text: 'Great!' }],
                   );
                 } else if (parsedMessage.type === 'navigate_to_fiori') {
+                  const navigationStartTime = Date.now();
                   console.log('🚀 [WEBVIEW] Navigate to Fiori request:', parsedMessage.url);
+                  console.log('⏱️ [PERFORMANCE] Fiori navigation started at:', new Date().toISOString());
+                  
                   if (parsedMessage.url && webViewRef.current) {
                     // Navigate directly to the Fiori URL using injectJavaScript
-                    const navigationScript = `window.location.href = '${parsedMessage.url}';`;
+                    const navigationScript = `
+                      console.log('⏱️ [PERFORMANCE] Starting navigation to Fiori at:', new Date().toISOString());
+                      window.location.href = '${parsedMessage.url}';
+                    `;
                     webViewRef.current.injectJavaScript(navigationScript);
                     
                     // If this navigation was triggered by auto-click, schedule button search after navigation
                     if (parsedMessage.autoClick) {
                       console.log('⏰ [WEBVIEW] Auto-click scheduled after navigation');
+                      console.log('⏱️ [PERFORMANCE] Auto-click will trigger in 5 seconds');
                       
                       // Wait for navigation to complete, then search for buttons
                       setTimeout(() => {
+                        const autoClickStartTime = Date.now();
+                        const navigationDuration = autoClickStartTime - navigationStartTime;
                         console.log('🎯 [WEBVIEW] Auto-triggering button search after navigation...');
+                        console.log('⏱️ [PERFORMANCE] Navigation took:', navigationDuration, 'ms');
                         
                         const autoClickScript = `
                           (function() {
                             try {
                               console.log('🎯 [AUTO-CLICK] Searching for schedule buttons after navigation...');
+                              console.log('⏱️ [PERFORMANCE] Auto-click script started at:', new Date().toISOString());
+                              console.log('📍 [PERFORMANCE] Current URL:', window.location.href);
+                              console.log('📄 [PERFORMANCE] Document ready state:', document.readyState);
                               
                               function searchAndClickScheduleButton(retryCount) {
                                 retryCount = retryCount || 0;
+                                var searchStartTime = Date.now();
                                 console.log('🎯 [AUTO-CLICK] Searching for schedule buttons (attempt ' + (retryCount + 1) + ')...');
+                                console.log('⏱️ [PERFORMANCE] Search attempt started at:', new Date().toISOString());
+                                
+                                // Performance: Count DOM elements
+                                var totalElements = document.querySelectorAll('*').length;
+                                var totalLinks = document.querySelectorAll('a').length;
+                                var totalButtons = document.querySelectorAll('button').length;
+                                console.log('📊 [PERFORMANCE] DOM stats:', {
+                                  totalElements: totalElements,
+                                  totalLinks: totalLinks,
+                                  totalButtons: totalButtons
+                                });
                                 
                                 // Look for Schedule tile link first (most reliable)
                                 var scheduleLinks = document.querySelectorAll('a[href*="ScheduleLine"]');
+                                console.log('🔍 [SEARCH] Found', scheduleLinks.length, 'ScheduleLine links');
+                                
                                 if (scheduleLinks.length > 0) {
-                                  console.log('✅ [AUTO-CLICK] Found ScheduleLine link');
+                                  var searchDuration = Date.now() - searchStartTime;
+                                  console.log('✅ [AUTO-CLICK] Found ScheduleLine link in', searchDuration, 'ms');
                                   var link = scheduleLinks[0];
                                   var href = link.href;
                                   
                                   console.log('🚀 [AUTO-CLICK] Navigating to:', href);
+                                  console.log('⏱️ [PERFORMANCE] Navigation started at:', new Date().toISOString());
                                   window.location.href = href;
                                   
                                   window.ReactNativeWebView.postMessage(JSON.stringify({
                                     type: 'fiori_button_click_success',
                                     buttonText: 'Online Employee Schedules',
                                     success: true,
-                                    method: 'auto-click-navigation'
+                                    method: 'auto-click-navigation',
+                                    performanceData: {
+                                      searchDuration: searchDuration,
+                                      retryCount: retryCount,
+                                      domStats: { totalElements, totalLinks, totalButtons }
+                                    }
                                   }));
                                   return true;
                                 }
                                 
                                 // Fallback: Look for clickable elements with schedule text
                                 var allClickables = document.querySelectorAll('a, button, [role="button"], [role="link"]');
+                                console.log('🔍 [SEARCH] Searching through', allClickables.length, 'clickable elements');
                                 
                                 for (var i = 0; i < allClickables.length; i++) {
                                   var el = allClickables[i];
                                   var text = (el.textContent || el.title || el.getAttribute('aria-label') || '').toLowerCase();
                                   
                                   if (text.includes('online employee schedule')) {
-                                    console.log('✅ [AUTO-CLICK] Found "Online Employee Schedules" element');
+                                    var searchDuration = Date.now() - searchStartTime;
+                                    console.log('✅ [AUTO-CLICK] Found "Online Employee Schedules" element in', searchDuration, 'ms');
                                     
                                     var clickTarget = el;
                                     if (el.tagName !== 'A') {
@@ -1394,21 +1430,31 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                                       }
                                     }
                                     
+                                    console.log('⏱️ [PERFORMANCE] Clicking element at:', new Date().toISOString());
                                     clickTarget.click();
                                     
                                     window.ReactNativeWebView.postMessage(JSON.stringify({
                                       type: 'fiori_button_click_success',
                                       buttonText: 'Online Employee Schedules',
                                       success: true,
-                                      method: 'auto-click-element'
+                                      method: 'auto-click-element',
+                                      performanceData: {
+                                        searchDuration: searchDuration,
+                                        retryCount: retryCount,
+                                        domStats: { totalElements, totalLinks, totalButtons }
+                                      }
                                     }));
                                     return true;
                                   }
                                 }
                                 
+                                var searchDuration = Date.now() - searchStartTime;
+                                console.log('⏳ [SEARCH] Search completed in', searchDuration, 'ms - no matches found');
+                                
                                 // If buttons not found, retry up to 5 times with delays
                                 if (retryCount < 5) {
                                   console.log('⏳ [AUTO-CLICK] Buttons not ready, retrying in 3 seconds...');
+                                  console.log('⏱️ [PERFORMANCE] Will retry at:', new Date(Date.now() + 3000).toISOString());
                                   setTimeout(function() { searchAndClickScheduleButton(retryCount + 1); }, 3000);
                                   return false;
                                 }
@@ -1417,7 +1463,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                                 window.ReactNativeWebView.postMessage(JSON.stringify({
                                   type: 'fiori_button_click_error',
                                   error: 'Auto-click: No schedule buttons found after ' + (retryCount + 1) + ' attempts',
-                                  success: false
+                                  success: false,
+                                  performanceData: {
+                                    totalSearchDuration: Date.now() - ${autoClickStartTime},
+                                    retryCount: retryCount + 1,
+                                    domStats: { totalElements, totalLinks, totalButtons }
+                                  }
                                 }));
                                 return false;
                               }
@@ -1430,7 +1481,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                               window.ReactNativeWebView.postMessage(JSON.stringify({
                                 type: 'fiori_button_click_error',
                                 error: 'Auto-click error: ' + error.message,
-                                success: false
+                                success: false,
+                                performanceData: {
+                                  errorOccurredAt: new Date().toISOString()
+                                }
                               }));
                             }
                           })();
@@ -1442,34 +1496,38 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       }, 5000); // Wait 5 seconds for Fiori to fully load
                     }
                     
-                    Alert.alert(
-                      'Navigating to Fiori Launchpad 🚀',
-                      parsedMessage.autoClick 
-                        ? 'Navigating to Fiori and will automatically click the schedule button...'
-                        : 'Attempting direct navigation to the Fiori Launchpad...',
-                      [{ text: 'OK' }],
-                    );
+                    console.log('🚀 [FIORI] Navigation initiated - no popup shown');
+                    console.log('📋 [FIORI] Auto-click mode:', parsedMessage.autoClick ? 'enabled' : 'disabled');
                   } else {
-                    Alert.alert(
-                      'Navigation Error ❌',
-                      'Cannot navigate - invalid URL or WebView not available',
-                      [{ text: 'OK' }],
-                    );
+                    console.error('❌ [FIORI] Navigation failed - invalid URL or WebView not available');
+                    console.log('🔧 [DEBUG] URL provided:', parsedMessage.url);
+                    console.log('🔧 [DEBUG] WebView available:', !!webViewRef.current);
                   }
                 } else if (parsedMessage.type === 'fiori_button_click_success') {
                   console.log('✅ [WEBVIEW] Fiori button click success:', parsedMessage);
-                  Alert.alert(
-                    'Fiori Button Clicked! ✅',
-                    `Successfully clicked: ${parsedMessage.buttonText}\n\nMethod: ${parsedMessage.method || 'unknown'}`,
-                    [{ text: 'Great!' }],
-                  );
+                  console.log('🎯 [SUCCESS] Successfully clicked:', parsedMessage.buttonText);
+                  console.log('🔧 [METHOD] Click method used:', parsedMessage.method || 'unknown');
+                  if (parsedMessage.performanceData) {
+                    console.log('⏱️ [PERFORMANCE] Success performance data:', parsedMessage.performanceData);
+                  }
                 } else if (parsedMessage.type === 'fiori_button_click_error') {
                   console.log('❌ [WEBVIEW] Fiori button click error:', parsedMessage);
-                  Alert.alert(
-                    'Fiori Access Issue ⚠️',
-                    `${parsedMessage.error}\n\n${parsedMessage.suggestion || parsedMessage.details || 'Try manual navigation.'}`,
-                    [{ text: 'OK' }],
-                  );
+                  console.error('🚫 [ERROR] Fiori access issue:', parsedMessage.error);
+                  if (parsedMessage.suggestion || parsedMessage.details) {
+                    console.log('💡 [SUGGESTION]:', parsedMessage.suggestion || parsedMessage.details);
+                  }
+                  if (parsedMessage.performanceData) {
+                    console.log('⏱️ [PERFORMANCE] Error performance data:', parsedMessage.performanceData);
+                  }
+                } else if (parsedMessage.type === 'schedule_page_reached') {
+                  console.log('🎉 [WEBVIEW] Final destination reached!');
+                  console.log('📍 [SUCCESS] Final URL:', parsedMessage.finalUrl);
+                  console.log('📄 [SUCCESS] Final title:', parsedMessage.finalTitle);
+                  console.log('⏱️ [JOURNEY] Total journey time:', parsedMessage.totalJourneyTime, 'ms');
+                } else if (parsedMessage.type === 'schedule_page_verification_pending') {
+                  console.log('⏳ [WEBVIEW] Verification pending...');
+                  console.log('📍 [CURRENT] Current URL:', parsedMessage.currentUrl);
+                  console.log('📄 [CURRENT] Current title:', parsedMessage.currentTitle);
                 }
               } catch (parseError) {
                 console.log('📨 [WEBVIEW] Failed to parse message as JSON:', parseError instanceof Error ? parseError.message : 'Unknown parse error');
@@ -2106,45 +2164,69 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             ]}
             onPress={() => {
               try {
+                const buttonClickStartTime = Date.now();
                 console.log('🎯 [FIORI] Starting Fiori Button Search and Click...');
+                console.log('⏱️ [PERFORMANCE] Fiori button clicked at:', new Date().toISOString());
                 
                 const fioriClickScript = `
                   (function() {
                     try {
+                      const scriptStartTime = Date.now();
                       const currentUrl = window.location.href;
+                      
+                      console.log('⏱️ [PERFORMANCE] Fiori script started at:', new Date().toISOString());
+                      console.log('📍 [PERFORMANCE] Current URL:', currentUrl);
+                      console.log('📄 [PERFORMANCE] Document ready state:', document.readyState);
+                      console.log('📊 [PERFORMANCE] Page load timing:', window.performance.timing ? {
+                        loadComplete: window.performance.timing.loadEventEnd - window.performance.timing.navigationStart,
+                        domReady: window.performance.timing.domContentLoadedEventEnd - window.performance.timing.navigationStart
+                      } : 'Not available');
                       
                       // Function to search and click schedule buttons
                       function searchAndClickScheduleButton(retryCount = 0) {
+                        const searchStartTime = Date.now();
                         console.log('🎯 [FIORI] Searching for schedule buttons (attempt ' + (retryCount + 1) + ')...');
+                        console.log('⏱️ [PERFORMANCE] Search started at:', new Date().toISOString());
                         
                         // Look for Schedule tile link first (most reliable)
                         const scheduleLinks = document.querySelectorAll('a[href*="ScheduleLine"]');
+                        console.log('🔍 [SEARCH] Found', scheduleLinks.length, 'ScheduleLine links');
+                        
                         if (scheduleLinks.length > 0) {
-                          console.log('✅ [FIORI] Found ScheduleLine link');
+                          const searchDuration = Date.now() - searchStartTime;
+                          console.log('✅ [FIORI] Found ScheduleLine link in', searchDuration, 'ms');
                           const link = scheduleLinks[0];
                           const href = link.href;
                           
                           // Navigate directly instead of clicking (avoids target="_blank" issues)
                           console.log('🚀 [FIORI] Navigating to:', href);
+                          console.log('⏱️ [PERFORMANCE] Navigation started at:', new Date().toISOString());
                           window.location.href = href;
                           
                           window.ReactNativeWebView.postMessage(JSON.stringify({
                             type: 'fiori_button_click_success',
                             buttonText: 'Online Employee Schedules',
                             success: true,
-                            method: 'direct-navigation'
+                            method: 'direct-navigation',
+                            performanceData: {
+                              searchDuration: searchDuration,
+                              retryCount: retryCount,
+                              totalScriptDuration: Date.now() - scriptStartTime
+                            }
                           }));
                           return true;
                         }
                         
                         // Fallback: Look for clickable elements with schedule text
                         const allClickables = document.querySelectorAll('a, button, [role="button"], [role="link"]');
+                        console.log('🔍 [SEARCH] Searching through', allClickables.length, 'clickable elements');
                         
                         for (const el of allClickables) {
                           const text = (el.textContent || el.title || el.getAttribute('aria-label') || '').toLowerCase();
                           
                           if (text.includes('online employee schedule')) {
-                            console.log('✅ [FIORI] Found "Online Employee Schedules" element');
+                            const searchDuration = Date.now() - searchStartTime;
+                            console.log('✅ [FIORI] Found "Online Employee Schedules" element in', searchDuration, 'ms');
                             
                             // Try to find parent link if this is an inner element
                             let clickTarget = el;
@@ -2156,13 +2238,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                               }
                             }
                             
+                            console.log('⏱️ [PERFORMANCE] Clicking element at:', new Date().toISOString());
                             clickTarget.click();
                             
                             window.ReactNativeWebView.postMessage(JSON.stringify({
                               type: 'fiori_button_click_success',
                               buttonText: 'Online Employee Schedules',
                               success: true,
-                              method: 'element-click'
+                              method: 'element-click',
+                              performanceData: {
+                                searchDuration: searchDuration,
+                                retryCount: retryCount,
+                                totalScriptDuration: Date.now() - scriptStartTime
+                              }
                             }));
                             return true;
                           }
@@ -2172,22 +2260,33 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         for (const el of allClickables) {
                           const text = (el.textContent || '').toLowerCase();
                           if (text.includes('schedule') && text.length < 100) {
-                            console.log('✅ [FIORI] Found schedule element:', text.substring(0, 30));
+                            const searchDuration = Date.now() - searchStartTime;
+                            console.log('✅ [FIORI] Found schedule element in', searchDuration, 'ms:', text.substring(0, 30));
+                            console.log('⏱️ [PERFORMANCE] Clicking fallback element at:', new Date().toISOString());
                             el.click();
                             
                             window.ReactNativeWebView.postMessage(JSON.stringify({
                               type: 'fiori_button_click_success',
                               buttonText: text.substring(0, 30) + '...',
                               success: true,
-                              method: 'fallback-click'
+                              method: 'fallback-click',
+                              performanceData: {
+                                searchDuration: searchDuration,
+                                retryCount: retryCount,
+                                totalScriptDuration: Date.now() - scriptStartTime
+                              }
                             }));
                             return true;
                           }
                         }
                         
+                        const searchDuration = Date.now() - searchStartTime;
+                        console.log('⏳ [SEARCH] Search completed in', searchDuration, 'ms - no matches found');
+                        
                         // If we're on Fiori but buttons not found, retry up to 3 times with delays
                         if (retryCount < 3) {
                           console.log('⏳ [FIORI] Buttons not ready, retrying in 2 seconds...');
+                          console.log('⏱️ [PERFORMANCE] Will retry at:', new Date(Date.now() + 2000).toISOString());
                           setTimeout(() => searchAndClickScheduleButton(retryCount + 1), 2000);
                           return false;
                         }
@@ -2196,7 +2295,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         window.ReactNativeWebView.postMessage(JSON.stringify({
                           type: 'fiori_button_click_error',
                           error: 'No schedule buttons found after ' + (retryCount + 1) + ' attempts',
-                          success: false
+                          success: false,
+                          performanceData: {
+                            totalSearchDuration: Date.now() - scriptStartTime,
+                            retryCount: retryCount + 1,
+                            finalAttemptDuration: searchDuration
+                          }
                         }));
                         return false;
                       }
@@ -2228,7 +2332,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         window.ReactNativeWebView.postMessage(JSON.stringify({
                           type: 'fiori_button_click_error',
                           error: 'Cannot find Fiori URL',
-                          success: false
+                          success: false,
+                          performanceData: {
+                            totalScriptDuration: Date.now() - scriptStartTime,
+                            errorType: 'fiori-url-not-found'
+                          }
                         }));
                       }
                       
@@ -2237,20 +2345,27 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       window.ReactNativeWebView.postMessage(JSON.stringify({
                         type: 'fiori_button_click_error',
                         error: error.message,
-                        success: false
+                        success: false,
+                        performanceData: {
+                          totalScriptDuration: Date.now() - scriptStartTime,
+                          errorType: 'script-execution-error'
+                        }
                       }));
                     }
                   })();
                 `;
                 
                 if (webViewRef.current) {
+                  console.log('🚀 [FIORI] Injecting Fiori automation script');
+                  console.log('⏱️ [PERFORMANCE] Script injection started at:', new Date().toISOString());
                   webViewRef.current.injectJavaScript(fioriClickScript);
                 } else {
-                  Alert.alert('WebView Error', 'WebView is not available');
+                  console.error('❌ [FIORI] WebView is not available');
+                  console.log('🔧 [DEBUG] WebView ref current:', webViewRef.current);
                 }
               } catch (error) {
                 console.error('❌ [UI] Fiori button error:', error);
-                Alert.alert('Fiori Error', 'Error running Fiori script: ' + (error as Error).message);
+                console.log('🔧 [DEBUG] Error details:', (error as Error).message);
               }
             }}
           >
