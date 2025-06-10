@@ -34,7 +34,12 @@
         },
         "NSUserNotificationUsageDescription": "This app sends notifications to remind you of upcoming work shifts.",
         "NSFaceIDUsageDescription": "Use Face ID to securely access your stored credentials."
-      }
+      },
+      "associatedDomains": [
+        "webcredentials:ess.costco.com",
+        "webcredentials:bireport.costco.com",
+        "webcredentials:sso.costco.com"
+      ]
     },
     "android": {
       "adaptiveIcon": {

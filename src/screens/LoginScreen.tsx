@@ -313,189 +313,116 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         
         if (isLoginForm2) {
           console.log('🎯 [LOGIN-FORM-2] Detected Cognos BI authentication page');
-          console.log('🎯 [LOGIN-FORM-2] Using block paste + last character retype pattern');
+          console.log('🎯 [LOGIN-FORM-2] Using React-compatible event simulation for form validation');
           
-          // LOGIN FORM 2 - Special handling for Cognos BI page
-          let userIdField = null;
-          let passwordField = null;
+          // LOGIN FORM 2 - React-compatible handling for Cognos BI page
+          const usernameField = document.getElementById('CAMUsername');
+          const passwordField = document.getElementById('CAMPassword');
+          const signinButton = document.getElementById('signInBtn');
           
-          // Look for User ID field (Login Form 2 specific)
-          const userIdSelectors = [
-            'input[placeholder*="User ID"]',
-            'input[aria-label*="User ID"]', 
-            'input[id*="userid"]',
-            'input[name*="userid"]',
-            'input[id*="UserID"]',
-            'input[name*="UserID"]',
-            'input[id*="user_id"]',
-            'input[name*="user_id"]',
-            'input[type="text"]' // Fallback for any text input
-          ];
-          
-          // Look for password field
-          const passwordSelectors = [
-            'input[type="password"]',
-            'input[placeholder*="Password"]',
-            'input[aria-label*="Password"]',
-            'input[id*="password"]',
-            'input[name*="password"]'
-          ];
-          
-          // Find User ID field
-          for (const selector of userIdSelectors) {
-            const field = document.querySelector(selector);
-            if (field && field.offsetParent !== null) {
-              console.log('🎯 [LOGIN-FORM-2] Found User ID field:', selector);
-              userIdField = field;
-              break;
-            }
-          }
-          
-          // Find Password field
-          for (const selector of passwordSelectors) {
-            const field = document.querySelector(selector);
-            if (field && field.offsetParent !== null) {
-              console.log('🎯 [LOGIN-FORM-2] Found Password field:', selector);
-              passwordField = field;
-              break;
-            }
-          }
-          
-          if (!userIdField || !passwordField) {
+          if (!usernameField || !passwordField || !signinButton) {
+            console.error('🎯 [LOGIN-FORM-2] Could not find all required login fields');
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'credentials_filled',
               success: false,
-              error: 'Could not find User ID or Password fields on Login Form 2',
+              error: 'Could not find username, password, or sign-in button on the page',
               formType: 'cognos-bi',
-              userIdFound: !!userIdField,
-              passwordFound: !!passwordField
+              usernameFound: !!usernameField,
+              passwordFound: !!passwordField,
+              buttonFound: !!signinButton
             }));
             return;
           }
           
-          console.log('🎯 [LOGIN-FORM-2] Found both fields - starting block paste + last character retype');
+          console.log('🎯 [LOGIN-FORM-2] Found all fields - starting React-compatible filling');
           
-          // BLOCK PASTE + LAST CHARACTER RETYPE PATTERN for Login Form 2
-          function fillFieldWithLastCharacterRetype(field, value, fieldName) {
-            console.log('🎯 [LOGIN-FORM-2] Filling', fieldName, 'with block paste + last character retype');
+          // React-compatible field filling function
+          function fillReactInput(element, value, fieldName) {
+            console.log('🎯 [LOGIN-FORM-2] Filling', fieldName, 'with React events');
             
-            return new Promise((resolve) => {
-              // Step 1: Click and focus the field
-              field.focus();
-              field.click();
-              
-              // Step 2: Block paste the entire value
-              field.value = value;
-              field.dispatchEvent(new Event('input', { bubbles: true }));
-              field.dispatchEvent(new Event('change', { bubbles: true }));
-              
-              console.log('🎯 [LOGIN-FORM-2] Block pasted', fieldName, '- value:', field.value);
-              
-              setTimeout(() => {
-                // Step 3: Delete the last character
-                const lastChar = value.slice(-1);
-                const valueWithoutLast = value.slice(0, -1);
-                
-                field.value = valueWithoutLast;
-                field.dispatchEvent(new Event('input', { bubbles: true }));
-                field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
-                field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', bubbles: true }));
-                
-                console.log('🎯 [LOGIN-FORM-2] Deleted last character from', fieldName, '- value now:', field.value);
-                
-                setTimeout(() => {
-                  // Step 4: Type the last character back
-                  field.dispatchEvent(new KeyboardEvent('keydown', { 
-                    key: lastChar, 
-                    keyCode: lastChar.charCodeAt(0), 
-                    bubbles: true 
-                  }));
-                  
-                  field.value = value; // Set back to full value
-                  field.dispatchEvent(new Event('input', { bubbles: true }));
-                  
-                  field.dispatchEvent(new KeyboardEvent('keyup', { 
-                    key: lastChar, 
-                    keyCode: lastChar.charCodeAt(0), 
-                    bubbles: true 
-                  }));
-                  
-                  console.log('🎯 [LOGIN-FORM-2] Retyped last character for', fieldName, '- final value:', field.value);
-                  
-                  // Step 5: Final validation events
-                  setTimeout(() => {
-                    field.dispatchEvent(new Event('change', { bubbles: true }));
-                    field.dispatchEvent(new Event('blur', { bubbles: true }));
-                    
-                    // Refocus for final validation
-                    setTimeout(() => {
-                      field.focus();
-                      field.dispatchEvent(new Event('focus', { bubbles: true }));
-                      
-                      console.log('🎯 [LOGIN-FORM-2] Completed last-character retype for', fieldName);
-                      resolve(true);
-                    }, 50);
-                  }, 100);
-                }, 150);
-              }, 150);
-            });
+            // Focus the field first
+            element.focus();
+            element.dispatchEvent(new Event('focus', { bubbles: true }));
+            
+            // Set the value using React-compatible method
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeInputValueSetter.call(element, value);
+
+            // Dispatch events that React listens for
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            element.dispatchEvent(new Event('blur', { bubbles: true }));
+            
+            console.log('🎯 [LOGIN-FORM-2]', fieldName, 'filled and events dispatched');
           }
           
-          // Fill User ID field with last character retype
-          console.log('🎯 [LOGIN-FORM-2] Starting User ID field with last-character retype...');
-          fillFieldWithLastCharacterRetype(userIdField, employeeId, 'User ID').then((userIdSuccess) => {
-            console.log('🎯 [LOGIN-FORM-2] User ID completed, starting Password field...');
+          try {
+            // Fill username field
+            fillReactInput(usernameField, employeeId, 'Username');
             
-            // Fill password field with last character retype
-            return fillFieldWithLastCharacterRetype(passwordField, password, 'Password');
-          }).then((passwordSuccess) => {
-            console.log('🎯 [LOGIN-FORM-2] Password completed, finalizing...');
+            // Fill password field
+            fillReactInput(passwordField, password, 'Password');
             
-            // Final verification and activation
+            // Brief delay for React state to update before checking button state
             setTimeout(() => {
-              console.log('🎯 [LOGIN-FORM-2] Final verification:');
-              console.log('  - User ID value:', userIdField.value);
-              console.log('  - Password value set:', passwordField.value === password);
+              console.log('🎯 [LOGIN-FORM-2] Checking sign-in button state after filling');
               
-              // Look for and potentially activate the login button
-              const loginButton = document.querySelector('button[type="submit"]') ||
-                                document.querySelector('input[type="submit"]') ||
-                                Array.from(document.querySelectorAll('button')).find(btn => 
-                                  btn.textContent && btn.textContent.toLowerCase().includes('log in'));
-              
-              if (loginButton) {
-                console.log('🎯 [LOGIN-FORM-2] Found login button:', loginButton.textContent);
-                // Focus the button to ensure it's activated
-                loginButton.focus();
-                setTimeout(() => loginButton.blur(), 50);
-              }
-              
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'credentials_filled',
-                success: true,
-                formType: 'cognos-bi-login-form-2',
-                strategy: 'Block Paste + Last Character Retype',
-                userIdFound: true,
-                passwordFound: true,
-                loginButtonFound: !!loginButton,
-                finalValidation: {
-                  userIdValue: userIdField.value === employeeId,
-                  passwordValue: passwordField.value === password
-                },
-                message: 'Login Form 2 (Cognos BI) credentials filled with last-character retype technique',
-                error: null
-              }));
-              
-            }, 300);
-          }).catch((error) => {
-            console.error('🎯 [LOGIN-FORM-2] Error during last-character retype:', error);
+                             if (signinButton.disabled) {
+                 console.error('🎯 [LOGIN-FORM-2] Sign-in button is disabled - validation likely failed');
+                 window.ReactNativeWebView.postMessage(JSON.stringify({
+                   type: 'credentials_filled',
+                   success: false,
+                   formType: 'cognos-bi-login-form-2',
+                   error: 'Sign-in button is disabled after filling fields. Client-side validation failed.',
+                   strategy: 'React Event Simulation',
+                   usernameValue: usernameField.value,
+                   passwordValue: passwordField.value ? '******' : '',
+                   buttonDisabled: signinButton.disabled
+                 }));
+               } else {
+                 console.log('🎯 [LOGIN-FORM-2] Sign-in button is enabled - validation passed! Clicking submit...');
+                 
+                 // Click the submit button to log in
+                 signinButton.focus();
+                 signinButton.click();
+                 
+                 // Dispatch additional events to ensure the click is registered
+                 signinButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                 signinButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                 signinButton.dispatchEvent(new Event('click', { bubbles: true }));
+                 
+                 console.log('🎯 [LOGIN-FORM-2] Submit button clicked successfully');
+                 
+                 window.ReactNativeWebView.postMessage(JSON.stringify({
+                   type: 'credentials_filled',
+                   success: true,
+                   formType: 'cognos-bi-login-form-2',
+                   strategy: 'React Event Simulation + Auto Submit',
+                   usernameFound: true,
+                   passwordFound: true,
+                   loginButtonFound: true,
+                   autoSubmitted: true,
+                   finalValidation: {
+                     usernameValue: usernameField.value === employeeId,
+                     passwordValue: passwordField.value === password,
+                     buttonEnabled: !signinButton.disabled
+                   },
+                   message: 'Login Form 2 (Cognos BI) credentials filled and submitted successfully',
+                   error: null
+                 }));
+               }
+            }, 500);
+            
+          } catch (error) {
+            console.error('🎯 [LOGIN-FORM-2] Error during React-compatible filling:', error);
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'credentials_filled',
               success: false,
               formType: 'cognos-bi-login-form-2',
-              error: 'Last-character retype failed: ' + error.message
+              strategy: 'React Event Simulation',
+              error: 'React-compatible filling failed: ' + error.message
             }));
-          });
+          }
           
           return; // Exit early for Login Form 2
         }
