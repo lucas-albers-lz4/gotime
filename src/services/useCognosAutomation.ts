@@ -1269,9 +1269,16 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
         currentStep: `Importing schedules: ${messageData.summary?.progressPercentage || 0}%`,
       }));
       break;
-    case 'multi_week_import_complete':
+    case 'multi_week_import_complete': {
       sendAcknowledgment(messageData.messageId || '', messageData.testId || '');
       console.log('✅ [AUTOMATION] Multi-week import complete:', messageData.summary || {});
+      
+      // Check if this is a retry message - if so, don't show popup again
+      const isRetry = messageData.isRetry || false;
+      if (isRetry) {
+        console.log('🔄 [AUTOMATION] Ignoring retry message - popup already shown for multi_week_import_complete');
+        break;
+      }
       
       // Clear any pending safety timeout
       if (safetyTimeoutRef.current) {
@@ -1317,6 +1324,7 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
         markTestCompleted(messageData.testId);
       }
       break;
+    }
     case 'multi_week_import_error':
       console.error('❌ [AUTOMATION] Multi-week import error:', messageData.error);
       

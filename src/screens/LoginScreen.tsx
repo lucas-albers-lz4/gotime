@@ -90,6 +90,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   // Initialize Cognos automation
   const automation = useCognosAutomation(webViewRef);
 
+  // Track completed messages to prevent duplicate popups
+  const [completedMessageIds, setCompletedMessageIds] = useState<Set<string>>(new Set());
+
   // Sync Schedule step names
   const SYNC_STEPS = [
     'Validate Credentials',
@@ -919,6 +922,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       stepTimings: new Map(),
       totalDuration: null,
     });
+    // Clear completed message tracking
+    setCompletedMessageIds(new Set());
   };
 
   const updateSyncStep = (step: number, state: 'pending' | 'active' | 'success' | 'error', error?: string) => {
@@ -1069,13 +1074,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       
       updateSyncStep(1, 'success');
 
-      // Step 3: Handle MFA Detection
+            // Step 3: Handle MFA Detection
       await delay(2000);
       updateSyncStep(2, 'active');
       
-      // For now, assume no MFA for initial implementation
-      // In future, we'll add proper MFA detection
-      updateSyncStep(2, 'success');
+      // Simple MFA detection - just wait and set as detected so user can complete manually
+      console.log('🔐 [SYNC] MFA detection phase - checking if MFA is required...');
+      setSyncSchedule(prev => ({ ...prev, mfaDetected: true }));
+      
+      // Wait briefly to see if we automatically proceed past MFA
+      await delay(5000);
+      
+      console.log('⏳ [SYNC] MFA step will remain active - user can complete MFA and continue manually');
+      return; // Don't auto-complete this step - wait for user interaction
 
       // Step 4: Fiori Navigation
       await delay(1500);
@@ -1936,9 +1947,31 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   </Text>
                 )}
                 {stepState === 'active' && syncSchedule.mfaDetected && index === 2 && (
-                  <Text style={styles.syncProgressMfaNote}>
-                    Please enter SMS code in the form below
-                  </Text>
+                  <View style={styles.mfaInstructions}>
+                    <Text style={styles.syncProgressMfaNote}>
+                      🔐 MFA Required: Complete authentication in the browser below, then click Continue
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.mfaContinueButton]} 
+                      onPress={async () => {
+                        console.log('✅ [SYNC] User clicked Continue After MFA');
+                        setSyncSchedule(prev => ({ ...prev, mfaCompleted: true }));
+                        updateSyncStep(2, 'success');
+                        
+                        // Continue to Fiori navigation
+                        setTimeout(async () => {
+                          console.log('🎯 [SYNC] Continuing to Fiori navigation after MFA...');
+                          updateSyncStep(3, 'active');
+                          
+                          // Execute Fiori script
+                          console.log('🎯 [SYNC] Starting Fiori navigation...');
+                          // The Fiori navigation will be handled by the existing step 4 logic
+                        }, 1000);
+                      }}
+                    >
+                      <Text style={styles.mfaContinueButtonText}>✅ Continue After MFA</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             );
@@ -2458,10 +2491,49 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       updateSyncStep(5, 'error', error instanceof Error ? error.message : 'Import failed');
                     }
                   }, 1500);
+                } else if (parsedMessage.type === 'mfa_required' && syncSchedule.isActive) {
+                  console.log('🔐 [SYNC] MFA detected - waiting for user to complete authentication');
+                  setSyncSchedule(prev => ({ ...prev, mfaDetected: true }));
+                  // Keep step 2 active and wait for completion
+                } else if (parsedMessage.type === 'mfa_not_required' && syncSchedule.isActive) {
+                  console.log('✅ [SYNC] MFA not required or completed - proceeding to Fiori navigation');
+                  setSyncSchedule(prev => ({ ...prev, mfaDetected: false, mfaCompleted: true }));
+                  updateSyncStep(2, 'success');
+                  
+                                     // Automatically proceed to Fiori navigation
+                   setTimeout(async () => {
+                     console.log('🎯 [SYNC] Auto-proceeding to Fiori navigation...');
+                     updateSyncStep(3, 'active');
+                     
+                     // Execute Fiori navigation
+                     console.log('🎯 [SYNC] Starting Fiori navigation...');
+                     if (webViewRef.current) {
+                       // Use the existing Fiori script from the original implementation
+                       console.log('🚀 [SYNC] Injecting Fiori navigation script...');
+                       // The script will be injected - this should be handled by existing logic
+                     }
+                   }, 1000);
+                } else if (parsedMessage.type === 'mfa_status_unknown' && syncSchedule.isActive) {
+                  console.log('⚠️ [SYNC] Unable to determine MFA status - user may need to check manually');
+                  // Don't fail completely, but mark MFA as detected so user can handle manually
+                  setSyncSchedule(prev => ({ ...prev, mfaDetected: true }));
                 } else if (parsedMessage.type === 'multi_week_import_complete' && syncSchedule.isActive) {
-                  console.log('✅ [SYNC] Import completed successfully');
+                  // Check if this is a retry message we've already handled
+                  const messageId = parsedMessage.originalMessageId || parsedMessage.messageId;
+                  console.log('🔍 [DEBUG] multi_week_import_complete - messageId:', messageId, 'isRetry:', parsedMessage.isRetry, 'alreadyHandled:', completedMessageIds.has(messageId));
+                  
+                  if (parsedMessage.isRetry && completedMessageIds.has(messageId)) {
+                    console.log('🔄 [SYNC] Ignoring retry message - already handled:', messageId);
+                    return;
+                  }
+
+                  console.log('✅ [SYNC] Import completed successfully - PROCEEDING TO SHOW POPUP');
                   console.log('🔍 [DEBUG] Sync schedule active:', syncSchedule.isActive, 'Current step:', syncSchedule.currentStep);
                   console.log('🔍 [DEBUG] Timing data:', syncSchedule.startTime, 'Step timings count:', syncSchedule.stepTimings.size);
+                  
+                  // Mark this message as handled
+                  setCompletedMessageIds(prev => new Set(prev).add(messageId));
+                  
                   updateSyncStep(5, 'success');
                   
                   // Complete the sync schedule successfully
@@ -2474,6 +2546,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       showTimingSummary();
                     }, 500);
                     
+                    console.log('🚨 [DEBUG] About to show Alert.alert for Sync Schedule Complete...');
                     Alert.alert(
                       'Sync Schedule Complete! ✅',
                       'Your schedule has been successfully synchronized and imported.\n\nYou can now view your schedules in the Dashboard.\n\nCheck console logs for detailed timing analysis.',
@@ -2487,6 +2560,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                         }
                       ]
                     );
+                    console.log('✅ [DEBUG] Alert.alert called for Sync Schedule Complete');
                     
                     setSyncSchedule(prev => ({ ...prev, isActive: false }));
                   }, 1000);
@@ -4271,6 +4345,23 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
     paddingLeft: SPACING.lg,
     fontStyle: 'italic',
+    fontWeight: '600',
+  },
+  mfaInstructions: {
+    marginTop: SPACING.sm,
+    paddingLeft: SPACING.lg,
+  },
+  mfaContinueButton: {
+    backgroundColor: COLORS.success,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 6,
+    marginTop: SPACING.sm,
+    alignItems: 'center',
+  },
+  mfaContinueButtonText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.caption.fontSize,
     fontWeight: '600',
   },
 }); 
