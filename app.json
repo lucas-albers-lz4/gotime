@@ -9,7 +9,11 @@
     "newArchEnabled": true,
     "description": "Secure employee schedule viewer with offline support for corporate portals",
     "privacy": "unlisted",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -64,16 +68,12 @@
       "appVersion": "1.0.0",
       "buildNumber": "1",
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "405863c3-5f32-4d5c-9d2d-76cb8e9485bb"
       }
-    },
-    "owner": "your-expo-username",
-    "updates": {
-      "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/your-project-id-here"
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
-    }
+    },
+    "owner": "lucas.b.albers"
   }
 }
