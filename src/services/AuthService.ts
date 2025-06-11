@@ -721,8 +721,14 @@ TECHNICAL: Corporate portals often block cross-origin requests for security.`;
     for (const pattern of actionPatterns) {
       const match = html.match(pattern);
       if (match && match[1]) {
-        // Decode HTML entities
-        return match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        // Decode HTML entities in safe order (amp first to prevent double-unescaping)
+        return match[1]
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#x27;/g, "'")
+          .replace(/&#x2F;/g, '/');
       }
     }
     
@@ -1220,6 +1226,21 @@ TECHNICAL: Corporate portals often block cross-origin requests for security.`;
     } catch (error) {
       console.error('❌ [AUTH] Error making authenticated request:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Safely check if a URL belongs to a trusted domain
+   */
+  private isTrustedDomain(url: string, trustedDomains: string[]): boolean {
+    try {
+      const urlObj = new URL(url);
+      return trustedDomains.some(domain => 
+        urlObj.hostname === domain || urlObj.hostname.endsWith('.' + domain)
+      );
+    } catch (error) {
+      console.log('❌ [AUTH] Invalid URL for domain check:', url);
+      return false;
     }
   }
 } 

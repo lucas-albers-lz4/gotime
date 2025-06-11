@@ -1759,12 +1759,14 @@ export class ScheduleService {
       const simplePattern = /The information displayed.*?your regular shift\./is;
       const simpleMatch = html.match(simplePattern);
       if (simpleMatch) {
-        // Clean up HTML entities and tags
+        // Clean up HTML entities and tags (decode entities in correct order)
         const cleanText = simpleMatch[0]
           .replace(/<[^>]*>/g, '') // Remove HTML tags
+          .replace(/&amp;/g, '&') // Replace &amp; with & FIRST to prevent double-unescaping
           .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
-          .replace(/&amp;/g, '&') // Replace &amp; with &
           .replace(/&quot;/g, '"') // Replace &quot; with "
+          .replace(/&lt;/g, '<') // Replace &lt; with <
+          .replace(/&gt;/g, '>') // Replace &gt; with >
           .replace(/\s+/g, ' ') // Replace multiple spaces with single space
           .trim();
         
