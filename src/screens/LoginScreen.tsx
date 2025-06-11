@@ -1086,7 +1086,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       await delay(5000);
       
       console.log('⏳ [SYNC] MFA step will remain active - user can complete MFA and continue manually');
-      return; // Don't auto-complete this step - wait for user interaction
+      // Return early to wait for user MFA completion - remaining steps will be triggered by user action
+      return;
 
       // Step 4: Fiori Navigation
       await delay(1500);
