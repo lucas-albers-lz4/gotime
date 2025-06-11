@@ -28,7 +28,7 @@
     "expo-clipboard": "~7.1.4",
     "expo-constants": "^17.1.6",
     "expo-crypto": "^14.1.4",
-    "expo-dev-client": "~5.1.8",
+    "expo-dev-client": "~5.2.0",
     "expo-device": "^7.1.4",
     "expo-notifications": "^0.31.2",
     "expo-secure-store": "^14.2.3",
