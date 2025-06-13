@@ -1,6 +1,6 @@
 # 📱 GoTime Schedule
 
-> A secure, local-first mobile application for employees to view their work schedules from corporate portals
+> Download your employee schedule to your device in a single step for offline viewing.
 
 [![React Native](https://img.shields.io/badge/React%20Native-0.79.2-blue.svg)](https://reactnative.dev/)
 [![Expo](https://img.shields.io/badge/Expo-~53.0.9-000020.svg)](https://expo.dev/)
@@ -14,7 +14,6 @@
 - **🔐 Secure Authentication**: Integration with corporate Employee Self Service (ESS) portals
 - **📅 Schedule Viewing**: Weekly schedule display with split shift support
 - **💾 Local Storage**: Secure local data storage with no cloud dependency
-- **🔔 Smart Notifications**: 30-minute shift reminders (planned)
 - **📱 Cross-Platform**: iOS and Android support via React Native
 - **🎨 Modern UI**: Clean, intuitive interface optimized for mobile
 - **🛡️ Privacy-First**: All data stored locally on device
@@ -23,7 +22,7 @@
 
 | Login Screen | Dashboard | Schedule Details |
 |:------------:|:---------:|:----------------:|
-| *Coming Soon* | *Coming Soon* | *Coming Soon* |
+| ![Login Screen](.github/assets/login-screen.png) | ![Schedule Details](.github/assets/schedule-details.png) | ![Schedule Details](.github/assets/schedule-details-full.png) |
 
 ## 🚀 Quick Start
 
