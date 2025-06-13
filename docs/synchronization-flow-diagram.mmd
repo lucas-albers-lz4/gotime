@@ -1,0 +1,60 @@
+flowchart TD
+    A["User clicks Sync Schedule"] --> B["Step 1: Validate Credentials"]
+    B --> C{Credentials provided?}
+    C -->|No| D["Show error:<br/>Please enter username and password"]
+    C -->|Yes| E["Credentials valid"]
+    
+    E --> F["Step 2: Fill Login Form"]
+    F --> G["Execute handleFillCredentials()"]
+    G --> H["Wait 5 seconds for form filling"]
+    H --> I["Login form filled"]
+    
+    I --> J["Step 3: MFA Detection"]
+    J --> K["Monitor WebView for MFA page:<br/>authenticator.pingone.com"]
+    K --> L["Set mfaDetected = true"]
+    L --> M["Wait for user MFA completion"]
+    M --> N["User enters SMS code manually"]
+    N --> O["User clicks Continue After MFA"]
+    
+    O --> P["Step 4: Fiori Navigation"]
+    P --> Q["Execute Fiori automation script"]
+    Q --> R["Search for login form on Fiori"]
+    R --> S{Login form found?}
+    S -->|Yes| T["Auto-fill credentials in Fiori"]
+    S -->|No| U["Search for Online Employee Schedules"]
+    
+    T --> V["Submit Fiori login"]
+    V --> U
+    U --> W{Schedule button found?}
+    W -->|No| X["Retry up to 3 times<br/>with 2-second delays"]
+    X --> W
+    W -->|Yes| Y["Click/Navigate to Schedule System"]
+    
+    Y --> Z["Step 5: Execute Schedule Query"]
+    Z --> AA["Navigate to IBM Cognos BI"]
+    AA --> AB["Auto-select week from dropdown"]
+    AB --> AC["Click Run button to execute query"]
+    AC --> AD["Wait for schedule data to load"]
+    
+    AD --> AE["Step 6: Import Schedule Data"]
+    AE --> AF["Extract schedule data from Cognos report"]
+    AF --> AG["Parse HTML table structure"]
+    AG --> AH["Convert to WeeklySchedule format"]
+    AH --> AI["Validate schedule data structure"]
+    
+    AI --> AJ["Step 7: Save to Local Storage"]
+    AJ --> AK{Platform check}
+    AK -->|Web| AL["Save to AsyncStorage"]
+    AK -->|Native| AM["Save to SQLite database"]
+    AL --> AN["Update schedule metadata"]
+    AM --> AN
+    AN --> AO["Sync Complete"]
+    
+    D --> AP["Automation stopped"]
+    
+    style A fill:#e1f5fe
+    style AO fill:#c8e6c9
+    style AP fill:#ffcdd2
+    style M fill:#fff3e0
+    style N fill:#fff3e0
+    style O fill:#fff3e0
