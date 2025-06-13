@@ -41,9 +41,6 @@
 git clone https://github.com/yourusername/gotime-schedule.git
 cd gotime-schedule
 
-# Complete setup (installs dependencies and configures environment)
-make full-setup
-
 # Start development server
 make start
 ```
@@ -51,7 +48,6 @@ make start
 ### Quick Development Commands
 
 ```bash
-make dev          # Install deps and start development server
 make ios          # Run on iOS simulator
 make android      # Run on Android emulator
 make web          # Run in web browser (demo mode only)
