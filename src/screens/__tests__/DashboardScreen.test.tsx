@@ -149,32 +149,64 @@ describe('DashboardScreen', () => {
 
   describe('Navigation', () => {
     it('should handle week navigation', async () => {
-      const multipleSchedules = [
-        mockWeeklySchedule,
-        { ...mockWeeklySchedule, weekStart: '6/9/2025', weekEnd: '6/15/2025' },
-      ];
+      // Mock the current date to be predictable - using a date that's NOT within any test schedule
+      // This ensures the test will use the fallback logic (first schedule) rather than today's date
+      const mockDate = new Date('2024-12-15T10:00:00.000Z'); // December 15, 2024 - well before our test dates
+      const originalDate = global.Date;
       
-      mockScheduleServiceInstance.getAllDemoSchedules.mockResolvedValue(multipleSchedules);
+      // Create a mock Date constructor that returns our fixed date for new Date() calls
+      // but preserves normal behavior for Date with arguments
+      global.Date = jest.fn((dateString?: string | number | Date) => {
+        if (dateString !== undefined) {
+          return new originalDate(dateString);
+        }
+        return mockDate;
+      }) as unknown as DateConstructor;
       
-      render(<DashboardScreen onLogout={mockOnLogout} />);
+      // Also mock static methods
+      global.Date.now = jest.fn(() => mockDate.getTime());
+      global.Date.parse = originalDate.parse;
+      global.Date.UTC = originalDate.UTC;
       
-      await waitFor(() => {
-        expect(screen.getByText('6/2/2025 - 6/8/2025')).toBeTruthy();
-      }, { timeout: 5000 });
+      console.log('🧪 [TEST] Mocked current date to:', mockDate.toISOString());
+      console.log('🧪 [TEST] This date should NOT be in any test schedule, forcing fallback to first schedule');
       
-      // Navigate to next week
-      fireEvent.press(screen.getByText('Next →'));
-      
-      await waitFor(() => {
-        expect(screen.getByText('6/9/2025 - 6/15/2025')).toBeTruthy();
-      }, { timeout: 5000 });
-      
-      // Navigate back to previous week
-      fireEvent.press(screen.getByText('← Prev'));
-      
-      await waitFor(() => {
-        expect(screen.getByText('6/2/2025 - 6/8/2025')).toBeTruthy();
-      }, { timeout: 5000 });
+      try {
+        const multipleSchedules = [
+          mockWeeklySchedule, // 6/2/2025 - 6/8/2025 (first schedule - should be selected)
+          { ...mockWeeklySchedule, weekStart: '6/9/2025', weekEnd: '6/15/2025' }, // second schedule
+        ];
+        
+        console.log('🧪 [TEST] Test schedules:', multipleSchedules.map((s, idx) => `[${idx}] ${s.weekStart} - ${s.weekEnd}`));
+        
+        mockScheduleServiceInstance.getAllDemoSchedules.mockResolvedValue(multipleSchedules);
+        
+        render(<DashboardScreen onLogout={mockOnLogout} />);
+        
+        // Should show the FIRST schedule (6/2/2025 - 6/8/2025) since mocked date is not in any schedule
+        await waitFor(() => {
+          expect(screen.getByText('6/2/2025 - 6/8/2025')).toBeTruthy();
+        }, { timeout: 5000 });
+        
+        // Navigate to next week
+        fireEvent.press(screen.getByText('Next →'));
+        
+        await waitFor(() => {
+          expect(screen.getByText('6/9/2025 - 6/15/2025')).toBeTruthy();
+        }, { timeout: 5000 });
+        
+        // Navigate back to previous week
+        fireEvent.press(screen.getByText('← Prev'));
+        
+        await waitFor(() => {
+          expect(screen.getByText('6/2/2025 - 6/8/2025')).toBeTruthy();
+        }, { timeout: 5000 });
+        
+      } finally {
+        // Restore original Date
+        global.Date = originalDate;
+        console.log('🧪 [TEST] Restored original Date constructor');
+      }
     });
 
     it('should handle back button press', async () => {
