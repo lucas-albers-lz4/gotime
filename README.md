@@ -20,7 +20,7 @@
 
 ## 📸 Screenshots
 
-| Login Screen | Dashboard | Schedule Details |
+| Login Screen | Schedule | Schedule Details |
 |:------------:|:---------:|:----------------:|
 | ![Login Screen](.github/assets/login-screen.png) | ![Schedule Details](.github/assets/schedule-details.png) | ![Schedule Details](.github/assets/schedule-details-full.png) |
 
