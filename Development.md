@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A mobile application for employees to securely view their work schedules from corporate portals. The app runs on iOS and Android, prioritizing security, simplicity, and legal compliance. Originally designed for corporate schedule systems, now generically branded as "GoTime Schedule" for app store approval.
+A mobile application for employees to securely view their work schedules from corporate portals. The app runs on iOS and Android, prioritizing security, simplicity, and legal compliance. Generically branded as "GoTime Schedule" to support multiple corporate portal integrations while maintaining app store compliance.
 
 ## Current Project Status (2024)
 

@@ -1,6 +1,6 @@
-# 📱 Costco Employee Schedule App
+# 📱 GoTime Schedule
 
-> A secure, local-first mobile application for Costco employees to view their work schedules
+> A secure, local-first mobile application for employees to view their work schedules from corporate portals
 
 [![React Native](https://img.shields.io/badge/React%20Native-0.79.2-blue.svg)](https://reactnative.dev/)
 [![Expo](https://img.shields.io/badge/Expo-~53.0.9-000020.svg)](https://expo.dev/)
@@ -11,7 +11,7 @@
 
 ## 🌟 Features
 
-- **🔐 Secure Authentication**: Integration with Costco's Employee Self Service (ESS) portal
+- **🔐 Secure Authentication**: Integration with corporate Employee Self Service (ESS) portals
 - **📅 Schedule Viewing**: Weekly schedule display with split shift support
 - **💾 Local Storage**: Secure local data storage with no cloud dependency
 - **🔔 Smart Notifications**: 30-minute shift reminders (planned)
@@ -38,8 +38,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/costco-schedule-app.git
-cd costco-schedule-app
+git clone https://github.com/yourusername/gotime-schedule.git
+cd gotime-schedule
 
 # Complete setup (installs dependencies and configures environment)
 make full-setup
@@ -61,7 +61,7 @@ make help         # See all available commands
 ## 📱 Usage
 
 ### Demo Mode
-Experience the app without Costco credentials:
+Experience the app without corporate credentials:
 
 1. Open the app in Expo Go or simulator
 2. Tap "Demo Mode" on the login screen
@@ -70,7 +70,7 @@ Experience the app without Costco credentials:
 ### Production Use
 *Note: Full authentication requires enterprise SAML SSO access*
 
-1. Enter your Costco Employee ID and password
+1. Enter your Employee ID and password
 2. Complete SMS 2FA verification
 3. View your schedule with automatic sync
 
@@ -100,7 +100,7 @@ src/
 ```
 
 ### Service Architecture
-- **AuthService**: Handles Costco ESS portal authentication with SAML SSO
+- **AuthService**: Handles corporate ESS portal authentication with SAML SSO
 - **ScheduleService**: Parses IBM Cognos BI reports and manages schedule data
 - **StorageService**: Secure local storage using SQLite and SecureStore
 - **NotificationService**: Local push notifications for shift reminders
@@ -195,8 +195,8 @@ We welcome contributions! Please follow these steps:
 ### Development Setup for Contributors
 ```bash
 # Complete setup for new contributors
-git clone https://github.com/yourusername/costco-schedule-app.git
-cd costco-schedule-app
+git clone https://github.com/yourusername/gotime-schedule.git
+cd gotime-schedule
 make full-setup
 
 # Verify setup
@@ -225,11 +225,11 @@ make health-check
 - **Node.js**: 18.0.0+
 - **Expo CLI**: Latest version
 
-### Costco Integration
-- **ESS Portal Access**: Valid Costco employee credentials
+### Corporate Integration
+- **ESS Portal Access**: Valid corporate employee credentials
 - **Network Access**: Internet connection for schedule sync
 - **2FA Setup**: SMS verification capability
-- **Enterprise Access**: May require VPN for some locations
+- **Enterprise Access**: May require VPN for some corporate networks
 
 ## 🔧 Troubleshooting
 

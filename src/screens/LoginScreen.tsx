@@ -886,7 +886,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     })();
     `;
 
-    webViewRef.current.injectJavaScript(fillCredentialsScript);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(fillCredentialsScript);
+    }
   };
 
   // Validation Analysis Debug Function
@@ -1387,7 +1389,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           })();
         `;
         
-        webViewRef.current.injectJavaScript(fioriScript);
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(fioriScript);
+        }
       }
       
       // Wait for navigation
@@ -1814,7 +1818,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   }
                 })();`;
         
-        webViewRef.current.injectJavaScript(testRunScript);
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(testRunScript);
+        }
       }
       
       // Test run and import are now handled entirely by message listeners

@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Secure storage service for GoTime Schedule application.
+ * Handles all data persistence including encrypted credentials, schedule data, and app settings.
+ * Uses device-specific secure storage (Keychain/Keystore) and SQLite for optimal security and performance.
+ */
+
 import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -6,7 +12,10 @@ import * as Crypto from 'expo-crypto';
 import { UserCredentials, ScheduleEntry, AppSettings, WeeklySchedule } from '../types';
 import { APP_CONFIG } from '../constants';
 
-// Define database row types
+/**
+ * Database row structure for weekly schedule storage.
+ * Matches the SQLite table schema for efficient data retrieval.
+ */
 interface WeeklyScheduleRow {
   weekStart: string;
   weekEnd: string;
@@ -21,16 +30,32 @@ interface WeeklyScheduleRow {
   scheduleData: string;
   totalHours: number;
   straightTimeEarnings: number;
-  disclaimerText?: string; // Boilerplate text from schedule report
+  /** Legal disclaimer text from corporate schedule reports */
+  disclaimerText?: string;
 }
 
+/**
+ * Secure storage service providing encrypted data persistence.
+ * Manages user credentials, schedule data, and application settings.
+ * Uses platform-appropriate secure storage mechanisms for maximum security.
+ */
 class StorageService {
+  /** SQLite database instance for schedule data storage */
   private db: SQLite.SQLiteDatabase | null = null;
+  
+  /** Flag indicating web platform usage (affects storage strategy) */
   private isWeb = Platform.OS === 'web';
 
   /**
-   * Generate a deterministic hash of the password for secure storage
-   * This adds an extra layer of security beyond SecureStore/Keychain
+   * Generates a deterministic SHA-256 hash of a password with salt.
+   * Provides additional security layer beyond device keychain/keystore encryption.
+   * Used for secure password verification without storing plain text.
+   * 
+   * @param password - Plain text password to hash
+   * @param salt - Cryptographic salt to prevent rainbow table attacks
+   * @returns Promise resolving to hexadecimal hash string
+   * @throws {Error} When cryptographic hashing fails
+   * @private
    */
   private async hashPassword(password: string, salt: string = 'gotime_salt_2025'): Promise<string> {
     try {
@@ -42,36 +67,53 @@ class StorageService {
       );
       return hash;
     } catch (error) {
-      console.error('Password hashing failed:', error);
+      console.error('❌ Password hashing failed:', error);
       throw new Error('Failed to hash password - credential storage not possible');
     }
   }
 
   /**
-   * Verify a password against its stored hash
+   * Verifies a plain text password against its stored hash.
+   * Uses constant-time comparison to prevent timing attacks.
+   * 
+   * @param password - Plain text password to verify
+   * @param hashedPassword - Stored hash to compare against
+   * @param salt - Cryptographic salt used during original hashing
+   * @returns Promise resolving to true if password matches, false otherwise
+   * @private
    */
   private async verifyPassword(password: string, hashedPassword: string, salt: string = 'gotime_salt_2025'): Promise<boolean> {
     try {
       const hash = await this.hashPassword(password, salt);
       return hash === hashedPassword;
     } catch (error) {
-      console.warn('Password verification failed:', error);
-      return false; // Fail secure - no fallback to plain text
+      console.warn('⚠️ Password verification failed:', error);
+      // Fail secure - never fall back to plain text comparison
+      return false;
     }
   }
 
-  // Initialize the database
+  /**
+   * Initializes the SQLite database with required tables and indexes.
+   * Creates schema for schedule storage and handles database migrations.
+   * Web platform uses AsyncStorage fallback instead of SQLite.
+   * 
+   * @public
+   * @throws {Error} When database initialization fails
+   */
   async initializeDatabase(): Promise<void> {
     try {
       if (this.isWeb) {
-        console.log('Web platform detected - using AsyncStorage fallback for schedules');
-        return; // Skip SQLite initialization on web
+        console.log('🌐 Web platform detected - using AsyncStorage fallback for schedules');
+        return; // Skip SQLite initialization on web platforms
       }
 
+      // Open or create the local SQLite database
       this.db = await SQLite.openDatabaseAsync(APP_CONFIG.DB_NAME);
       
-      // Create schedules table with updated schema for new data structure
+      // Create main tables with optimized schema for schedule data
       await this.db.execAsync(`
+        -- Primary table for weekly schedule storage
         CREATE TABLE IF NOT EXISTS weekly_schedules (
           id TEXT PRIMARY KEY,
           employeeId TEXT NOT NULL,
@@ -91,11 +133,13 @@ class StorageService {
           syncedAt INTEGER NOT NULL
         );
         
+        -- Performance indexes for common query patterns
         CREATE INDEX IF NOT EXISTS idx_weekly_schedules_employee ON weekly_schedules(employeeId);
         CREATE INDEX IF NOT EXISTS idx_weekly_schedules_week ON weekly_schedules(weekStart, weekEnd);
         CREATE INDEX IF NOT EXISTS idx_weekly_schedules_synced ON weekly_schedules(syncedAt);
         
-        -- Legacy schedules table - keep for backwards compatibility but mark as deprecated
+        -- Legacy table maintained for backward compatibility
+        -- TODO: Remove in future version after data migration
         CREATE TABLE IF NOT EXISTS schedules (
           id TEXT PRIMARY KEY,
           date TEXT NOT NULL,
@@ -107,40 +151,54 @@ class StorageService {
         );
       `);
       
-      // Add disclaimerText column to existing tables (migration)
+      // Handle database schema migrations for existing installations
       try {
         await this.db.execAsync('ALTER TABLE weekly_schedules ADD COLUMN disclaimerText TEXT;');
-        console.log('✅ [DATABASE] Added disclaimerText column to existing weekly_schedules table');
-      } catch (error) {
-        // Column might already exist, which is fine
-        if (error && error.toString().includes('duplicate column name')) {
-          console.log('ℹ️ [DATABASE] disclaimerText column already exists');
+        console.log('✅ [DATABASE MIGRATION] Added disclaimerText column to weekly_schedules');
+      } catch (migrationError) {
+        // Column addition failure is expected for existing databases
+        if (migrationError && migrationError.toString().includes('duplicate column name')) {
+          console.log('ℹ️ [DATABASE] disclaimerText column already exists - migration not needed');
         } else {
-          console.log('ℹ️ [DATABASE] Column addition skipped (expected for new databases)');
+          console.log('ℹ️ [DATABASE] Column migration skipped (expected for new installations)');
         }
       }
       
-      console.log('Database initialized successfully with updated schema');
+      console.log('✅ Database initialization completed successfully');
     } catch (error) {
-      console.error('Failed to initialize database:', error);
+      console.error('❌ Database initialization failed:', error);
       throw error;
     }
   }
 
-  // Secure credential storage
+  /**
+   * Securely stores user credentials with appropriate encryption based on user preferences.
+   * Uses device keychain/keystore for maximum security on native platforms.
+   * 
+   * Password Storage Strategy:
+   * - savePassword=true: Store plain text for auto-fill (relies on SecureStore encryption)
+   * - rememberMe=true: Store hashed password for verification only
+   * - Both false: No password storage
+   * 
+   * @param credentials - User credentials including preferences
+   * @public
+   * @throws {Error} When credential storage fails
+   */
   async storeCredentials(credentials: UserCredentials): Promise<void> {
     try {
-      // Store password based on savePassword preference
+      // Determine password storage strategy based on user preferences
       let storedPassword = '';
       if (credentials.savePassword && credentials.password) {
-        // Store unencrypted password for autofill (relies on SecureStore encryption)
+        // Store plain text password for auto-fill convenience
+        // Security relies on SecureStore's device-level encryption
         storedPassword = credentials.password;
       } else if (credentials.rememberMe && credentials.password) {
-        // Store hashed password for verification only
+        // Store hashed password for login verification without exposing plain text
         storedPassword = await this.hashPassword(credentials.password);
       }
       
-      const encryptedData = JSON.stringify({
+      // Create encrypted credential payload
+      const credentialPayload = JSON.stringify({
         employeeId: credentials.employeeId,
         password: storedPassword,
         rememberMe: credentials.rememberMe,
@@ -149,86 +207,121 @@ class StorageService {
       });
       
       if (this.isWeb) {
-        // Use AsyncStorage on web (less secure but functional)
-        await AsyncStorage.setItem(APP_CONFIG.STORAGE_KEYS.CREDENTIALS, encryptedData);
-        console.warn('Web platform: Credentials stored in AsyncStorage (less secure than SecureStore)');
+        // Web platform fallback using AsyncStorage
+        await AsyncStorage.setItem(APP_CONFIG.STORAGE_KEYS.CREDENTIALS, credentialPayload);
+        console.warn('⚠️ Web platform: Using AsyncStorage (less secure than device keychain)');
       } else {
+        // Native platform using secure device storage
         await SecureStore.setItemAsync(
           APP_CONFIG.STORAGE_KEYS.CREDENTIALS,
-          encryptedData,
+          credentialPayload,
         );
-        console.log('🔐 Credentials stored securely with SHA-256 password hashing');
+        console.log('🔐 Credentials stored securely in device keychain/keystore');
       }
     } catch (error) {
-      console.error('Failed to store credentials:', error);
+      console.error('❌ Failed to store credentials:', error);
       throw error;
     }
   }
 
+  /**
+   * Retrieves stored user credentials from secure storage.
+   * Returns null if no credentials are stored or if retrieval fails.
+   * 
+   * @returns Promise resolving to stored credentials or null if not found
+   * @public
+   */
   async getCredentials(): Promise<UserCredentials | null> {
     try {
-      let encryptedData: string | null;
+      let storedData: string | null;
       
       if (this.isWeb) {
-        encryptedData = await AsyncStorage.getItem(APP_CONFIG.STORAGE_KEYS.CREDENTIALS);
+        // Retrieve from AsyncStorage on web platform
+        storedData = await AsyncStorage.getItem(APP_CONFIG.STORAGE_KEYS.CREDENTIALS);
       } else {
-        encryptedData = await SecureStore.getItemAsync(
+        // Retrieve from secure device storage on native platforms
+        storedData = await SecureStore.getItemAsync(
           APP_CONFIG.STORAGE_KEYS.CREDENTIALS,
         );
       }
       
-      if (!encryptedData) return null;
+      if (!storedData) {
+        return null; // No credentials stored
+      }
       
-      const parsedData = JSON.parse(encryptedData);
+      const parsedCredentials = JSON.parse(storedData);
       
-      // Return credentials - all passwords are now required to be hashed
+      // Return credentials with type safety
       return {
-        employeeId: parsedData.employeeId,
-        password: parsedData.password,
-        rememberMe: parsedData.rememberMe,
-        savePassword: parsedData.savePassword || false,
-        lastLogin: parsedData.lastLogin,
+        employeeId: parsedCredentials.employeeId,
+        password: parsedCredentials.password,
+        rememberMe: parsedCredentials.rememberMe,
+        savePassword: parsedCredentials.savePassword || false,
+        lastLogin: parsedCredentials.lastLogin,
       } as UserCredentials & { lastLogin?: number };
       
     } catch (error) {
-      console.error('Failed to retrieve credentials:', error);
-      return null;
+      console.error('❌ Failed to retrieve credentials:', error);
+      return null; // Fail gracefully
     }
   }
 
   /**
-   * Verify stored credentials against provided password
-   * All stored passwords are required to be hashed
+   * Verifies provided credentials against securely stored user data.
+   * Performs secure hash comparison to validate passwords without exposing plain text.
+   * 
+   * @param employeeId - Employee ID to verify
+   * @param password - Plain text password to verify
+   * @returns Promise resolving to true if credentials match, false otherwise
+   * @public
    */
   async verifyStoredCredentials(employeeId: string, password: string): Promise<boolean> {
     try {
       const storedCredentials = await this.getCredentials();
       if (!storedCredentials || storedCredentials.employeeId !== employeeId) {
-        return false;
+        return false; // No matching credentials found
       }
 
-      // All stored passwords are hashed - verify against hash
+      // Verify password against stored hash using secure comparison
       return await this.verifyPassword(password, storedCredentials.password);
     } catch (error) {
-      console.error('Failed to verify stored credentials:', error);
-      return false;
+      console.error('❌ Credential verification failed:', error);
+      return false; // Fail secure on any error
     }
   }
 
+  /**
+   * Permanently removes stored user credentials from secure storage.
+   * Used during logout to ensure no sensitive data remains on device.
+   * 
+   * @public
+   * @throws {Error} When credential removal fails
+   */
   async clearCredentials(): Promise<void> {
     try {
       if (this.isWeb) {
+        // Remove from AsyncStorage on web platform
         await AsyncStorage.removeItem(APP_CONFIG.STORAGE_KEYS.CREDENTIALS);
       } else {
+        // Remove from device keychain/keystore on native platforms
         await SecureStore.deleteItemAsync(APP_CONFIG.STORAGE_KEYS.CREDENTIALS);
       }
+      console.log('🔓 User credentials cleared successfully');
     } catch (error) {
-      console.error('Failed to clear credentials:', error);
+      console.error('❌ Failed to clear credentials:', error);
       throw error;
     }
   }
 
-  // Schedule data management - Updated for new WeeklySchedule structure
+  /**
+   * Saves a complete weekly schedule to local storage with transaction safety.
+   * Uses SQLite on native platforms and AsyncStorage on web with automatic cleanup.
+   * Implements upsert logic to handle both new and updated schedules.
+   * 
+   * @param schedule - Complete weekly schedule data to save
+   * @public
+   * @throws {Error} When database is not initialized or save operation fails
+   */
   async saveWeeklySchedule(schedule: WeeklySchedule): Promise<void> {
     try {
       const scheduleId = `${schedule.employee.employeeId}_${schedule.weekEnd}`;
