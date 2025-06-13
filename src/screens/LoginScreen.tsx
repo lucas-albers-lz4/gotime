@@ -68,20 +68,20 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     startTime: Date | null;
     stepTimings: Map<number, { stepName: string; startTime: Date; endTime?: Date; duration?: number }>;
     totalDuration: number | null;
-  }>({
-    isActive: false,
-    currentStep: 0,
-    stepStates: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
-    error: null,
-    retryCount: 0,
-    canRetry: false,
-    mfaDetected: false,
-    mfaCompleted: false,
-    // Initialize timing fields
-    startTime: null,
-    stepTimings: new Map(),
-    totalDuration: null,
-  });
+      }>({
+        isActive: false,
+        currentStep: 0,
+        stepStates: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+        error: null,
+        retryCount: 0,
+        canRetry: false,
+        mfaDetected: false,
+        mfaCompleted: false,
+        // Initialize timing fields
+        startTime: null,
+        stepTimings: new Map(),
+        totalDuration: null,
+      });
 
   const authService = AuthService.getInstance();
   const scheduleService = ScheduleService.getInstance();
@@ -101,7 +101,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     'Navigate to Schedule System',
     'Execute Schedule Query',
     'Import Schedule Data',
-    'Complete Synchronization'
+    'Complete Synchronization',
   ];
 
   useEffect(() => {
@@ -1006,7 +1006,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       const overhead = totalDuration - totalStepTime;
       const overheadPercentage = ((overhead / totalDuration) * 100).toFixed(1);
       
-      console.log(`\n📈 Performance Analysis:`);
+      console.log('\n📈 Performance Analysis:');
       console.log(`  • Completed Steps: ${completedSteps}/${SYNC_STEPS.length}`);
       console.log(`  • Step Processing Time: ${(totalStepTime/1000).toFixed(1)}s`);
       console.log(`  • Overhead/Transition Time: ${(overhead/1000).toFixed(1)}s (${overheadPercentage}%)`);
@@ -1019,7 +1019,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             slowestStep = { 
               name: timing.stepName, 
               duration: timing.duration, 
-              index: stepIndex + 1 
+              index: stepIndex + 1, 
             };
           }
         }
@@ -1074,7 +1074,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       
       updateSyncStep(1, 'success');
 
-            // Step 3: Handle MFA Detection
+      // Step 3: Handle MFA Detection
       await delay(2000);
       updateSyncStep(2, 'active');
       
@@ -1829,7 +1829,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       Alert.alert(
         'Sync Failed',
         `${errorMessage}\n\nPlease try again or use manual steps.`,
-        [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+        [{ text: 'OK', onPress: () => resetSyncSchedule() }],
       );
     }
   };
@@ -1929,8 +1929,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             const stepState = syncSchedule.stepStates[index];
             const isCurrentStep = syncSchedule.currentStep === index;
             const emoji = stepState === 'success' ? '✅' : 
-                         stepState === 'error' ? '❌' : 
-                         stepState === 'active' ? '🔄' : '⭕';
+              stepState === 'error' ? '❌' : 
+                stepState === 'active' ? '🔄' : '⭕';
             
             return (
               <View key={index} style={styles.syncProgressStep}>
@@ -2442,7 +2442,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   Alert.alert(
                     'Test Run Failed',
                     `The test run step failed: ${parsedMessage.error}\n\nSync schedule has been stopped.`,
-                    [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+                    [{ text: 'OK', onPress: () => resetSyncSchedule() }],
                   );
                   return;
                 } else if (parsedMessage.type === 'multi_week_import_error' && syncSchedule.isActive) {
@@ -2452,7 +2452,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   Alert.alert(
                     'Import Failed',
                     `The import step failed: ${parsedMessage.error}\n\nSync schedule has been stopped.`,
-                    [{ text: 'OK', onPress: () => resetSyncSchedule() }]
+                    [{ text: 'OK', onPress: () => resetSyncSchedule() }],
                   );
                   return;
                 } else if (parsedMessage.type === 'login_form_2_success' && syncSchedule.isActive) {
@@ -2501,19 +2501,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   setSyncSchedule(prev => ({ ...prev, mfaDetected: false, mfaCompleted: true }));
                   updateSyncStep(2, 'success');
                   
-                                     // Automatically proceed to Fiori navigation
-                   setTimeout(async () => {
-                     console.log('🎯 [SYNC] Auto-proceeding to Fiori navigation...');
-                     updateSyncStep(3, 'active');
+                  // Automatically proceed to Fiori navigation
+                  setTimeout(async () => {
+                    console.log('🎯 [SYNC] Auto-proceeding to Fiori navigation...');
+                    updateSyncStep(3, 'active');
                      
-                     // Execute Fiori navigation
-                     console.log('🎯 [SYNC] Starting Fiori navigation...');
-                     if (webViewRef.current) {
-                       // Use the existing Fiori script from the original implementation
-                       console.log('🚀 [SYNC] Injecting Fiori navigation script...');
-                       // The script will be injected - this should be handled by existing logic
-                     }
-                   }, 1000);
+                    // Execute Fiori navigation
+                    console.log('🎯 [SYNC] Starting Fiori navigation...');
+                    if (webViewRef.current) {
+                      // Use the existing Fiori script from the original implementation
+                      console.log('🚀 [SYNC] Injecting Fiori navigation script...');
+                      // The script will be injected - this should be handled by existing logic
+                    }
+                  }, 1000);
                 } else if (parsedMessage.type === 'mfa_status_unknown' && syncSchedule.isActive) {
                   console.log('⚠️ [SYNC] Unable to determine MFA status - user may need to check manually');
                   // Don't fail completely, but mark MFA as detected so user can handle manually
@@ -2557,9 +2557,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                           onPress: () => {
                             resetSyncSchedule();
                             onLoginSuccess();
-                          }
-                        }
-                      ]
+                          },
+                        },
+                      ],
                     );
                     console.log('✅ [DEBUG] Alert.alert called for Sync Schedule Complete');
                     
@@ -4022,11 +4022,11 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.body.fontSize,
     color: COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: SPACING.md,
-    lineHeight: 22,
+    marginBottom: SPACING.sm,
+    lineHeight: 20,
   },
   inputContainer: {
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
   },
   label: {
     fontSize: TYPOGRAPHY.body.fontSize,
@@ -4067,7 +4067,7 @@ const styles = StyleSheet.create({
   checkboxContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
   },
   checkbox: {
     width: 20,
@@ -4106,10 +4106,10 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     backgroundColor: COLORS.primary,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   disabledButton: {
     backgroundColor: COLORS.textSecondary,
@@ -4122,10 +4122,10 @@ const styles = StyleSheet.create({
   demoButton: {
     borderWidth: 1,
     borderColor: COLORS.primary,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.sm,
   },
   demoButtonText: {
     color: COLORS.primary,

@@ -747,8 +747,8 @@ TECHNICAL: Corporate portals often block cross-origin requests for security.`;
     
     // Look for RelayState in HTML
     const relayPatterns = [
-      /name=["']RelayState["'][^>]*value=["']([^"']+)["']/i,
-      /value=["']([^"']*)['"]\s*name=["']RelayState["']/i,
+      /name=['"]RelayState['"][^>]*value=['"]([^'"]+)['"]/i,
+      /value=['"]([^'"]*)['"]\s*name=['"]RelayState['"]/i,
     ];
     
     for (const pattern of relayPatterns) {
@@ -1234,12 +1234,16 @@ TECHNICAL: Corporate portals often block cross-origin requests for security.`;
    */
   private isTrustedDomain(url: string, trustedDomains: string[]): boolean {
     try {
+      if (typeof URL === 'undefined') {
+        console.error('URL constructor is not available in this environment.');
+        return false;
+      }
       const urlObj = new URL(url);
       return trustedDomains.some(domain => 
         urlObj.hostname === domain || urlObj.hostname.endsWith('.' + domain)
       );
     } catch (error) {
-      console.log('❌ [AUTH] Invalid URL for domain check:', url);
+      console.log('❌ [AUTH] Invalid URL for domain check:', url, error);
       return false;
     }
   }

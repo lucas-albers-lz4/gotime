@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { CognosAutomationService, CognosAnalysis, ScheduleOption } from './CognosAutomationService';
 import { ScheduleService } from './ScheduleService';
+import { WeeklySchedule } from '../types';
 
 export interface AutomationState {
   isAnalyzing: boolean;
@@ -14,6 +15,25 @@ export interface AutomationState {
   currentHtml?: string;
   importCompleted?: boolean;
   exportSessionId?: string | null;
+  timestamp?: number;
+  detailedResults?: {
+    processedWeeks?: WeeklySchedule[];
+    errors?: string[];
+    testState?: Record<string, unknown>;
+    scheduleTimings?: Array<{
+      weekIndex: number;
+      weekText: string;
+      startTime: number;
+      endTime: number;
+      loadDurationMs: number;
+    }>;
+    timingStats?: {
+      avgLoadTimeMs: number;
+      minLoadTimeMs: number;
+      maxLoadTimeMs: number;
+    };
+    [key: string]: unknown;
+  };
 }
 
 // Define a base type for WebView messages handled by this hook
@@ -79,6 +99,9 @@ interface AutomationWebViewMessage {
   };
   [key: string]: unknown; // Allow other properties for specific messages
 }
+
+// Type alias for global export handlers
+type ExportHandlers = Record<string, (htmlContent: string) => Promise<void>>;
 
 export interface CognosAutomationHook {
   state: AutomationState;
@@ -913,15 +936,17 @@ const handleWebViewMessage = useCallback(async (messageData: AutomationWebViewMe
         }
       } 
       // Fallback to global window (this might not work in React Native)
-      else if (exportSessionId && (window as any).__exportHandlers && (window as any).__exportHandlers[exportSessionId]) {
+      else if (
+        exportSessionId &&
+        (window as unknown as { __exportHandlers: ExportHandlers }).__exportHandlers &&
+        (window as unknown as { __exportHandlers: ExportHandlers }).__exportHandlers[exportSessionId]
+      ) {
         console.log('✅ [AUTOMATION] Found export handler in window for session:', exportSessionId);
         try {
           // Call the export handler with the HTML content
-          (window as any).__exportHandlers[exportSessionId](extractedHtml);
-              
+          (window as unknown as { __exportHandlers: ExportHandlers }).__exportHandlers[exportSessionId](extractedHtml);
           // Clear the handler after use
-          delete (window as any).__exportHandlers[exportSessionId];
-              
+          delete (window as unknown as { __exportHandlers: ExportHandlers }).__exportHandlers[exportSessionId];
           // Don't show the alert here since the handler will handle that
           return;
         } catch (error) {

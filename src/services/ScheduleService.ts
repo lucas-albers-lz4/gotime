@@ -882,8 +882,8 @@ export class ScheduleService {
           day: e.day,
           date: e.date,
           shifts: e.shifts.length,
-          hours: e.dailyHours
-        }))
+          hours: e.dailyHours,
+        })),
       };
       
       // Only show detailed logs if we have unexpected results
@@ -1789,5 +1789,30 @@ export class ScheduleService {
 
   public getDemoMode(): boolean {
     return this.isDemoMode;
+  }
+
+  /**
+   * Calculate the number of hours between two times (e.g., '12:00 PM', '05:00 PM').
+   * Handles overnight shifts and invalid input gracefully.
+   */
+  public calculateHoursBetweenTimes(start: string, end: string): number {
+    // Helper to parse 12-hour time string to minutes since midnight
+    function parseTime(time: string): number | null {
+      if (!time || typeof time !== 'string') return null;
+      const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+      if (!match) return null;
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const period = match[3].toUpperCase();
+      if (period === 'PM' && hours !== 12) hours += 12;
+      if (period === 'AM' && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    }
+    const startMins = parseTime(start);
+    const endMins = parseTime(end);
+    if (startMins === null || endMins === null) return 0;
+    let diff = endMins - startMins;
+    if (diff < 0) diff += 24 * 60; // Overnight shift
+    return Math.round((diff / 60) * 100) / 100; // Round to 2 decimals
   }
 }

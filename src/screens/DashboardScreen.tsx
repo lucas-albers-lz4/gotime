@@ -35,29 +35,62 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const findWeekContainingToday = (schedules: WeeklySchedule[]): number => {
     const today = new Date();
     
+    // Add detailed debugging for date comparison
+    console.log('🕐 [DEBUG-TODAY] ============ DATE DEBUGGING ============');
+    console.log('🕐 [DEBUG-TODAY] Current date (today):', today.toISOString());
+    console.log('🕐 [DEBUG-TODAY] Current date (local):', today.toString());
+    console.log('🕐 [DEBUG-TODAY] Today formatted: MM/dd/yyyy =>', `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`);
+    console.log('🕐 [DEBUG-TODAY] Number of schedules to check:', schedules.length);
+    
     for (let i = 0; i < schedules.length; i++) {
       const schedule = schedules[i];
+      
+      console.log(`🔍 [DEBUG-TODAY] Checking schedule ${i}:`, schedule.weekStart, '-', schedule.weekEnd);
       
       try {
         // Parse week start and end dates
         const [startMonth, startDay, startYear] = schedule.weekStart.split('/').map(Number);
         const [endMonth, endDay, endYear] = schedule.weekEnd.split('/').map(Number);
         
+        console.log(`🔍 [DEBUG-TODAY] Schedule ${i} parsed start:`, { startMonth, startDay, startYear });
+        console.log(`🔍 [DEBUG-TODAY] Schedule ${i} parsed end:`, { endMonth, endDay, endYear });
+        
         const weekStart = new Date(startYear, startMonth - 1, startDay);
         const weekEnd = new Date(endYear, endMonth - 1, endDay);
         
+        console.log(`🔍 [DEBUG-TODAY] Schedule ${i} weekStart Date object:`, weekStart.toISOString());
+        console.log(`🔍 [DEBUG-TODAY] Schedule ${i} weekEnd Date object:`, weekEnd.toISOString());
+        
+        // Detailed comparison logging
+        const todayTime = today.getTime();
+        const weekStartTime = weekStart.getTime();
+        const weekEndTime = weekEnd.getTime();
+        
+        console.log(`🔍 [DEBUG-TODAY] Schedule ${i} time comparison:`);
+        console.log(`🔍 [DEBUG-TODAY]   Today: ${todayTime} (${today.toDateString()})`);
+        console.log(`🔍 [DEBUG-TODAY]   Week Start: ${weekStartTime} (${weekStart.toDateString()})`);
+        console.log(`🔍 [DEBUG-TODAY]   Week End: ${weekEndTime} (${weekEnd.toDateString()})`);
+        console.log(`🔍 [DEBUG-TODAY]   Today >= weekStart? ${today >= weekStart} (${todayTime} >= ${weekStartTime})`);
+        console.log(`🔍 [DEBUG-TODAY]   Today <= weekEnd? ${today <= weekEnd} (${todayTime} <= ${weekEndTime})`);
+        console.log(`🔍 [DEBUG-TODAY]   Is today in this week? ${today >= weekStart && today <= weekEnd}`);
+        
         // Check if today falls within this week (inclusive)
         if (today >= weekStart && today <= weekEnd) {
-          console.log('📅 [DASHBOARD] Found week containing today:', schedule.weekStart, '-', schedule.weekEnd, 'at index', i);
+          console.log('📅 [DASHBOARD] ✅ Found week containing today:', schedule.weekStart, '-', schedule.weekEnd, 'at index', i);
+          console.log('🕐 [DEBUG-TODAY] ========================================');
           return i;
+        } else {
+          console.log(`📅 [DASHBOARD] ❌ Week ${i} does NOT contain today`);
         }
       } catch (error) {
-        console.error('Error parsing dates for week comparison:', error);
+        console.error(`❌ [DEBUG-TODAY] Error parsing dates for schedule ${i}:`, error);
+        console.log(`❌ [DEBUG-TODAY] Problem schedule: weekStart="${schedule.weekStart}", weekEnd="${schedule.weekEnd}"`);
         continue;
       }
     }
     
-    console.log('📅 [DASHBOARD] No week found containing today, using fallback');
+    console.log('📅 [DASHBOARD] ❌ No week found containing today, using fallback');
+    console.log('🕐 [DEBUG-TODAY] ========================================');
     return -1; // Not found
   };
 
@@ -209,17 +242,23 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
   const loadDemoSchedule = async () => {
     try {
+      console.log('🎯 [DEMO-LOAD] ============ DEMO SCHEDULE LOADING ============');
       console.log('DashboardScreen: Loading demo schedules...');
       
       // Load all available demo schedules
       const allSchedules = await scheduleService.getAllDemoSchedules();
       console.log('DashboardScreen: Loaded', allSchedules.length, 'demo schedules');
+      console.log('🎯 [DEMO-LOAD] All demo schedules:', allSchedules.map((s, idx) => `[${idx}] ${s.weekStart} - ${s.weekEnd}`));
       
       if (allSchedules.length > 0) {
+        console.log('🎯 [DEMO-LOAD] Setting availableWeeks array with', allSchedules.length, 'schedules');
         setAvailableWeeks(allSchedules);
         
+        console.log('🎯 [DEMO-LOAD] About to call findWeekContainingToday...');
         // Try to find the week containing today's date first
         const todayWeekIndex = findWeekContainingToday(allSchedules);
+        console.log('🎯 [DEMO-LOAD] findWeekContainingToday returned index:', todayWeekIndex);
+        
         let initialWeekIndex: number;
         let currentSchedule: WeeklySchedule;
         
@@ -227,23 +266,35 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
           // Found week containing today - use it
           initialWeekIndex = todayWeekIndex;
           currentSchedule = allSchedules[todayWeekIndex];
-          console.log('📅 [DASHBOARD] Loading demo week containing today:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+          console.log('📅 [DASHBOARD] ✅ Loading demo week containing today:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+          console.log('🎯 [DEMO-LOAD] SELECTED: Today\'s week at index', initialWeekIndex);
         } else {
-          // Fall back to latest demo schedule (most recent chronologically)
-          initialWeekIndex = allSchedules.length - 1;
-          currentSchedule = allSchedules[allSchedules.length - 1];
-          console.log('📅 [DASHBOARD] No current week in demo data, loading latest week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+          // Fall back to first demo schedule for predictable behavior
+          initialWeekIndex = 0;
+          currentSchedule = allSchedules[0];
+          console.log('📅 [DASHBOARD] ❌ No current week in demo data, loading first week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+          console.log('🔍 [DEBUG] allSchedules array:', allSchedules.map(s => `${s.weekStart} - ${s.weekEnd}`));
+          console.log('🔍 [DEBUG] Selected schedule index:', initialWeekIndex);
+          console.log('🔍 [DEBUG] Selected schedule dates:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+          console.log('🎯 [DEMO-LOAD] SELECTED: Fallback to first week at index', initialWeekIndex);
         }
+        
+        console.log('🎯 [DEMO-LOAD] About to set state...');
+        console.log('🎯 [DEMO-LOAD] Setting schedule to:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        console.log('🎯 [DEMO-LOAD] Setting currentWeekIndex to:', initialWeekIndex);
         
         setSchedule(currentSchedule);
         setCurrentWeekIndex(initialWeekIndex);
         
         console.log('DashboardScreen: Set current schedule for week:', currentSchedule.weekStart, '-', currentSchedule.weekEnd);
+        console.log('🎯 [DEMO-LOAD] ============ DEMO LOAD COMPLETE ============');
       } else {
         console.log('DashboardScreen: No demo schedules available');
+        console.log('🎯 [DEMO-LOAD] ============ NO DEMO SCHEDULES ============');
       }
     } catch (error) {
       console.error('DashboardScreen: Error loading demo schedules:', error);
+      console.log('🎯 [DEMO-LOAD] ============ DEMO LOAD ERROR ============');
     }
   };
 
