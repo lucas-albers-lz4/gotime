@@ -34,6 +34,9 @@ android/local.properties
 android/keystore.properties
 android/app/src/main/assets/index.android.bundle
 android/app/src/main/res/drawable-*/
+# Allow splash screen logos
+!android/app/src/main/res/drawable-*hdpi/
+!android/app/src/main/res/drawable-*hdpi/splashscreen_logo.png
 android/app/src/main/res/raw/
 
 # Include gradle wrapper files (required for EAS Build)
