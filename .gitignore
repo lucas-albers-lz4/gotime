@@ -30,12 +30,17 @@ android/app/build/
 android/app/release/
 android/app/debug/
 android/build/
-android/gradle/
 android/local.properties
 android/keystore.properties
 android/app/src/main/assets/index.android.bundle
 android/app/src/main/res/drawable-*/
 android/app/src/main/res/raw/
+
+# Include gradle wrapper files (required for EAS Build)
+!android/gradle/
+!android/gradle/wrapper/
+!android/gradle/wrapper/gradle-wrapper.jar
+!android/gradle/wrapper/gradle-wrapper.properties
 
 # iOS
 ios/build/
