@@ -974,6 +974,51 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+  // Execute Fiori Navigation function
+  const executeFioriNavigation = () => {
+    console.log('🎯 [SYNC] Executing Fiori navigation...');
+    
+    if (webViewRef.current) {
+      const fioriScript = `
+        (function() {
+          try {
+            console.log('🎯 [FIORI] Step 1: Submitting form to navigate iframe to Fiori...');
+            
+            const form = document.getElementById('contentAreaFrame_Form');
+            if (form) {
+              console.log('✅ [FIORI] Found contentAreaFrame_Form, submitting...');
+              form.submit();
+              
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'navigate_to_fiori',
+                success: true,
+                autoClick: true,
+                method: 'form-submission',
+                navigationTarget: form.querySelector('input[name="NavigationTarget"]')?.value || 'Unknown'
+              }));
+            } else {
+              console.error('❌ [FIORI] contentAreaFrame_Form not found');
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'navigate_to_fiori',
+                success: false,
+                error: 'contentAreaFrame_Form not found'
+              }));
+            }
+          } catch (error) {
+            console.error('❌ [FIORI] Error in Fiori navigation:', error);
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'navigate_to_fiori',
+              success: false,
+              error: error.message
+            }));
+          }
+        })();
+      `;
+      
+      webViewRef.current.injectJavaScript(fioriScript);
+    }
+  };
+
   // Timing summary function
   const showTimingSummary = () => {
     setSyncSchedule(prev => {
@@ -1080,15 +1125,103 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       await delay(2000);
       updateSyncStep(2, 'active');
       
-      // Simple MFA detection - just wait and set as detected so user can complete manually
+      // Intelligent MFA detection - check if MFA is actually required
       console.log('🔐 [SYNC] MFA detection phase - checking if MFA is required...');
-      setSyncSchedule(prev => ({ ...prev, mfaDetected: true }));
       
-      // Wait briefly to see if we automatically proceed past MFA
-      await delay(5000);
+      if (webViewRef.current) {
+        const mfaDetectionScript = `
+          (function() {
+            try {
+              const currentUrl = window.location.href;
+              const pageContent = document.documentElement.outerHTML;
+              
+              console.log('🔍 [MFA-DETECT] Analyzing page for MFA requirements...');
+              console.log('📍 [MFA-DETECT] Current URL:', currentUrl);
+              console.log('📄 [MFA-DETECT] Page title:', document.title);
+              
+              // Check for actual MFA indicators
+              const mfaIndicators = [
+                'authenticator.pingone.com',
+                'otp-form',
+                'multi-factor',
+                'verification code',
+                'enter code',
+                'authentication required'
+              ];
+              
+              // Check for portal/success indicators (no MFA needed)
+              const portalIndicators = [
+                'SAP NetWeaver Portal',
+                'Employee Self Services',
+                'portal_content',
+                'contentAreaFrame'
+              ];
+              
+              let mfaRequired = false;
+              let portalReached = false;
+              
+              // Check URL and content for MFA indicators
+              for (const indicator of mfaIndicators) {
+                if (currentUrl.toLowerCase().includes(indicator.toLowerCase()) || 
+                    pageContent.toLowerCase().includes(indicator.toLowerCase())) {
+                  console.log('🔐 [MFA-DETECT] MFA indicator found:', indicator);
+                  mfaRequired = true;
+                  break;
+                }
+              }
+              
+              // Check for portal indicators
+              for (const indicator of portalIndicators) {
+                if (currentUrl.toLowerCase().includes(indicator.toLowerCase()) || 
+                    pageContent.toLowerCase().includes(indicator.toLowerCase())) {
+                  console.log('🏢 [MFA-DETECT] Portal indicator found:', indicator);
+                  portalReached = true;
+                  break;
+                }
+              }
+              
+              // Determine final state
+              if (mfaRequired) {
+                console.log('🔐 [MFA-DETECT] MFA authentication required');
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'mfa_required',
+                  message: 'MFA authentication required'
+                }));
+              } else if (portalReached) {
+                console.log('✅ [MFA-DETECT] Portal reached - MFA not required');
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'mfa_not_required',
+                  message: 'MFA not required, proceeding to Fiori navigation'
+                }));
+              } else {
+                console.log('⚠️ [MFA-DETECT] Uncertain state - waiting for page to load');
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'mfa_uncertain',
+                  message: 'Page state uncertain, waiting for completion'
+                }));
+              }
+              
+            } catch (error) {
+              console.error('❌ [MFA-DETECT] Error:', error);
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'mfa_uncertain',
+                message: 'Error detecting MFA state: ' + error.message
+              }));
+            }
+          })();
+        `;
+        
+        webViewRef.current.injectJavaScript(mfaDetectionScript);
+      }
       
-      console.log('⏳ [SYNC] MFA step will remain active - user can complete MFA and continue manually');
-      // Return early to wait for user MFA completion - remaining steps will be triggered by user action
+      // Wait for MFA detection result and let message handlers control the flow
+      await delay(3000);
+      
+      console.log('🔍 [SYNC] MFA detection phase complete - message handlers will control next steps');
+      console.log('📊 [SYNC] Current state: mfaDetected =', syncSchedule.mfaDetected, ', currentStep =', syncSchedule.currentStep);
+      
+      // The message handlers (mfa_required, mfa_not_required, mfa_uncertain) will now control the flow
+      // This function should not proceed further - let the message handlers take over
       return;
 
       // Step 4: Fiori Navigation
@@ -2512,14 +2645,32 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     console.log('🎯 [SYNC] Auto-proceeding to Fiori navigation...');
                     updateSyncStep(3, 'active');
                      
-                    // Execute Fiori navigation
-                    console.log('🎯 [SYNC] Starting Fiori navigation...');
-                    if (webViewRef.current) {
-                      // Use the existing Fiori script from the original implementation
-                      console.log('🚀 [SYNC] Injecting Fiori navigation script...');
-                      // The script will be injected - this should be handled by existing logic
-                    }
+                    // Execute Fiori navigation immediately
+                    setTimeout(() => {
+                      executeFioriNavigation();
+                    }, 500);
                   }, 1000);
+                } else if (parsedMessage.type === 'mfa_uncertain' && syncSchedule.isActive) {
+                  console.log('⚠️ [SYNC] Uncertain MFA state - waiting for page to load completely');
+                  // Wait a bit more and then assume no MFA is needed
+                  setTimeout(() => {
+                    if (syncSchedule.isActive && syncSchedule.currentStep === 2) {
+                      console.log('✅ [SYNC] Timeout reached - assuming no MFA required, proceeding to Fiori');
+                      setSyncSchedule(prev => ({ ...prev, mfaDetected: false, mfaCompleted: true }));
+                      updateSyncStep(2, 'success');
+                      
+                      // Proceed to Fiori navigation
+                      setTimeout(async () => {
+                        console.log('🎯 [SYNC] Auto-proceeding to Fiori navigation after uncertain MFA state...');
+                        updateSyncStep(3, 'active');
+                        
+                        // Execute Fiori navigation immediately
+                        setTimeout(() => {
+                          executeFioriNavigation();
+                        }, 500);
+                      }, 1000);
+                    }
+                  }, 2000);
                 } else if (parsedMessage.type === 'mfa_status_unknown' && syncSchedule.isActive) {
                   console.log('⚠️ [SYNC] Unable to determine MFA status - user may need to check manually');
                   // Don't fail completely, but mark MFA as detected so user can handle manually

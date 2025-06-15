@@ -239,11 +239,280 @@ export class ScheduleService {
   }
 
   /**
+   * Check if the HTML contains the payroll error message indicating a zero-hour exception schedule
+   */
+  private detectPayrollErrorSchedule(html: string): boolean {
+    // Look for the specific error message in red text
+    const errorMessage = "Your schedule is not available at this time. Please contact your payroll clerk for assistance.";
+    const hasErrorMessage = html.includes(errorMessage);
+    
+    // Also check for the HTML pattern with color styling
+    const hasRedErrorMessage = html.includes('style="color:#FF0000;">Your schedule is not available');
+    
+    console.log('🔍 [SCHEDULE] Checking for payroll error message...');
+    console.log('🔍 [SCHEDULE] Has error message text:', hasErrorMessage);
+    console.log('🔍 [SCHEDULE] Has red error styling:', hasRedErrorMessage);
+    
+    return hasErrorMessage || hasRedErrorMessage;
+  }
+
+  /**
+   * Parse exception schedule with zero hours due to payroll issues
+   */
+  private async parseExceptionSchedule(html: string): Promise<WeeklySchedule | null> {
+    try {
+      console.log('⚠️ [SCHEDULE] Parsing exception schedule (payroll error)...');
+      
+      // Extract week information - this should still be available from the dropdown
+      const weekInfo = this.extractWeekInfo(html);
+      if (!weekInfo) {
+        console.log('❌ [SCHEDULE] Failed to extract week info for exception schedule');
+        return null;
+      }
+      console.log('✅ [SCHEDULE] Exception schedule week info:', weekInfo);
+
+      // Extract data as of timestamp if available
+      const dataAsOf = this.extractDataAsOf(html) || '';
+
+      // Try to extract employee information, but also check for existing schedules
+      let employeeInfo = this.extractEmployeeInfoForException(html);
+      
+      // If we couldn't extract proper employee info, try to find existing schedule for this week
+      if (employeeInfo.employeeId === 'Unknown' || employeeInfo.employeeId === '1') {
+        console.log('🔍 [SCHEDULE] Employee ID not found in exception HTML, checking for existing schedule...');
+        
+        try {
+          // Get all existing schedules to find one for the same week
+          const existingSchedules = await this.getAllWeeklySchedules();
+          
+          // First try to find a real employee schedule (not an exception) for the same week
+          let matchingSchedule = existingSchedules.find(schedule => 
+            schedule.weekStart === weekInfo.start && 
+            schedule.weekEnd === weekInfo.end &&
+            !schedule.isException &&
+            schedule.employee.employeeId !== 'Unknown' &&
+            schedule.employee.employeeId !== '1',
+          );
+          
+          // If no real employee schedule found for same week, try to find any real employee schedule
+          if (!matchingSchedule) {
+            console.log('🔍 [SCHEDULE] No real employee schedule found for same week, looking for any real employee schedule...');
+            matchingSchedule = existingSchedules.find(schedule => 
+              !schedule.isException &&
+              schedule.employee.employeeId !== 'Unknown' &&
+              schedule.employee.employeeId !== '1' &&
+              schedule.employee.name !== 'Unknown Employee',
+            );
+            
+            if (matchingSchedule) {
+              console.log('✅ [SCHEDULE] Found real employee schedule from different week, using employee info:', matchingSchedule.employee.name);
+            }
+          }
+          
+          // If still no real employee schedule, fall back to any schedule for the same week
+          if (!matchingSchedule) {
+            matchingSchedule = existingSchedules.find(schedule => 
+              schedule.weekStart === weekInfo.start && schedule.weekEnd === weekInfo.end,
+            );
+            
+            if (matchingSchedule) {
+              console.log('⚠️ [SCHEDULE] Only found exception schedule for same week, using employee info:', matchingSchedule.employee.name);
+            }
+          }
+          
+          if (matchingSchedule) {
+            console.log('🔍 [SCHEDULE] Using schedule type:', matchingSchedule.isException ? 'Exception' : 'Normal');
+            console.log('🔍 [SCHEDULE] Employee ID being used:', matchingSchedule.employee.employeeId);
+            // Use the existing employee information to ensure proper overwrite
+            employeeInfo = { ...matchingSchedule.employee };
+          } else {
+            console.log('ℹ️ [SCHEDULE] No existing schedule found, using extracted info');
+          }
+        } catch (error) {
+          console.log('⚠️ [SCHEDULE] Error checking for existing schedules:', error);
+          // Continue with extracted info
+        }
+      }
+
+      // Create placeholder schedule entries for each day of the week with 0 hours
+      const entries = this.createZeroHourScheduleEntries(weekInfo);
+      
+      const exceptionSchedule = {
+        weekStart: weekInfo.start,
+        weekEnd: weekInfo.end,
+        dataAsOf: dataAsOf,
+        employee: employeeInfo,
+        entries: entries,
+        totalHours: 0,
+        straightTimeEarnings: 0,
+        disclaimerText: 'Your schedule is not available at this time. Please contact your payroll clerk for assistance.',
+        isException: true, // Flag to indicate this is an exception schedule
+      };
+
+      console.log('✅ [SCHEDULE] Exception schedule created successfully:', {
+        weekStart: exceptionSchedule.weekStart,
+        weekEnd: exceptionSchedule.weekEnd,
+        employeeName: exceptionSchedule.employee.name,
+        employeeId: exceptionSchedule.employee.employeeId,
+        totalHours: exceptionSchedule.totalHours,
+      });
+
+      return exceptionSchedule;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error parsing exception schedule:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract employee information for exception schedules - allow missing fields
+   */
+  private extractEmployeeInfoForException(html: string): EmployeeInfo {
+    try {
+      // Try to extract what we can, but provide defaults for missing information
+      let nameMatch = html.match(/<span[^>]*>Name<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>[^<]*<span[^>]*>&nbsp;<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      
+      if (!nameMatch) {
+        nameMatch = html.match(/<span[^>]*>Name<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>[^<]*<span[^>]*>&nbsp;<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([A-Z]+)<\/span>/s);
+      }
+      
+      const firstName = nameMatch ? nameMatch[1].trim() : '';
+      const lastName = nameMatch ? nameMatch[2].trim() : '';
+      const name = `${firstName} ${lastName}`.trim() || 'Unknown Employee';
+
+      // Try to extract employee ID
+      let employeeIdMatch = html.match(/<span[^>]*>Employee #<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+)<\/span>/s);
+      if (!employeeIdMatch) {
+        employeeIdMatch = html.match(/Employee #<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>(\d+)<\/span>/s);
+      }
+      const employeeId = employeeIdMatch ? employeeIdMatch[1] : 'Unknown';
+
+      // Try to extract other fields, but don't fail if they're missing
+      let locationMatch = html.match(/<span[^>]*>Location<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      if (!locationMatch) {
+        locationMatch = html.match(/Location<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      const location = locationMatch ? locationMatch[1].trim() : 'Not Available';
+
+      let departmentMatch = html.match(/<span[^>]*>Department<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      if (!departmentMatch) {
+        departmentMatch = html.match(/Department<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      const department = departmentMatch ? departmentMatch[1].trim() : 'Not Available';
+
+      let jobTitleMatch = html.match(/<span[^>]*>Job Title<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      if (!jobTitleMatch) {
+        jobTitleMatch = html.match(/Job Title<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      const jobTitle = jobTitleMatch ? jobTitleMatch[1].trim() : 'Not Available';
+
+      let statusMatch = html.match(/<span[^>]*>Status[^<]*<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      if (!statusMatch) {
+        statusMatch = html.match(/Status[^<]*<\/span>.*?<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>([^<]+)<\/span>/s);
+      }
+      const status = statusMatch ? statusMatch[1].trim() : 'Not Available';
+
+      // Try to extract hire date - this might still be available
+      let hireDateMatch = html.match(/<span[^>]*>Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9/]+)<\/span>/s);
+      if (!hireDateMatch) {
+        hireDateMatch = html.match(/Hire Date:[^<]*<\/span>[^<]*<span[^>]*style="[^"]*font-weight:bold[^"]*"[^>]*>[^<]*?([0-9/]+)<\/span>/s);
+      }
+      const hireDate = hireDateMatch ? hireDateMatch[1].trim() : 'Not Available';
+
+      console.log('🔍 [SCHEDULE] Exception employee info extraction:');
+      console.log('Name:', name);
+      console.log('Employee ID:', employeeId);
+      console.log('Location:', location);
+      console.log('Department:', department);
+      console.log('Job Title:', jobTitle);
+      console.log('Status:', status);
+      console.log('Hire Date:', hireDate);
+
+      return {
+        name,
+        employeeId,
+        location,
+        department,
+        jobTitle,
+        status,
+        hireDate,
+      };
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error extracting exception employee info:', error);
+      // Return minimal info if extraction fails
+      return {
+        name: 'Unknown Employee',
+        employeeId: 'Unknown',
+        location: 'Not Available',
+        department: 'Not Available',
+        jobTitle: 'Not Available',
+        status: 'Not Available',
+        hireDate: 'Not Available',
+      };
+    }
+  }
+
+  /**
+   * Create zero-hour schedule entries for all days of the week
+   */
+  private createZeroHourScheduleEntries(weekInfo: { start: string; end: string }): ScheduleEntry[] {
+    try {
+      // Convert week start date to determine the dates for each day
+      const [startMonth, startDay, startYear] = weekInfo.start.split('/').map(Number);
+      const startDate = new Date(startYear, startMonth - 1, startDay);
+      
+      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const entries: ScheduleEntry[] = [];
+      
+      // Find Monday of the week (adjust if start date isn't Monday)
+      const dayOfWeek = startDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Adjust to get to Monday
+      const mondayDate = new Date(startDate.getTime() + (daysToMonday * 24 * 60 * 60 * 1000));
+      
+      // Create entries for each day of the week
+      for (let i = 0; i < 7; i++) {
+        const currentDate = new Date(mondayDate.getTime() + (i * 24 * 60 * 60 * 1000));
+        const dateString = `${currentDate.getMonth() + 1}/${currentDate.getDate()}/${currentDate.getFullYear()}`;
+        
+        entries.push({
+          day: dayNames[i],
+          date: dateString,
+          shifts: [], // No shifts scheduled
+          dailyHours: 0,
+        });
+      }
+      
+      console.log('✅ [SCHEDULE] Created zero-hour entries for week:', weekInfo.start, '-', weekInfo.end);
+      return entries;
+    } catch (error) {
+      console.error('❌ [SCHEDULE] Error creating zero-hour entries:', error);
+      
+      // Fallback: create basic entries without calculating dates
+      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return dayNames.map(day => ({
+        day,
+        date: 'Not Available',
+        shifts: [],
+        dailyHours: 0,
+      }));
+    }
+  }
+
+  /**
    * Parse corporate BI HTML schedule format
    */
-  public parseScheduleHTML(html: string): WeeklySchedule | null {
+  public async parseScheduleHTML(html: string): Promise<WeeklySchedule | null> {
     try {
       console.log('📄 [SCHEDULE] Starting HTML parsing, content length:', html.length);
+      
+      // First check if this is a payroll error/exception schedule
+      if (this.detectPayrollErrorSchedule(html)) {
+        console.log('⚠️ [SCHEDULE] Detected payroll error schedule, parsing as exception...');
+        return await this.parseExceptionSchedule(html);
+      }
+      
+      // Continue with normal schedule parsing
+      console.log('📄 [SCHEDULE] Normal schedule detected, proceeding with standard parsing...');
       
       // Extract employee information
       const employee = this.extractEmployeeInfo(html);
@@ -1525,7 +1794,7 @@ export class ScheduleService {
       console.log('📄 [SCHEDULE] HTML content received, length:', html.length);
       
       // Parse the HTML to extract schedule data
-      const schedule = this.parseScheduleHTML(html);
+      const schedule = await this.parseScheduleHTML(html);
       
       if (schedule) {
         console.log('✅ [SCHEDULE] Schedule parsed successfully for week:', schedule.weekStart, '-', schedule.weekEnd);

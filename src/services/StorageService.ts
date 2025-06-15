@@ -32,6 +32,8 @@ interface WeeklyScheduleRow {
   straightTimeEarnings: number;
   /** Legal disclaimer text from corporate schedule reports */
   disclaimerText?: string;
+  /** Flag indicating this is an exception schedule (stored as INTEGER: 1 = true, 0 = false) */
+  isException?: number;
 }
 
 /**
@@ -161,6 +163,19 @@ class StorageService {
           console.log('ℹ️ [DATABASE] disclaimerText column already exists - migration not needed');
         } else {
           console.log('ℹ️ [DATABASE] Column migration skipped (expected for new installations)');
+        }
+      }
+
+      // Migration for isException column
+      try {
+        await this.db.execAsync('ALTER TABLE weekly_schedules ADD COLUMN isException INTEGER DEFAULT 0;');
+        console.log('✅ [DATABASE MIGRATION] Added isException column to weekly_schedules');
+      } catch (migrationError) {
+        // Column addition failure is expected for existing databases
+        if (migrationError && migrationError.toString().includes('duplicate column name')) {
+          console.log('ℹ️ [DATABASE] isException column already exists - migration not needed');
+        } else {
+          console.log('ℹ️ [DATABASE] isException column migration skipped (expected for new installations)');
         }
       }
       
@@ -381,8 +396,8 @@ class StorageService {
           `INSERT INTO weekly_schedules (
             id, employeeId, weekStart, weekEnd, dataAsOf, 
             employeeName, location, department, jobTitle, status, hireDate,
-            totalHours, straightTimeEarnings, scheduleData, disclaimerText, syncedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            totalHours, straightTimeEarnings, scheduleData, disclaimerText, isException, syncedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             scheduleId,
             schedule.employee.employeeId,
@@ -399,6 +414,7 @@ class StorageService {
             schedule.straightTimeEarnings,
             JSON.stringify(schedule.entries), // Store the detailed schedule entries as JSON
             schedule.disclaimerText || null,
+            schedule.isException ? 1 : 0, // Store boolean as integer (SQLite doesn't have boolean type)
             Date.now(),
           ],
         );
@@ -453,6 +469,7 @@ class StorageService {
         totalHours: result.totalHours,
         straightTimeEarnings: result.straightTimeEarnings,
         disclaimerText: result.disclaimerText || undefined,
+        isException: result.isException === 1, // Convert SQLite INTEGER back to boolean
       };
 
       return schedule;
@@ -510,6 +527,7 @@ class StorageService {
         totalHours: result.totalHours,
         straightTimeEarnings: result.straightTimeEarnings,
         disclaimerText: result.disclaimerText || undefined,
+        isException: result.isException === 1, // Convert SQLite INTEGER back to boolean
       }));
     } catch (error) {
       console.error('Failed to get all weekly schedules:', error);
@@ -763,6 +781,8 @@ class StorageService {
         entries: JSON.parse(result.scheduleData),
         totalHours: result.totalHours,
         straightTimeEarnings: result.straightTimeEarnings,
+        disclaimerText: result.disclaimerText || undefined,
+        isException: result.isException === 1, // Convert SQLite INTEGER back to boolean
       };
     } catch (error) {
       console.error('Failed to get most recent schedule:', error);

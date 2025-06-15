@@ -14,28 +14,65 @@ export const mockEmployeeInfo: EmployeeInfo = {
   hireDate: '2023-01-01',
 };
 
+// Mock exception employee info (for payroll error schedules)
+export const mockExceptionEmployeeInfo: EmployeeInfo = {
+  name: 'Unknown Employee',
+  employeeId: 'Unknown',
+  location: 'Not Available',
+  department: 'Not Available',
+  jobTitle: 'Not Available',
+  status: 'Not Available',
+  hireDate: 'Not Available',
+};
+
 export const mockScheduleShift: ScheduleShift = {
-  startTime: '9:00a',
-  endTime: '5:00p',
-  shiftHours: 8.0,
-  changedOn: undefined,
+  startTime: '8:00 AM',
+  endTime: '5:00 PM',
+  shiftHours: 8,
 };
 
 export const mockScheduleEntry: ScheduleEntry = {
   day: 'Monday',
-  date: '6/2/2025',
+  date: '2023-06-05',
   shifts: [mockScheduleShift],
-  dailyHours: 8.0,
+  dailyHours: 8,
+};
+
+// Mock exception schedule entry (zero hours)
+export const mockExceptionScheduleEntry: ScheduleEntry = {
+  day: 'Monday',
+  date: '2023-06-05',
+  shifts: [],
+  dailyHours: 0,
 };
 
 export const mockWeeklySchedule: WeeklySchedule = {
-  weekStart: '6/2/2025',
-  weekEnd: '6/8/2025',
-  dataAsOf: '5/29/2025 7:24:02 AM',
+  weekStart: '2023-06-05',
+  weekEnd: '2023-06-11',
+  dataAsOf: '2023-06-01 9:00 AM',
   employee: mockEmployeeInfo,
   entries: [mockScheduleEntry],
-  totalHours: 40.0,
-  straightTimeEarnings: 640.0, // 40 hours * $16/hour example
+  totalHours: 40,
+  straightTimeEarnings: 800,
+  disclaimerText: 'This is a test schedule',
+};
+
+// Mock exception weekly schedule (payroll error)
+export const mockExceptionWeeklySchedule: WeeklySchedule = {
+  weekStart: '2023-06-05',
+  weekEnd: '2023-06-11',
+  dataAsOf: '2023-06-01 9:00 AM',
+  employee: mockExceptionEmployeeInfo,
+  entries: Array.from({ length: 7 }, (_, i) => ({
+    day: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][i],
+    date: `2023-06-${String(5 + i).padStart(2, '0')}`,
+    shifts: [],
+    dailyHours: 0,
+  })),
+  totalHours: 0,
+  straightTimeEarnings: 0,
+  disclaimerText: 'Your schedule is not available at this time. Please contact your payroll clerk for assistance.',
+  isException: true,
 };
 
 // Custom render function with providers

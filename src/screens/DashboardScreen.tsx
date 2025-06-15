@@ -25,6 +25,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [availableWeeks, setAvailableWeeks] = useState<WeeklySchedule[]>([]);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
+  const [hasShownExceptionAlert, setHasShownExceptionAlert] = useState(false);
 
   const scheduleService = ScheduleService.getInstance();
   const authService = AuthService.getInstance();
@@ -100,9 +101,38 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
   useEffect(() => {
     if (availableWeeks.length > 0) {
-      setSchedule(availableWeeks[currentWeekIndex % availableWeeks.length]);
+      const newSchedule = availableWeeks[currentWeekIndex % availableWeeks.length];
+      console.log('📅 [SCHEDULE-LOAD] Loading schedule:', newSchedule.weekStart, '-', newSchedule.weekEnd);
+      console.log('🔍 [SCHEDULE-LOAD] Is exception schedule?', newSchedule.isException);
+      console.log('🔍 [SCHEDULE-LOAD] Total hours:', newSchedule.totalHours);
+      setSchedule(newSchedule);
+      
+      // Reset alert flag when changing schedules
+      setHasShownExceptionAlert(false);
     }
   }, [currentWeekIndex, availableWeeks]);
+
+  // Show popup alert for exception schedules
+  useEffect(() => {
+    if (schedule && schedule.isException && !hasShownExceptionAlert) {
+      console.log('🚨 [POPUP] Showing exception schedule alert for:', schedule.weekStart, '-', schedule.weekEnd);
+      setHasShownExceptionAlert(true);
+      
+      Alert.alert(
+        '🚨 SCHEDULE NOTICE',
+        schedule.disclaimerText || 'Your schedule is not available at this time. Please contact your payroll clerk for assistance.',
+        [
+          {
+            text: 'OK, I UNDERSTAND',
+            style: 'default',
+          },
+        ],
+        { 
+          cancelable: false, // Ensure user must acknowledge
+        },
+      );
+    }
+  }, [schedule, hasShownExceptionAlert]);
 
   useEffect(() => {
     if (schedule === null && !loading) {
@@ -303,6 +333,7 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
       const newIndex = weekIndex % availableWeeks.length;
       setCurrentWeekIndex(newIndex);
       setSchedule(availableWeeks[newIndex]);
+      setHasShownExceptionAlert(false); // Reset alert flag when manually switching
       console.log('DashboardScreen: Switched to week', newIndex + 1, 'of', availableWeeks.length);
     }
   };
@@ -585,6 +616,18 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
                   Data Synced: {schedule.dataAsOf}
                 </Text>
               </View>
+
+              {/* Exception Schedule Warning */}
+              {schedule.isException && (
+                <View style={styles.exceptionWarning}>
+                  <Text style={styles.exceptionWarningText}>
+                    🚨 SCHEDULE NOTICE
+                  </Text>
+                  <Text style={styles.exceptionWarningDetailText}>
+                    {schedule.disclaimerText}
+                  </Text>
+                </View>
+              )}
               
               {showEmployeeDetails && (
                 <View style={styles.employeeDetails}>
@@ -596,6 +639,11 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
                   <Text style={styles.detailText}>Hire Date: {schedule.employee.hireDate}</Text>
                   <Text style={styles.detailText}>Week: {schedule.weekStart} - {schedule.weekEnd}</Text>
                   <Text style={styles.detailText}>Total Hours: {schedule.totalHours}</Text>
+                  {schedule.isException && (
+                    <Text style={styles.exceptionDetailText}>
+                      ⚠️ This is an exception schedule. Employee data may be incomplete.
+                    </Text>
+                  )}
                 </View>
               )}
             </View>
@@ -648,8 +696,10 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
 
             {/* Schedule Disclaimer Text */}
             {schedule.disclaimerText && (
-              <View style={styles.disclaimerContainer}>
-                <Text style={styles.disclaimerText}>{schedule.disclaimerText}</Text>
+              <View style={schedule.isException ? styles.exceptionDisclaimerContainer : styles.disclaimerContainer}>
+                <Text style={schedule.isException ? styles.exceptionDisclaimerText : styles.disclaimerText}>
+                  {schedule.disclaimerText}
+                </Text>
               </View>
             )}
 
@@ -949,6 +999,23 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontStyle: 'italic',
   },
+  exceptionDisclaimerContainer: {
+    backgroundColor: '#FFEBEE', // Light red background
+    borderRadius: 8,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F44336', // Red border
+    borderWidth: 1,
+    borderColor: '#FFCDD2', // Light red border
+  },
+  exceptionDisclaimerText: {
+    ...TYPOGRAPHY.body, // Use body instead of caption for more prominence
+    color: '#D32F2F', // Dark red text
+    lineHeight: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
   scheduleSummary: {
     backgroundColor: COLORS.white,
     borderRadius: 8,
@@ -1041,5 +1108,32 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontStyle: 'italic',
     marginLeft: 35 + SPACING.xs,
+  },
+  exceptionWarning: {
+    backgroundColor: '#F44336', // Bright red background
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#D32F2F',
+  },
+  exceptionWarningText: {
+    ...TYPOGRAPHY.h4, // Larger text for more prominence
+    color: COLORS.white,
+    fontWeight: 'bold',
+    marginBottom: SPACING.xs,
+  },
+  exceptionWarningDetailText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.white,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  exceptionDetailText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
   },
 }); 
